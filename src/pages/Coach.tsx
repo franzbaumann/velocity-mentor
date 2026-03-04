@@ -1,6 +1,7 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useState } from "react";
 import { Send } from "lucide-react";
+import { CoachQuestionnaire } from "@/components/CoachQuestionnaire";
 
 const quickPrompts = [
   "How am I recovering this week?",
@@ -13,6 +14,30 @@ const quickPrompts = [
 export default function Coach() {
   const [message, setMessage] = useState("");
   const [showChips, setShowChips] = useState(true);
+  const [onboarded, setOnboarded] = useState(() => {
+    return localStorage.getItem("paceiq_onboarded") === "true";
+  });
+  const [answers, setAnswers] = useState<Record<string, string | string[]> | null>(null);
+
+  const handleQuestionnaireComplete = (data: Record<string, string | string[]>) => {
+    setAnswers(data);
+    setOnboarded(true);
+    localStorage.setItem("paceiq_onboarded", "true");
+    localStorage.setItem("paceiq_intake", JSON.stringify(data));
+  };
+
+  if (!onboarded) {
+    return (
+      <AppLayout>
+        <div className="animate-fade-in flex flex-col h-[calc(100vh-6rem)]">
+          <h1 className="text-2xl font-semibold text-foreground mb-4">AI Coach</h1>
+          <div className="flex-1 glass-card rounded-2xl flex flex-col overflow-hidden">
+            <CoachQuestionnaire onComplete={handleQuestionnaireComplete} />
+          </div>
+        </div>
+      </AppLayout>
+    );
+  }
 
   return (
     <AppLayout>
@@ -29,9 +54,8 @@ export default function Coach() {
                 <span className="text-xs font-semibold text-primary">P</span>
               </div>
               <div className="glass-card p-4 text-sm text-foreground leading-relaxed">
-                Hey Marcus. I've reviewed your data this morning. Your HRV is 11% below your 7-day
-                baseline — not alarming, but worth monitoring. Today's easy run at 5:10–5:30/km pace
-                is the right call. Keep it truly easy and prioritize sleep tonight.
+                Great — I've got everything I need. Based on your answers, I'm building a personalized
+                training plan. Ask me anything below, or use the quick prompts to get started.
               </div>
             </div>
           </div>
