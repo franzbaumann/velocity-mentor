@@ -1,13 +1,55 @@
 import { AppLayout } from "@/components/AppLayout";
-import { Settings as SettingsIcon } from "lucide-react";
+import { useIntervalsId } from "@/hooks/useIntervalsId";
+import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Check } from "lucide-react";
 
 export default function SettingsPage() {
+  const { athleteId, saveAthleteId } = useIntervalsId();
+  const [draft, setDraft] = useState(athleteId);
+  const [saved, setSaved] = useState(false);
+
+  const handleSave = () => {
+    saveAthleteId(draft);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-6">
         <h1 className="text-2xl font-semibold text-foreground">Settings</h1>
 
         <div className="space-y-4">
+          {/* intervals.icu */}
+          <div className="glass-card p-5">
+            <p className="section-header">intervals.icu</p>
+            <p className="text-sm text-muted-foreground mb-3">
+              Paste your Athlete ID from{" "}
+              <a
+                href="https://intervals.icu/settings"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-primary underline"
+              >
+                intervals.icu → Settings
+              </a>{" "}
+              to see fitness charts on the Stats page.
+            </p>
+            <div className="flex gap-2">
+              <Input
+                placeholder="e.g. i12345"
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                className="max-w-xs bg-secondary/50"
+              />
+              <Button onClick={handleSave} size="sm" className="rounded-full px-5">
+                {saved ? <><Check className="w-4 h-4 mr-1" /> Saved</> : "Save"}
+              </Button>
+            </div>
+          </div>
+
           {/* Connected Accounts */}
           <div className="glass-card p-5">
             <p className="section-header">Connected Accounts</p>
