@@ -1,19 +1,25 @@
 import { AppLayout } from "@/components/AppLayout";
-import { useIntervalsId } from "@/hooks/useIntervalsId";
+import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Check } from "lucide-react";
+import { Check, Unlink } from "lucide-react";
 
 export default function SettingsPage() {
-  const { athleteId, saveAthleteId } = useIntervalsId();
-  const [draft, setDraft] = useState(athleteId);
-  const [saved, setSaved] = useState(false);
+  const { integration, isConnected, save, isSaving, disconnect } = useIntervalsIntegration();
+  const [athleteId, setAthleteId] = useState(integration?.athlete_id ?? "");
+  const [apiKey, setApiKey] = useState(integration?.api_key ?? "");
+
+  // Sync when integration loads
+  const [synced, setSynced] = useState(false);
+  if (integration && !synced) {
+    setAthleteId(integration.athlete_id);
+    setApiKey(integration.api_key);
+    setSynced(true);
+  }
 
   const handleSave = () => {
-    saveAthleteId(draft);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    save({ athleteId: athleteId.trim(), apiKey: apiKey.trim() });
   };
 
   return (
@@ -26,27 +32,46 @@ export default function SettingsPage() {
           <div className="glass-card p-5">
             <p className="section-header">intervals.icu</p>
             <p className="text-sm text-muted-foreground mb-3">
-              Paste your Athlete ID from{" "}
-              <a
-                href="https://intervals.icu/settings"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-primary underline"
-              >
-                intervals.icu → Settings
+              Connect your{" "}
+              <a href="https://intervals.icu/settings" target="_blank" rel="noopener noreferrer" className="text-primary underline">
+                intervals.icu
               </a>{" "}
-              to see fitness charts on the Stats page.
+              account to see fitness charts on the Stats page. Find your Athlete ID and generate an API key under Settings → API.
             </p>
-            <div className="flex gap-2">
+            <div className="space-y-2 mb-3">
               <Input
-                placeholder="e.g. i12345"
-                value={draft}
-                onChange={(e) => setDraft(e.target.value)}
+                placeholder="Athlete ID (e.g. i123456)"
+                value={athleteId}
+                onChange={(e) => setAthleteId(e.target.value)}
                 className="max-w-xs bg-secondary/50"
               />
-              <Button onClick={handleSave} size="sm" className="rounded-full px-5">
-                {saved ? <><Check className="w-4 h-4 mr-1" /> Saved</> : "Save"}
+              <Input
+                placeholder="API Key"
+                type="password"
+                value={apiKey}
+                onChange={(e) => setApiKey(e.target.value)}
+                className="max-w-xs bg-secondary/50"
+              />
+            </div>
+            <div className="flex gap-2">
+              <Button
+                onClick={handleSave}
+                size="sm"
+                className="rounded-full px-5"
+                disabled={isSaving || !athleteId.trim() || !apiKey.trim()}
+              >
+                {isSaving ? "Saving…" : <><Check className="w-4 h-4 mr-1" /> Save</>}
               </Button>
+              {isConnected && (
+                <Button
+                  onClick={() => disconnect()}
+                  size="sm"
+                  variant="outline"
+                  className="rounded-full px-5"
+                >
+                  <Unlink className="w-4 h-4 mr-1" /> Disconnect
+                </Button>
+              )}
             </div>
           </div>
 
@@ -64,9 +89,7 @@ export default function SettingsPage() {
                     <p className="text-xs text-muted-foreground">Not connected</p>
                   </div>
                 </div>
-                <button className="pill-button bg-primary text-primary-foreground text-xs">
-                  Connect
-                </button>
+                <button className="pill-button bg-primary text-primary-foreground text-xs">Connect</button>
               </div>
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -78,9 +101,7 @@ export default function SettingsPage() {
                     <p className="text-xs text-muted-foreground">Not connected</p>
                   </div>
                 </div>
-                <button className="pill-button bg-primary text-primary-foreground text-xs">
-                  Connect
-                </button>
+                <button className="pill-button bg-primary text-primary-foreground text-xs">Connect</button>
               </div>
             </div>
           </div>
