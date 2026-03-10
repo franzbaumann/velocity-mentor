@@ -565,9 +565,12 @@ export default function SettingsPage() {
                 </div>
                 {showIntervalsForm && !isConnected && (
                   <div className="pl-11 space-y-2 pt-2 border-l-2 border-border ml-4">
-                    <p className="text-xs text-muted-foreground">API key from intervals.icu → Settings → API (Athlete ID optional, used for display)</p>
+                    <p className="text-xs text-muted-foreground">
+                      API key from intervals.icu → Settings → API. Athlete ID is optional, numeric
+                      only, and used for display – leave empty if unsure.
+                    </p>
                     <Input
-                      placeholder="Athlete ID (e.g. i123456)"
+                      placeholder="Athlete ID (e.g. 123456, optional)"
                       value={athleteId}
                       onChange={(e) => setAthleteId(e.target.value)}
                       className="max-w-xs bg-secondary/50"

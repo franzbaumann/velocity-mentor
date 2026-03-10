@@ -31,10 +31,12 @@ export function useIntervalsIntegration() {
     mutationFn: async ({ athleteId, apiKey }: { athleteId: string; apiKey: string }) => {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Not authenticated");
+      const cleanAthlete = athleteId.trim();
+      const safeAthlete = cleanAthlete || "0";
       const { error } = await (supabase as any)
         .from("integrations")
         .upsert(
-          { user_id: user.id, provider: "intervals_icu", athlete_id: athleteId, api_key: apiKey },
+          { user_id: user.id, provider: "intervals_icu", athlete_id: safeAthlete, api_key: apiKey },
           { onConflict: "user_id,provider" }
         );
       if (error) throw error;

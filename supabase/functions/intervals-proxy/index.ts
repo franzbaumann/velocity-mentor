@@ -14,7 +14,7 @@ const ACTIVITIES_FIELDS =
   "icu_hr_zone_times,icu_pace_zone_times,trimp,perceived_exertion," +
   "athlete_max_hr,workout_type,description";
 
-const START_YEAR = 2020;
+const START_YEAR = 2015;
 const STREAM_BATCH_SIZE = 5;
 
 function todayStr(): string {
@@ -93,8 +93,35 @@ Deno.serve(async (req: Request) => {
       return jsonErr("intervals.icu not connected", 404);
     }
 
-    const athleteId = String(integration.athlete_id ?? "0").trim() || "0";
+    const rawAthleteId = (integration.athlete_id ?? "").toString().trim();
     const headers = { Authorization: buildAuth(integration.api_key) };
+
+    // Auto-resolve athlete ID from the API key by calling the profile endpoint.
+    // intervals.icu athlete IDs can be alphanumeric (e.g. "i12345", "p12345").
+    // We accept whatever the user entered; if empty/invalid we discover it.
+    let athleteId = rawAthleteId;
+    if (!athleteId || athleteId === "0") {
+      try {
+        const profileRes = await fetch("https://intervals.icu/api/v1/athlete/0", { headers });
+        if (profileRes.ok) {
+          const profile = await profileRes.json() as Record<string, unknown>;
+          if (profile.id) {
+            athleteId = String(profile.id);
+            console.log(`intervals-proxy: auto-resolved athlete ID → ${athleteId}`);
+          }
+        } else {
+          console.error(`intervals-proxy: athlete/0 returned ${profileRes.status}`);
+        }
+      } catch (e) {
+        console.error("intervals-proxy: failed to auto-resolve athlete ID:", e);
+      }
+    }
+    if (!athleteId || athleteId === "0") {
+      return jsonErr("Kunde inte hitta ditt athlete ID. Ange det i fältet Athlete ID (t.ex. i401784) – hittar du under intervals.icu → Settings.", 400);
+    }
+    // API path expects numeric id (e.g. 401784). UI shows "i401784" – strip leading letter.
+    const athleteIdForPath = athleteId.replace(/^[ip]/i, "") || athleteId;
+    console.log(`intervals-proxy: using athlete ID ${athleteId} → path ${athleteIdForPath}`);
 
     let body: Record<string, unknown> = {};
     try {
@@ -156,7 +183,7 @@ Deno.serve(async (req: Request) => {
 
     // ─── ACTION: athlete profile ───
     if (action === "athlete") {
-      const url = `https://intervals.icu/api/v1/athlete/${athleteId}`;
+      const url = `https://intervals.icu/api/v1/athlete/${athleteIdForPath}`;
       const res = await fetch(url, { headers });
       if (!res.ok) {
         const t = await res.text();
@@ -170,7 +197,7 @@ Deno.serve(async (req: Request) => {
     if (action === "wellness") {
       const oldest = String(body.oldest ?? "2020-01-01");
       const newest = String(body.newest ?? todayStr());
-      const url = `https://intervals.icu/api/v1/athlete/${athleteId}/wellness?oldest=${oldest}&newest=${newest}`;
+      const url = `https://intervals.icu/api/v1/athlete/${athleteIdForPath}/wellness?oldest=${oldest}&newest=${newest}`;
       const res = await fetch(url, { headers });
       if (!res.ok) {
         const t = await res.text();
@@ -190,21 +217,49 @@ Deno.serve(async (req: Request) => {
       for (let year = START_YEAR; year <= currentYear; year++) {
         const oldest = `${year}-01-01`;
         const newest = year === currentYear ? todayStr() : `${year}-12-31`;
-        const url = `https://intervals.icu/api/v1/athlete/${athleteId}/activities?oldest=${oldest}&newest=${newest}&fields=${ACTIVITIES_FIELDS}`;
+        const url = `https://intervals.icu/api/v1/athlete/${athleteIdForPath}/activities?oldest=${oldest}&newest=${newest}&fields=${ACTIVITIES_FIELDS}`;
 
         try {
           const res = await fetch(url, { headers });
           if (!res.ok) {
             const t = await res.text();
             console.error(`${year} activities error:`, res.status, t);
-            log.push(`${year}: ERROR ${res.status}`);
-            if (res.status === 401 || res.status === 403) {
-              return jsonOk({ error: `Auth failed for ${year}: ${t}`, log });
+            log.push(`${year}: ERROR ${res.status} — ${t.slice(0, 120)}`);
+            if (res.status === 401) {
+              return jsonOk({ error: `Auth failed: ${t}`, log });
+            }
+            if (res.status === 403) {
+              log.push(
+                `${year}: Access denied (403). Skipping this year, continuing with later years. If you want these older workouts too, check your intervals.icu API key permissions or plan.`,
+              );
             }
             continue;
           }
-          const data = await res.json();
-          const arr = Array.isArray(data) ? data : [];
+          const rawText = await res.text();
+          const contentType = res.headers.get("content-type") ?? "";
+          if (year === currentYear) {
+            log.push(`Response sample: type=${contentType.slice(0, 30)} len=${rawText.length} start=${rawText.slice(0, 200)}`);
+          }
+          let data: unknown;
+          try {
+            data = JSON.parse(rawText);
+          } catch {
+            log.push(`${year}: Response is not JSON — ${rawText.slice(0, 150)}`);
+            continue;
+          }
+          let arr: unknown[] = [];
+          if (Array.isArray(data)) {
+            arr = data;
+          } else if (data && typeof data === "object") {
+            const obj = data as Record<string, unknown>;
+            if (obj.activities && Array.isArray(obj.activities)) {
+              arr = obj.activities as unknown[];
+            } else {
+              arr = Object.entries(obj).map(([id, v]) =>
+                v && typeof v === "object" ? { ...(v as Record<string, unknown>), id } : v,
+              );
+            }
+          }
 
           // Log every type for debugging
           const typeCounts: Record<string, number> = {};
@@ -238,9 +293,9 @@ Deno.serve(async (req: Request) => {
       // 2. Upsert activities to DB
       let upsertedCount = 0;
       for (const run of allRuns) {
-        const externalId = String(run.id ?? "");
+        const externalId = String(run.id ?? (run as Record<string, unknown>)._id ?? "").trim();
         if (!externalId) continue;
-        const dateRaw = run.start_date_local ?? run.startDate ?? run.date;
+        const dateRaw = run.start_date_local ?? run.startDate ?? run.date ?? (run as Record<string, unknown>).startDateLocal;
         const d = new Date(String(dateRaw ?? ""));
         const date = isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
         if (!date) continue;
@@ -416,7 +471,7 @@ Deno.serve(async (req: Request) => {
       // 4. Fetch wellness
       let wellnessDays = 0;
       try {
-        const wUrl = `https://intervals.icu/api/v1/athlete/${athleteId}/wellness?oldest=${START_YEAR}-01-01&newest=${todayStr()}`;
+        const wUrl = `https://intervals.icu/api/v1/athlete/${athleteIdForPath}/wellness?oldest=${START_YEAR}-01-01&newest=${todayStr()}`;
         const wRes = await fetch(wUrl, { headers });
         if (wRes.ok) {
           const wData = await wRes.json();
@@ -450,7 +505,7 @@ Deno.serve(async (req: Request) => {
 
       // 5. Fetch athlete profile
       try {
-        const aUrl = `https://intervals.icu/api/v1/athlete/${athleteId}`;
+        const aUrl = `https://intervals.icu/api/v1/athlete/${athleteIdForPath}`;
         const aRes = await fetch(aUrl, { headers });
         if (aRes.ok) {
           const ap = await aRes.json() as Record<string, unknown>;
@@ -502,7 +557,7 @@ Deno.serve(async (req: Request) => {
       for (let year = startY; year <= endY; year++) {
         const yo = year === startY ? oldest : `${year}-01-01`;
         const yn = year === endY ? newest : `${year}-12-31`;
-        const url = `https://intervals.icu/api/v1/athlete/${athleteId}/activities?oldest=${yo}&newest=${yn}&fields=${ACTIVITIES_FIELDS}`;
+        const url = `https://intervals.icu/api/v1/athlete/${athleteIdForPath}/activities?oldest=${yo}&newest=${yn}&fields=${ACTIVITIES_FIELDS}`;
         try {
           const res = await fetch(url, { headers });
           if (!res.ok) {
@@ -510,7 +565,15 @@ Deno.serve(async (req: Request) => {
             continue;
           }
           const data = await res.json();
-          const arr = Array.isArray(data) ? data : [];
+          let arr: unknown[] = [];
+          if (Array.isArray(data)) {
+            arr = data;
+          } else if (data && typeof data === "object") {
+            const obj = data as Record<string, unknown>;
+            arr = Object.entries(obj).map(([id, v]) =>
+              v && typeof v === "object" ? { ...(v as Record<string, unknown>), id } : v,
+            );
+          }
           const runs = arr.filter((a: Record<string, unknown>) => {
             const t = String(a.type ?? "").toLowerCase();
             return t === "run" || t.includes("run");
@@ -529,7 +592,7 @@ Deno.serve(async (req: Request) => {
     if (body.endpoint === "wellness") {
       const oldest = String(body.oldest ?? `${START_YEAR}-01-01`);
       const newest = String(body.newest ?? todayStr());
-      const url = `https://intervals.icu/api/v1/athlete/${athleteId}/wellness?oldest=${oldest}&newest=${newest}`;
+      const url = `https://intervals.icu/api/v1/athlete/${athleteIdForPath}/wellness?oldest=${oldest}&newest=${newest}`;
       const res = await fetch(url, { headers });
       if (!res.ok) {
         const t = await res.text();
