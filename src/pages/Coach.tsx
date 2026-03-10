@@ -1,17 +1,20 @@
 import { AppLayout } from "@/components/AppLayout";
-import { useState, useRef, useEffect, useCallback } from "react";
+import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
 import { Send, Loader2, Upload } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ReactMarkdown from "react-markdown";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { GarminImportBlock } from "@/components/GarminImportBlock";
+import { OnboardingFlow } from "@/components/OnboardingFlow";
 import type { Components } from "react-markdown";
 import { toast } from "sonner";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useActivities } from "@/hooks/useActivities";
 import { useReadiness } from "@/hooks/useReadiness";
-import { format } from "date-fns";
+import { useAthleteProfile } from "@/hooks/useAthleteProfile";
+import { useTrainingPlan } from "@/hooks/use-training-plan";
+import { format, addDays, isToday } from "date-fns";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -242,10 +245,14 @@ export default function Coach() {
   const [rateLimitUntil, setRateLimitUntil] = useState<number>(0);
   const [importSheetOpen, setImportSheetOpen] = useState(false);
   const [generatingPlan, setGeneratingPlan] = useState(false);
+  const [onboardingAnswers, setOnboardingAnswers] = useState<Record<string, unknown>>({});
+  const [onboardingPhase, setOnboardingPhase] = useState<"active" | "done">("active");
   const [intakeAnswers] = useState<Record<string, string | string[]> | null>(() => {
     try { return JSON.parse(localStorage.getItem("paceiq_intake") || "null"); } catch { return null; }
   });
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  const { onboardingComplete, update: updateProfile } = useAthleteProfile();
 
   useEffect(() => {
     if (searchParams.get("import") === "1") {
@@ -254,11 +261,57 @@ export default function Coach() {
     }
   }, [searchParams, setSearchParams]);
 
-  const showGeneratePlan = messages.some((m) => m.role === "assistant" && assistantSaysHasAllData(m.content));
-
   const { isConnected } = useIntervalsIntegration();
   const { data: activitiesData } = useActivities(730);
   const { data: wellnessData } = useReadiness(730);
+  const { data: planData } = useTrainingPlan();
+  const workoutContext = searchParams.get("context");
+
+  useEffect(() => {
+    if (workoutContext && !message && messages.length === 0) {
+      setMessage(`Tell me about this workout: ${decodeURIComponent(workoutContext)}`);
+    }
+  }, [workoutContext, message, messages.length]);
+
+  const contextAwareOpener = useMemo(() => {
+    if (workoutContext) {
+      return `You're asking about this workout — ${decodeURIComponent(workoutContext)}. What would you like to know?`;
+    }
+    const activities = Array.isArray(activitiesData) ? activitiesData : [];
+    const runs = activities.filter((a) => (a.distance_km ?? 0) > 0 && (a.type?.toLowerCase().includes("run") || !a.type));
+    const lastRun = runs[runs.length - 1];
+    const today = new Date();
+    const yesterday = addDays(today, -1);
+    if (lastRun?.date) {
+      const d = new Date(lastRun.date);
+      if (isToday(d) || (d.getTime() === yesterday.getTime())) {
+        const when = isToday(d) ? "today" : "yesterday";
+        const km = lastRun.distance_km ? `${Math.round(lastRun.distance_km * 10) / 10}km` : "a run";
+        return `I see you ran ${km} ${when}. How did it feel?`;
+      }
+    }
+    const weeks = planData?.weeks ?? [];
+    const tomorrow = addDays(today, 1);
+    const tomorrowStr = format(tomorrow, "yyyy-MM-dd");
+    for (const w of weeks) {
+      const sessions = w.sessions ?? [];
+      for (const s of sessions) {
+        const sd = s.scheduled_date ? String(s.scheduled_date).slice(0, 10) : "";
+        if (sd === tomorrowStr) {
+          return `You've got ${s.description ?? "a workout"} tomorrow. Ready for it?`;
+        }
+      }
+    }
+    const readiness = Array.isArray(wellnessData) ? wellnessData : [];
+    const latest = readiness[readiness.length - 1];
+    if (latest?.hrv != null && latest?.hrv_baseline != null && latest.hrv < latest.hrv_baseline * 0.9) {
+      return `Your HRV has been a bit low lately. How are you feeling?`;
+    }
+    return `Here's your week. What's on your mind?`;
+  }, [workoutContext, activitiesData, planData, wellnessData]);
+
+  const showGeneratePlan = messages.some((m) => m.role === "assistant" && assistantSaysHasAllData(m.content));
+
   const intervalsContext = isConnected
     ? { wellness: Array.isArray(wellnessData) ? wellnessData : undefined, activities: Array.isArray(activitiesData) ? activitiesData : undefined }
     : null;
@@ -342,6 +395,25 @@ export default function Coach() {
     toast.success("Started a fresh conversation.");
   };
 
+  const handleOnboardingComplete = useCallback(
+    (
+      finalAnswers: Record<string, unknown>,
+      planResult?: { plan_id: string },
+      action?: "view_plan" | "chat"
+    ) => {
+      setOnboardingAnswers(finalAnswers);
+      updateProfile({ onboarding_complete: true, onboarding_answers: finalAnswers });
+      setOnboardingPhase("done");
+      if (action === "view_plan" && planResult?.plan_id) {
+        toast.success("Your plan is ready!");
+        window.location.href = "/plan";
+      } else {
+        toast.success("Welcome! Chat with Kipcoachee whenever you're ready.");
+      }
+    },
+    [updateProfile]
+  );
+
   const handleGeneratePlan = useCallback(async () => {
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token ?? null;
@@ -377,6 +449,19 @@ export default function Coach() {
       setGeneratingPlan(false);
     }
   }, [intakeAnswers, messages]);
+
+  const showOnboarding = !onboardingComplete && onboardingPhase !== "done";
+
+  if (showOnboarding) {
+    return (
+      <OnboardingFlow
+        answers={onboardingAnswers as import("@/hooks/useAthleteProfile").OnboardingAnswers}
+        onAnswersChange={(a) => setOnboardingAnswers(a)}
+        onStepComplete={() => {}}
+        onComplete={handleOnboardingComplete}
+      />
+    );
+  }
 
   return (
     <AppLayout>
@@ -423,7 +508,7 @@ export default function Coach() {
                   <span className="text-xs font-semibold text-primary">K</span>
                 </div>
                 <div className="glass-card p-4 text-sm text-foreground leading-relaxed">
-                  <ReactMarkdown components={markdownComponents}>{KIPCOACH_WELCOME}</ReactMarkdown>
+                  <ReactMarkdown components={markdownComponents}>{contextAwareOpener}</ReactMarkdown>
                 </div>
               </div>
             )}

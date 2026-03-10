@@ -6,7 +6,7 @@ import { useGreeting } from "@/hooks/useGreeting";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { useGarminImportStatus } from "@/hooks/useGarminImportStatus";
 import { predictRaceTime, formatRaceTime, calculateZonePaces, findBestEffort } from "@/lib/race-prediction";
-import { TrendingDown, Moon, Heart } from "lucide-react";
+import { TrendingDown, Moon, Heart, ChevronRight } from "lucide-react";
 import { formatSleepHours } from "@/lib/format";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
@@ -27,7 +27,8 @@ function RacePredictionCard({ activities, ctl }: { activities: Array<{ distance_
   const paces = calculateZonePaces(predicted, goalKm);
 
   return (
-    <div className="glass-card p-5">
+    <Link to="/stats" className="block h-full">
+    <div className="glass-card p-5 h-full hover:opacity-95 transition-opacity cursor-pointer">
       <div className="flex items-center gap-2 mb-3">
         <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
           <span className="text-sm">🏁</span>
@@ -43,8 +44,12 @@ function RacePredictionCard({ activities, ctl }: { activities: Array<{ distance_
         <p>Threshold: {paces.threshold}</p>
         <p>VO2max: {paces.vo2max}</p>
       </div>
-      <p className="text-[10px] text-muted-foreground mt-3">Based on best effort · CTL {Math.round(ctl)}</p>
+      <p className="text-[10px] text-muted-foreground mt-2">Based on best effort · CTL {Math.round(ctl)}</p>
+      <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
+        View stats <ChevronRight className="w-3.5 h-3.5" />
+      </div>
     </div>
+    </Link>
   );
 }
 
@@ -83,40 +88,46 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* Readiness Card */}
-        <div className="glass-card p-6 relative">
-          {isSampleData && (
-            <span className="absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Sample</span>
-          )}
-          <div className="flex items-center gap-6">
-            <ReadinessRing score={readiness.score} size={96} />
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <h2 className="text-base font-semibold text-foreground">Today's Readiness</h2>
-                <WorkoutBadge type={todaysWorkout.type} />
-              </div>
-              <p className="text-sm text-muted-foreground leading-relaxed">
-                {readiness.aiSummary}
-              </p>
-              <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <Heart className="w-3 h-3" /> HRV {readiness.hrv}ms
-                  <TrendingDown className="w-3 h-3 text-warning" />
-                </span>
-                <span className="flex items-center gap-1">
-                  <Moon className="w-3 h-3" /> {formatSleepHours(readiness.sleepHours)} sleep
-                </span>
-                <span className="mono-text">TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}</span>
+        {/* Readiness Card — clickable to Stats */}
+        <Link to="/stats" className="block">
+          <div className="glass-card p-6 relative hover:opacity-95 transition-opacity cursor-pointer">
+            {isSampleData && (
+              <span className="absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Sample</span>
+            )}
+            <div className="flex items-center gap-6">
+              <ReadinessRing score={readiness.score} size={96} />
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-2 mb-1">
+                  <h2 className="text-base font-semibold text-foreground">Today's Readiness</h2>
+                  <WorkoutBadge type={todaysWorkout.type} />
+                </div>
+                <p className="text-sm text-muted-foreground leading-relaxed">
+                  {readiness.aiSummary}
+                </p>
+                <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <Heart className="w-3 h-3" /> HRV {readiness.hrv}ms
+                    <TrendingDown className="w-3 h-3 text-warning" />
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Moon className="w-3 h-3" /> {formatSleepHours(readiness.sleepHours)} sleep
+                  </span>
+                  <span className="mono-text">TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}</span>
+                </div>
+                <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
+                  View details <ChevronRight className="w-3.5 h-3.5" />
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        </Link>
 
         {/* 3-column grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          {/* Card 1 — This Week */}
-          <div className="glass-card p-5 space-y-4">
-            <p className="section-header">This Week</p>
+          {/* Card 1 — This Week — clickable to Activities */}
+          <Link to="/activities" className="block">
+            <div className="glass-card p-5 space-y-4 hover:opacity-95 transition-opacity cursor-pointer h-full">
+              <p className="section-header">This Week</p>
             <div>
               <div className="flex justify-between text-sm mb-1.5">
                 <span className="text-foreground font-medium">
@@ -148,51 +159,101 @@ export default function Dashboard() {
               <p className="text-xs text-muted-foreground mb-1">Load trend</p>
               <Sparkline data={weekStats.tssData} />
             </div>
-          </div>
+            <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
+              View activities <ChevronRight className="w-3.5 h-3.5" />
+            </div>
+            </div>
+          </Link>
 
-          {/* Card 2 — Last Activity */}
-          <div className="glass-card p-5 space-y-3">
-            <p className="section-header">Last Activity</p>
-            <div className="flex items-baseline justify-between">
-              <h3 className="text-sm font-medium text-foreground">{lastActivity.type}</h3>
-              <span className="text-xs text-muted-foreground">{lastActivity.date}</span>
+          {/* Card 2 — Last Activity — clickable to Activity Detail */}
+          {lastActivity.detailId ? (
+            <Link to={`/activities/${lastActivity.detailId}`} className="block">
+              <div className="glass-card p-5 space-y-3 hover:opacity-95 transition-opacity cursor-pointer h-full">
+                <p className="section-header">Last Activity</p>
+                <div className="flex items-baseline justify-between">
+                  <h3 className="text-sm font-medium text-foreground">{lastActivity.type}</h3>
+                  <span className="text-xs text-muted-foreground">{lastActivity.date}</span>
+                </div>
+                <div className="grid grid-cols-2 gap-3 text-sm">
+                  <div>
+                    <p className="text-muted-foreground text-xs">Distance</p>
+                    <p className="mono-text font-medium text-foreground">{lastActivity.distance} km</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-xs">Avg Pace</p>
+                    <p className="mono-text font-medium text-foreground">{lastActivity.avgPace}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-xs">Avg HR</p>
+                    <p className="mono-text font-medium text-foreground">{Math.round(lastActivity.avgHr)} bpm</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground text-xs">Duration</p>
+                    <p className="mono-text font-medium text-foreground">{lastActivity.duration}</p>
+                  </div>
+                </div>
+                <div>
+                  <p className="text-xs text-muted-foreground mb-1.5">HR Zones</p>
+                  <div className="flex h-3 rounded-full overflow-hidden">
+                    <div className="bg-secondary" style={{ width: `${lastActivity.hrZones.z1}%` }} />
+                    <div className="bg-accent/60" style={{ width: `${lastActivity.hrZones.z2}%` }} />
+                    <div className="bg-primary/60" style={{ width: `${lastActivity.hrZones.z3}%` }} />
+                    <div className="bg-warning/80" style={{ width: `${lastActivity.hrZones.z4}%` }} />
+                    <div className="bg-destructive/70" style={{ width: `${lastActivity.hrZones.z5}%` }} />
+                  </div>
+                  <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                    <span>Z1</span><span>Z2</span><span>Z3</span><span>Z4</span><span>Z5</span>
+                  </div>
+                </div>
+                <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
+                  View activity <ChevronRight className="w-3.5 h-3.5" />
+                </div>
+              </div>
+            </Link>
+          ) : (
+            <div className="glass-card p-5 space-y-3 h-full">
+              <p className="section-header">Last Activity</p>
+              <div className="flex items-baseline justify-between">
+                <h3 className="text-sm font-medium text-foreground">{lastActivity.type}</h3>
+                <span className="text-xs text-muted-foreground">{lastActivity.date}</span>
+              </div>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p className="text-muted-foreground text-xs">Distance</p>
+                  <p className="mono-text font-medium text-foreground">{lastActivity.distance} km</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Avg Pace</p>
+                  <p className="mono-text font-medium text-foreground">{lastActivity.avgPace}</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Avg HR</p>
+                  <p className="mono-text font-medium text-foreground">{Math.round(lastActivity.avgHr)} bpm</p>
+                </div>
+                <div>
+                  <p className="text-muted-foreground text-xs">Duration</p>
+                  <p className="mono-text font-medium text-foreground">{lastActivity.duration}</p>
+                </div>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1.5">HR Zones</p>
+                <div className="flex h-3 rounded-full overflow-hidden">
+                  <div className="bg-secondary" style={{ width: `${lastActivity.hrZones.z1}%` }} />
+                  <div className="bg-accent/60" style={{ width: `${lastActivity.hrZones.z2}%` }} />
+                  <div className="bg-primary/60" style={{ width: `${lastActivity.hrZones.z3}%` }} />
+                  <div className="bg-warning/80" style={{ width: `${lastActivity.hrZones.z4}%` }} />
+                  <div className="bg-destructive/70" style={{ width: `${lastActivity.hrZones.z5}%` }} />
+                </div>
+                <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
+                  <span>Z1</span><span>Z2</span><span>Z3</span><span>Z4</span><span>Z5</span>
+                </div>
+              </div>
             </div>
-            <div className="grid grid-cols-2 gap-3 text-sm">
-              <div>
-                <p className="text-muted-foreground text-xs">Distance</p>
-                <p className="mono-text font-medium text-foreground">{lastActivity.distance} km</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Avg Pace</p>
-                <p className="mono-text font-medium text-foreground">{lastActivity.avgPace}</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Avg HR</p>
-                <p className="mono-text font-medium text-foreground">{Math.round(lastActivity.avgHr)} bpm</p>
-              </div>
-              <div>
-                <p className="text-muted-foreground text-xs">Duration</p>
-                <p className="mono-text font-medium text-foreground">{lastActivity.duration}</p>
-              </div>
-            </div>
-            {/* HR Zones mini bar */}
-            <div>
-              <p className="text-xs text-muted-foreground mb-1.5">HR Zones</p>
-              <div className="flex h-3 rounded-full overflow-hidden">
-                <div className="bg-secondary" style={{ width: `${lastActivity.hrZones.z1}%` }} />
-                <div className="bg-accent/60" style={{ width: `${lastActivity.hrZones.z2}%` }} />
-                <div className="bg-primary/60" style={{ width: `${lastActivity.hrZones.z3}%` }} />
-                <div className="bg-warning/80" style={{ width: `${lastActivity.hrZones.z4}%` }} />
-                <div className="bg-destructive/70" style={{ width: `${lastActivity.hrZones.z5}%` }} />
-              </div>
-              <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                <span>Z1</span><span>Z2</span><span>Z3</span><span>Z4</span><span>Z5</span>
-              </div>
-            </div>
-          </div>
+          )}
 
-          {/* Card 3 — Recovery Metrics */}
-          <div className="glass-card p-5 space-y-3">
+          {/* Card 3 — Recovery Metrics — clickable to Stats */}
+          <Link to="/stats" className="block">
+            <div className="glass-card p-5 space-y-3 hover:opacity-95 transition-opacity cursor-pointer h-full">
             <p className="section-header">Recovery</p>
             <div className="flex items-center justify-between">
               <div>
@@ -214,12 +275,16 @@ export default function Dashboard() {
                     {formatSleepHours(recoveryMetrics.sleepHours)}
                   </span>
                   <span className="text-xs text-muted-foreground">
-                    {recoveryMetrics.sleepQuality}/10
+                    {recoveryMetrics.sleepScore != null
+                      ? `Score ${recoveryMetrics.sleepScore}`
+                      : recoveryMetrics.sleepQuality != null
+                        ? `${recoveryMetrics.sleepQuality}/10`
+                        : ""}
                   </span>
                 </div>
               </div>
             </div>
-            <div>
+                <div>
               <p className="text-xs text-muted-foreground mb-1">HRV (7 days)</p>
               <Sparkline data={recoveryMetrics.hrvTrend} color="hsl(141, 72%, 50%)" />
             </div>
@@ -227,9 +292,13 @@ export default function Dashboard() {
               <p className="text-xs text-muted-foreground mb-1">Resting HR (7 days)</p>
               <Sparkline data={recoveryMetrics.restingHrTrend} color="hsl(0, 84%, 60%)" />
             </div>
-          </div>
+            <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
+              View stats <ChevronRight className="w-3.5 h-3.5" />
+            </div>
+            </div>
+          </Link>
 
-          {/* Card 4 — Race Prediction */}
+          {/* Card 4 — Race Prediction — clickable to Stats */}
           <RacePredictionCard activities={activities} ctl={readiness.ctl} />
         </div>
 
@@ -237,29 +306,39 @@ export default function Dashboard() {
         <div>
           <p className="section-header">Next 7 Days</p>
           <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
-            {weekPlan.map((day) => (
-              <div
-                key={day.day}
-                className={`glass-card glass-card-hover p-4 min-w-[140px] flex-shrink-0 cursor-pointer ${
-                  day.isToday ? "ring-2 ring-primary/30" : ""
-                }`}
-              >
-                <div className="flex items-center justify-between mb-2">
-                  <span className={`text-xs font-medium ${day.isToday ? "text-primary" : "text-muted-foreground"}`}>
-                    {day.isToday ? "Today" : day.day}
-                  </span>
-                  <span className="text-[10px] text-muted-foreground">{day.date}</span>
+            {weekPlan.map((day) => {
+              const content = (
+                <div
+                  className={`glass-card glass-card-hover p-4 cursor-pointer min-w-[140px] flex-shrink-0 ${
+                    day.isToday ? "ring-2 ring-primary/30" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-2">
+                    <span className={`text-xs font-medium ${day.isToday ? "text-primary" : "text-muted-foreground"}`}>
+                      {day.isToday ? "Today" : day.day}
+                    </span>
+                    <span className="text-[10px] text-muted-foreground">{day.date}</span>
+                  </div>
+                  <WorkoutBadge type={day.type} />
+                  <p className="text-sm font-medium text-foreground mt-2 leading-tight">{day.title}</p>
+                  {day.distance > 0 && (
+                    <p className="mono-text text-xs text-muted-foreground mt-1">
+                      {day.distance} km
+                    </p>
+                  )}
+                  <p className="text-[11px] text-muted-foreground mt-1">{day.detail}</p>
                 </div>
-                <WorkoutBadge type={day.type} />
-                <p className="text-sm font-medium text-foreground mt-2 leading-tight">{day.title}</p>
-                {day.distance > 0 && (
-                  <p className="mono-text text-xs text-muted-foreground mt-1">
-                    {day.distance} km
-                  </p>
-                )}
-                <p className="text-[11px] text-muted-foreground mt-1">{day.detail}</p>
-              </div>
-            ))}
+              );
+              return day.detailId ? (
+                <Link key={day.day} to={`/activities/${day.detailId}`} className="block">
+                  {content}
+                </Link>
+              ) : (
+                <Link key={day.day} to="/activities" className="block">
+                  {content}
+                </Link>
+              );
+            })}
           </div>
         </div>
       </motion.div>

@@ -1,8 +1,8 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useTrainingPlan } from "@/hooks/use-training-plan";
-import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, GripVertical, Check } from "lucide-react";
+import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, GripVertical, Check, MessageCircle } from "lucide-react";
 import { useState, useMemo } from "react";
-import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths } from "date-fns";
+import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, isWithinInterval } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -11,20 +11,24 @@ const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const SESSION_COLORS: Record<string, string> = {
   easy: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
   tempo: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  interval: "bg-rose-500/15 text-rose-700 dark:text-rose-400",
   intervals: "bg-rose-500/15 text-rose-700 dark:text-rose-400",
   long: "bg-blue-500/15 text-blue-700 dark:text-blue-400",
   recovery: "bg-slate-500/15 text-slate-600 dark:text-slate-400",
   rest: "bg-muted text-muted-foreground",
+  strides: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
 };
 
 function SessionCard({
   session,
   onReschedule,
   onMarkDone,
+  onAskKipcoachee,
 }: {
-  session: { id: string; scheduled_date: string | null; session_type: string; description: string; distance_km: number | null; duration_min: number | null; pace_target: string | null; completed_at: string | null };
+  session: SessionLike;
   onReschedule: (args: { sessionId: string; newDate: string }) => void;
   onMarkDone: (args: { sessionId: string; done: boolean }) => void;
+  onAskKipcoachee?: (session: SessionLike) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [newDate, setNewDate] = useState(session.scheduled_date || "");
@@ -74,12 +78,23 @@ function SessionCard({
             <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
           </div>
         ) : (
-          <button
-            onClick={() => setEditing(true)}
-            className="text-xs text-primary hover:underline mt-2"
-          >
-            Move session
-          </button>
+          <div className="flex gap-2 mt-2">
+            <button
+              onClick={() => setEditing(true)}
+              className="text-xs text-primary hover:underline"
+            >
+              Move session
+            </button>
+            {onAskKipcoachee && (
+              <button
+                onClick={() => onAskKipcoachee(session)}
+                className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
+              >
+                <MessageCircle className="w-3 h-3" />
+                Ask Kipcoachee
+              </button>
+            )}
+          </div>
         )}
       </div>
     </div>
@@ -95,6 +110,8 @@ type SessionLike = {
   duration_min: number | null;
   pace_target: string | null;
   completed_at: string | null;
+  key_focus?: string | null;
+  target_hr_zone?: number | null;
 };
 
 const PILL_COLORS: Record<string, string> = {
@@ -106,14 +123,17 @@ const PILL_COLORS: Record<string, string> = {
   rest: "bg-muted text-muted-foreground",
   race: "bg-purple-500 text-white",
   recovery: "bg-slate-400 text-white",
+  strides: "bg-emerald-500 text-white",
 };
 
 function CalendarView({
   sessions,
   onMarkDone,
+  onAskKipcoachee,
 }: {
   sessions: SessionLike[];
   onMarkDone: (args: { sessionId: string; done: boolean }) => void;
+  onAskKipcoachee?: (session: SessionLike) => void;
 }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const [selectedSession, setSelectedSession] = useState<SessionLike | null>(null);
@@ -187,7 +207,7 @@ function CalendarView({
 
       {selectedSession && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setSelectedSession(null)}>
-          <div className="glass-card p-6 max-w-md w-full mx-4" onClick={(e) => e.stopPropagation()}>
+          <div className="glass-card p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
             <div className="flex items-center gap-2 mb-3">
               <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${SESSION_COLORS[selectedSession.session_type] ?? "bg-primary/10 text-primary"}`}>
                 {selectedSession.session_type}
@@ -197,12 +217,16 @@ function CalendarView({
               )}
             </div>
             <p className="text-sm font-medium text-foreground mb-2">{selectedSession.description}</p>
-            <div className="flex gap-3 text-xs text-muted-foreground mb-4">
+            <div className="flex gap-3 text-xs text-muted-foreground mb-2">
               {selectedSession.distance_km != null && <span>{selectedSession.distance_km} km</span>}
               {selectedSession.duration_min != null && <span>{selectedSession.duration_min} min</span>}
               {selectedSession.pace_target && <span>@{selectedSession.pace_target}</span>}
+              {selectedSession.target_hr_zone != null && <span>HR zone {selectedSession.target_hr_zone}</span>}
             </div>
-            <div className="flex gap-2">
+            <p className="text-xs text-muted-foreground mb-4">
+              {selectedSession.key_focus ?? "—"}
+            </p>
+            <div className="flex flex-wrap gap-2">
               <Button
                 size="sm"
                 onClick={() => {
@@ -212,7 +236,13 @@ function CalendarView({
               >
                 {selectedSession.completed_at ? "Mark Incomplete" : "Mark Complete"}
               </Button>
-              <Button size="sm" variant="outline" onClick={() => setSelectedSession(null)}>Close</Button>
+              {onAskKipcoachee && (
+                <Button size="sm" variant="outline" onClick={() => onAskKipcoachee(selectedSession)}>
+                  <MessageCircle className="w-3.5 h-3.5 mr-1" />
+                  Ask Kipcoachee about this
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={() => setSelectedSession(null)}>Close</Button>
             </div>
           </div>
         </div>
@@ -226,6 +256,13 @@ export default function TrainingPlan() {
   const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set([1]));
   const [view, setView] = useState<"list" | "calendar">("list");
   const navigate = useNavigate();
+
+  const handleAskKipcoachee = (session: SessionLike) => {
+    const ctx = [session.description, session.distance_km && `${session.distance_km}km`, session.pace_target && `@${session.pace_target}`]
+      .filter(Boolean)
+      .join(" · ");
+    navigate(`/coach?context=${encodeURIComponent(ctx)}`);
+  };
 
   const toggleWeek = (n: number) => {
     setExpandedWeeks((prev) => {
@@ -259,13 +296,13 @@ export default function TrainingPlan() {
             <Calendar className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
             <h2 className="text-lg font-medium text-foreground mb-2">No plan yet</h2>
             <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
-              Have a conversation with Kipcoachee to share your running history, goals, and context. When you're ready, ask them to build your plan — it will sync here and adapt as you connect Garmin and intervals.icu.
+              Complete the onboarding with Kipcoachee to get a personalized training plan, or chat to build one from conversation.
             </p>
             <button
               onClick={() => navigate("/coach")}
               className="pill-button bg-primary text-primary-foreground"
             >
-              Chat with Kipcoachee
+              Get started with Kipcoachee
             </button>
           </div>
         </div>
@@ -282,9 +319,9 @@ export default function TrainingPlan() {
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Training Plan</h1>
             <p className="text-sm text-muted-foreground mt-0.5">
-              {p.race_type}
-              {p.race_date && ` · ${format(parseISO(p.race_date), "MMM d, yyyy")}`}
-              {p.target_time && ` · ${p.target_time}`}
+              {p.plan_name || p.race_type || "Training Plan"}
+              {(p.goal_date || p.race_date) && ` · ${format(parseISO(p.goal_date || p.race_date || ""), "MMM d, yyyy")}`}
+              {(p.goal_time || p.target_time) && ` · ${p.goal_time || p.target_time}`}
             </p>
           </div>
           <div className="flex items-center gap-2">
@@ -309,9 +346,40 @@ export default function TrainingPlan() {
           <CalendarView
             sessions={weeks.flatMap((w) => w.sessions)}
             onMarkDone={markSessionDone}
+            onAskKipcoachee={handleAskKipcoachee}
           />
         ) : (
         <div className="space-y-3">
+          {(() => {
+            const today = new Date();
+            const mon = startOfWeek(today, { weekStartsOn: 1 });
+            const sun = endOfWeek(today, { weekStartsOn: 1 });
+            const thisWeekData = weeks.find((w) => {
+              const start = parseISO(w.start_date);
+              const end = new Date(start);
+              end.setDate(end.getDate() + 6);
+              return isWithinInterval(today, { start, end });
+            });
+            const thisWeekSessions = thisWeekData?.sessions ?? [];
+            const doneCount = thisWeekSessions.filter((s: { completed_at?: string | null }) => s.completed_at).length;
+            const plannedKm = thisWeekSessions.reduce((s: number, x: { distance_km?: number | null }) => s + (x.distance_km ?? 0), 0);
+            return thisWeekData ? (
+              <div className="glass-card p-5 mb-4 border-primary/20">
+                <p className="text-sm font-semibold text-foreground mb-2">This week</p>
+                <div className="flex items-center gap-4">
+                  <div className="w-14 h-14 rounded-full border-2 border-primary flex items-center justify-center">
+                    <span className="text-lg font-bold text-primary">{doneCount}/{thisWeekSessions.length}</span>
+                  </div>
+                  <div>
+                    <p className="text-sm text-muted-foreground">{Math.round(plannedKm)}km planned</p>
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-400">
+                      On track
+                    </span>
+                  </div>
+                </div>
+              </div>
+            ) : null;
+          })()}
           {weeks.map((week) => {
             const isExpanded = expandedWeeks.has(week.week_number);
             return (
@@ -328,12 +396,18 @@ export default function TrainingPlan() {
                     )}
                     <Activity className="w-4 h-4 text-primary" />
                     <span className="font-semibold text-foreground">Week {week.week_number}</span>
+                    {(week as { phase?: string }).phase && (
+                      <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">
+                        {(week as { phase?: string }).phase}
+                      </span>
+                    )}
                     <span className="text-sm text-muted-foreground">
                       {format(parseISO(week.start_date), "MMM d")} – {format(new Date(new Date(week.start_date).getTime() + 6 * 24 * 60 * 60 * 1000), "MMM d")}
                     </span>
                   </div>
                   <span className="text-xs text-muted-foreground">
                     {week.sessions.length} sessions
+                    {(week as { total_km?: number }).total_km != null && ` · ${Math.round((week as { total_km?: number }).total_km ?? 0)}km`}
                   </span>
                 </button>
                 {isExpanded && (
@@ -344,6 +418,7 @@ export default function TrainingPlan() {
                         session={session}
                         onReschedule={rescheduleSession}
                         onMarkDone={markSessionDone}
+                        onAskKipcoachee={handleAskKipcoachee}
                       />
                     ))}
                   </div>

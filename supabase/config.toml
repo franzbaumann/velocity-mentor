@@ -9,6 +9,12 @@ verify_jwt = false
 [functions.coach-generate-plan]
 verify_jwt = true
 
+[functions.paceiq-philosophy]
+verify_jwt = false
+
+[functions.paceiq-generate-plan]
+verify_jwt = false
+
 [functions.strava-oauth]
 verify_jwt = false
 

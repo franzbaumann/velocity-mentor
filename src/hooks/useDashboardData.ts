@@ -56,9 +56,12 @@ export function useDashboardData() {
       (a) => isRunningActivity(a.type) && (a.distance_km ?? 0) >= 0.01 && (a.distance_km ?? 0) <= 150
     );
     const last = runs[runs.length - 1];
-    if (!last) return mockLastActivity;
+    if (!last) return { ...mockLastActivity, detailId: null as string | null };
     const hrZones = last.hr_zones ?? undefined;
     const z = hrZones ?? { z1: 5, z2: 18, z3: 32, z4: 40, z5: 5 };
+    const detailId = last.external_id && last.source === "intervals_icu"
+      ? `icu_${last.external_id}`
+      : last.id;
     return {
       type: last.type ?? "Run",
       date: format(new Date(last.date), "MMM d"),
@@ -74,6 +77,7 @@ export function useDashboardData() {
         z4: z.z4 ?? 0,
         z5: z.z5 ?? 0,
       },
+      detailId,
     };
   }, [activities]);
 
@@ -127,6 +131,7 @@ export function useDashboardData() {
       hrvTrend: hrvVals.length >= 7 ? hrvVals.slice(-7) : mockRecoveryMetrics.hrvTrend,
       sleepHours: latest.sleep_hours ?? mockRecoveryMetrics.sleepHours,
       sleepQuality: latest.sleep_quality ?? mockRecoveryMetrics.sleepQuality,
+      sleepScore: latest.sleep_score ?? mockRecoveryMetrics.sleepScore ?? null,
       restingHrTrend: rhrVals.length >= 7 ? rhrVals.slice(-7) : mockRecoveryMetrics.restingHrTrend,
     };
   }, [readinessRows]);
@@ -154,6 +159,7 @@ export function useDashboardData() {
       hrvBaseline: latest.hrv_baseline ?? mockReadiness.hrvBaseline,
       sleepHours: sleep ?? mockReadiness.sleepHours,
       sleepQuality: latest.sleep_quality ?? mockReadiness.sleepQuality,
+      sleepScore: latest.sleep_score ?? mockReadiness.sleepScore ?? null,
       restingHr: rhr ?? mockReadiness.restingHr,
       ctl: ctl ?? mockReadiness.ctl,
       atl: atl ?? mockReadiness.atl,
@@ -173,6 +179,9 @@ export function useDashboardData() {
       const today = format(new Date(), "yyyy-MM-dd") === dateStr;
       const mock = mockWeekPlan[i] ?? mockWeekPlan[0];
       const hasReal = activities.length > 0;
+      const detailId = act
+        ? (act.external_id && act.source === "intervals_icu" ? `icu_${act.external_id}` : act.id)
+        : null;
       return {
         day: format(d, "EEE").slice(0, 3),
         date: format(d, "MMM d"),
@@ -181,6 +190,7 @@ export function useDashboardData() {
         distance: act ? Math.round((act.distance_km ?? 0) * 10) / 10 : 0,
         detail: act?.avg_pace ?? (hasReal ? "" : mock.detail),
         isToday: today,
+        detailId,
       };
     });
   }, [activities]);

@@ -86,14 +86,20 @@ function FitnessChart({
   readiness: { date: string; ctl: number | null; atl: number | null; tsb: number | null }[];
 }) {
   const chartData = useMemo(() => {
-    const hasReadiness = readiness.some((r) => r.ctl != null || r.atl != null || r.tsb != null);
     const fromReadiness = readiness
       .filter((r) => (r.ctl != null || r.atl != null || r.tsb != null) && r.date <= fmt(now))
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(-120)
       .map((r) => ({ date: r.date, CTL: r.ctl ?? 0, ATL: r.atl ?? 0, TSB: r.tsb ?? 0 }));
-    if (fromReadiness.length > 0) return fromReadiness;
-    return computeFitnessCurves(activities, oldest16w, fmt(now), THRESHOLD_HR);
+    const computed = computeFitnessCurves(activities, oldest16w, fmt(now), THRESHOLD_HR);
+    if (fromReadiness.length > 0) {
+      const byDate = new Map(fromReadiness.map((r) => [r.date, r]));
+      return computed.map((c) => {
+        const r = byDate.get(c.date);
+        return r ? { ...c, CTL: r.CTL, ATL: r.ATL, TSB: r.TSB } : c;
+      });
+    }
+    return computed;
   }, [activities, readiness]);
 
   if (!chartData.length) return <EmptyState message="No fitness data yet" sub="Import Garmin or connect Strava with HR to see CTL/ATL/TSB" />;
@@ -115,13 +121,18 @@ function FitnessChart({
     );
   };
 
+  const yMin = Math.min(...chartData.map((d) => Math.min(d.CTL, d.ATL, d.TSB)));
+  const yMax = Math.max(...chartData.map((d) => Math.max(d.CTL, d.ATL, d.TSB)));
+  const yPadding = Math.max(5, (yMax - yMin) * 0.1 || 5);
+  const yDomain: [number, number] = [Math.floor(yMin - yPadding), Math.ceil(yMax + yPadding)];
+
   return (
     <div className="h-[300px]">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+        <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 40 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
           <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => format(new Date(v), "MMM d")} interval="preserveStartEnd" />
-          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => Math.round(v).toString()} />
+          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => Math.round(v).toString()} domain={yDomain} />
           <Tooltip content={<CustomTooltip />} />
           <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" />
           <ReferenceLine y={5} stroke="hsl(141 72% 50% / 0.5)" strokeDasharray="2 2" />
@@ -129,10 +140,10 @@ function FitnessChart({
           <Line type="monotone" dataKey="TSB" stroke="hsl(141 72% 50%)" strokeWidth={1.5} dot={false} name="TSB (form)" />
           <Line type="monotone" dataKey="CTL" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} name="CTL (fitness)" />
           <Line type="monotone" dataKey="ATL" stroke="hsl(36 100% 52%)" strokeWidth={2} dot={false} name="ATL (fatigue)" />
-          <Legend wrapperStyle={{ fontSize: 11 }} />
+          <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="bottom" height={28} />
         </AreaChart>
       </ResponsiveContainer>
-      <div className="flex gap-4 mt-2 flex-wrap text-xs text-muted-foreground">
+      <div className="flex gap-4 mt-3 flex-wrap text-xs text-muted-foreground">
         <span><span className="inline-block w-2 h-2 rounded-full bg-[hsl(141_72%_50%)] mr-1" />Peak (TSB &gt; 5)</span>
         <span><span className="inline-block w-2 h-2 rounded-full bg-secondary mr-1" />Optimal (-10 to 5)</span>
         <span><span className="inline-block w-2 h-2 rounded-full bg-destructive/60 mr-1" />Fatigued (&lt; -10)</span>

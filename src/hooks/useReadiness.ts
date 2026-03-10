@@ -10,6 +10,8 @@ export interface ReadinessRow {
   hrv_baseline: number | null;
   sleep_hours: number | null;
   sleep_quality: number | null;
+  /** Sleep score from intervals.icu wellness (0–100) */
+  sleep_score: number | null;
   resting_hr: number | null;
   ctl: number | null;
   atl: number | null;
@@ -29,7 +31,7 @@ export function useReadiness(days = 1095) {
       const oldest = subDays(new Date(), days);
       const { data, error } = await supabase
         .from("daily_readiness")
-        .select("id, date, score, hrv, hrv_baseline, sleep_hours, sleep_quality, resting_hr, ctl, atl, tsb")
+        .select("id, date, score, hrv, hrv_baseline, sleep_hours, sleep_quality, sleep_score, resting_hr, ctl, atl, tsb")
         .eq("user_id", user.id)
         .gte("date", oldest.toISOString().slice(0, 10))
         .order("date", { ascending: true });
@@ -37,5 +39,6 @@ export function useReadiness(days = 1095) {
       return (data ?? []) as ReadinessRow[];
     },
     staleTime: 2 * 60 * 1000,
+    refetchOnMount: "always",
   });
 }

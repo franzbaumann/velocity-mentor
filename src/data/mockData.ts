@@ -23,6 +23,7 @@ export const readiness = {
   hrvTrend: "down" as const,
   sleepHours: 6.8,
   sleepQuality: 7,
+  sleepScore: null as number | null,
   restingHr: 49,
   ctl: 62,
   atl: 71,
@@ -74,6 +75,7 @@ export const recoveryMetrics = {
   hrvTrend: [58, 55, 52, 49, 51, 47, 48],
   sleepHours: 6.8,
   sleepQuality: 7,
+  sleepScore: null as number | null,
   restingHrTrend: [47, 48, 48, 49, 50, 49, 49],
 };
 
