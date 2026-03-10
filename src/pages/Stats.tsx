@@ -1,21 +1,44 @@
 import { AppLayout } from "@/components/AppLayout";
-import { useIntervalsIntegration, useIntervalsData } from "@/hooks/useIntervalsIntegration";
-import { BarChart3, Link2, ArrowRight, Activity, Heart, Moon, TrendingUp } from "lucide-react";
-import { useNavigate } from "react-router-dom";
-import { format, subDays, subWeeks, startOfWeek, endOfWeek } from "date-fns";
-import { useMemo } from "react";
+import { useMergedActivities } from "@/hooks/useMergedIntervalsData";
+import { useMergedReadiness } from "@/hooks/useMergedIntervalsData";
+import { useStravaConnection } from "@/hooks/use-strava-connection";
 import {
-  LineChart, Line, BarChart, Bar, AreaChart, Area,
-  XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Legend,
+  computeFitnessCurves,
+  parsePaceToMinPerKm,
+  inferRunType,
+  isRunningActivity,
+  PR_DISTANCES,
+  findBestForDistance,
+} from "@/lib/analytics";
+import { formatDuration, formatPaceFromMinPerKm } from "@/lib/format";
+import { Link2, ArrowRight, TrendingUp, BarChart3, Activity, Trophy, Heart, Moon, Zap, Wind } from "lucide-react";
+import { useNavigate } from "react-router-dom";
+import { format, subDays, subWeeks, startOfWeek } from "date-fns";
+import { useMemo, useState, useEffect } from "react";
+import {
+  LineChart,
+  Line,
+  BarChart,
+  Bar,
+  AreaChart,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  ReferenceLine,
+  Legend,
 } from "recharts";
 
 const fmt = (d: Date) => format(d, "yyyy-MM-dd");
 const now = new Date();
 const oldest16w = fmt(subWeeks(now, 16));
-const oldest30d = fmt(subDays(now, 30));
-const newest = fmt(now);
+const oldest12w = fmt(subWeeks(now, 12));
+const oldest120d = fmt(subDays(now, 120));
 
-function ChartCard({ icon: Icon, title, children }: { icon: any; title: string; children: React.ReactNode }) {
+const THRESHOLD_HR = 170; // TODO: from settings
+
+function ChartCard({ icon: Icon, title, children }: { icon: React.ComponentType<{ className?: string }>; title: string; children: React.ReactNode }) {
   return (
     <div className="glass-card overflow-hidden">
       <div className="px-5 py-3 border-b border-border bg-card/60 backdrop-blur-sm">
@@ -29,75 +52,112 @@ function ChartCard({ icon: Icon, title, children }: { icon: any; title: string; 
   );
 }
 
-function LoadingChart() {
-  return <div className="h-[260px] flex items-center justify-center text-sm text-muted-foreground">Loading…</div>;
-}
-
-function ErrorChart({ message }: { message: string }) {
-  return <div className="h-[260px] flex items-center justify-center text-sm text-destructive">{message}</div>;
-}
-
-// ── Fitness Chart (CTL / ATL / TSB) ──
-function FitnessChart() {
-  const { data: raw, isLoading, error } = useIntervalsData("wellness", oldest16w, newest);
-
-  const chartData = useMemo(() => {
-    if (!raw || !Array.isArray(raw)) return [];
-    return raw
-      .filter((d: any) => d.ctl != null || d.atl != null || d.tsb != null)
-      .map((d: any) => ({
-        date: d.id ?? d.date,
-        CTL: d.ctl ?? null,
-        ATL: d.atl ?? null,
-        TSB: d.tsb ?? null,
-      }));
-  }, [raw]);
-
-  if (isLoading) return <LoadingChart />;
-  if (error) return <ErrorChart message="Failed to load fitness data" />;
-  if (!chartData.length) return <ErrorChart message="No fitness data available" />;
-
+function LoadingSkeleton() {
   return (
-    <div className="h-[280px]">
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => format(new Date(v), "MMM d")} interval="preserveStartEnd" />
-          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
-          <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" />
-          <Area type="monotone" dataKey="TSB" stroke="hsl(141 72% 50%)" fill="hsl(141 72% 50% / 0.15)" strokeWidth={1.5} />
-          <Line type="monotone" dataKey="CTL" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} />
-          <Line type="monotone" dataKey="ATL" stroke="hsl(36 100% 52%)" strokeWidth={2} dot={false} />
-          <Legend wrapperStyle={{ fontSize: 12 }} />
-        </AreaChart>
-      </ResponsiveContainer>
+    <div className="h-[280px] animate-pulse flex items-center justify-center rounded-lg bg-secondary/30">
+      <span className="text-sm text-muted-foreground">Loading…</span>
     </div>
   );
 }
 
-// ── Weekly Mileage ──
-function WeeklyMileageChart() {
-  const { data: raw, isLoading, error } = useIntervalsData("activities", oldest16w, newest);
+function EmptyState({ message, sub }: { message: string; sub?: string }) {
+  return (
+    <div className="h-[260px] flex flex-col items-center justify-center gap-2 text-sm text-center px-4">
+      <p className="text-muted-foreground">{message}</p>
+      {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
+    </div>
+  );
+}
 
+/** Format pace number (min/km) for chart axis: 5.5 → "5:30/km" */
+function formatPaceTick(val: number): string {
+  if (val == null || val < 2 || val > 25) return "";
+  const min = Math.floor(val);
+  const sec = Math.round((val - min) * 60);
+  return `${min}:${String(sec).padStart(2, "0")}/km`;
+}
+
+// ── 1. CTL/ATL/TSB Fitness Chart (from activities OR imported Garmin readiness) ──
+function FitnessChart({
+  activities,
+  readiness,
+}: {
+  activities: { date: string; type: string | null; distance_km: number | null; duration_seconds: number | null; avg_hr: number | null }[];
+  readiness: { date: string; ctl: number | null; atl: number | null; tsb: number | null }[];
+}) {
   const chartData = useMemo(() => {
-    if (!raw || !Array.isArray(raw)) return [];
+    const hasReadiness = readiness.some((r) => r.ctl != null || r.atl != null || r.tsb != null);
+    const fromReadiness = readiness
+      .filter((r) => (r.ctl != null || r.atl != null || r.tsb != null) && r.date <= fmt(now))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .slice(-120)
+      .map((r) => ({ date: r.date, CTL: r.ctl ?? 0, ATL: r.atl ?? 0, TSB: r.tsb ?? 0 }));
+    if (fromReadiness.length > 0) return fromReadiness;
+    return computeFitnessCurves(activities, oldest16w, fmt(now), THRESHOLD_HR);
+  }, [activities, readiness]);
+
+  if (!chartData.length) return <EmptyState message="No fitness data yet" sub="Import Garmin or connect Strava with HR to see CTL/ATL/TSB" />;
+
+  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string }[]; label?: string }) => {
+    if (!active || !payload?.length || !label) return null;
+    const ctl = payload.find((p) => p.name === "CTL")?.value;
+    const atl = payload.find((p) => p.name === "ATL")?.value;
+    const tsb = payload.find((p) => p.name === "TSB")?.value;
+    let zone = "Optimal";
+    if (tsb != null && tsb > 5) zone = "Peak form";
+    else if (tsb != null && tsb < -10) zone = "Fatigued";
+    return (
+      <div className="rounded-xl border border-border bg-card px-3 py-2 shadow-lg text-sm">
+        <p className="font-medium text-foreground mb-1">{format(new Date(label), "MMM d, yyyy")}</p>
+        <p className="text-muted-foreground">CTL: {ctl?.toFixed(1)} · ATL: {atl?.toFixed(1)} · TSB: {tsb?.toFixed(1)}</p>
+        <p className="text-xs mt-1 text-primary font-medium">{zone}</p>
+      </div>
+    );
+  };
+
+  return (
+    <div className="h-[300px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => format(new Date(v), "MMM d")} interval="preserveStartEnd" />
+          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => Math.round(v).toString()} />
+          <Tooltip content={<CustomTooltip />} />
+          <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" />
+          <ReferenceLine y={5} stroke="hsl(141 72% 50% / 0.5)" strokeDasharray="2 2" />
+          <ReferenceLine y={-10} stroke="hsl(0 84% 60% / 0.5)" strokeDasharray="2 2" />
+          <Line type="monotone" dataKey="TSB" stroke="hsl(141 72% 50%)" strokeWidth={1.5} dot={false} name="TSB (form)" />
+          <Line type="monotone" dataKey="CTL" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} name="CTL (fitness)" />
+          <Line type="monotone" dataKey="ATL" stroke="hsl(36 100% 52%)" strokeWidth={2} dot={false} name="ATL (fatigue)" />
+          <Legend wrapperStyle={{ fontSize: 11 }} />
+        </AreaChart>
+      </ResponsiveContainer>
+      <div className="flex gap-4 mt-2 flex-wrap text-xs text-muted-foreground">
+        <span><span className="inline-block w-2 h-2 rounded-full bg-[hsl(141_72%_50%)] mr-1" />Peak (TSB &gt; 5)</span>
+        <span><span className="inline-block w-2 h-2 rounded-full bg-secondary mr-1" />Optimal (-10 to 5)</span>
+        <span><span className="inline-block w-2 h-2 rounded-full bg-destructive/60 mr-1" />Fatigued (&lt; -10)</span>
+      </div>
+    </div>
+  );
+}
+
+// ── 2. Weekly Mileage (running only, pre-filtered) ──
+function WeeklyMileageChartSimple({ activities }: { activities: { date: string; type: string | null; distance_km: number | null }[] }) {
+  const chartData = useMemo(() => {
     const weeks: Record<string, number> = {};
-    for (const a of raw) {
-      if (!a.start_date_local && !a.date) continue;
-      const d = new Date(a.start_date_local ?? a.date);
+    for (const a of activities) {
+      if (!a.date || !a.distance_km) continue;
+      const d = new Date(a.date);
       const wk = fmt(startOfWeek(d, { weekStartsOn: 1 }));
-      const dist = a.distance != null ? a.distance / 1000 : (a.moving_time ? 0 : 0);
-      weeks[wk] = (weeks[wk] ?? 0) + dist;
+      weeks[wk] = (weeks[wk] ?? 0) + a.distance_km;
     }
     return Object.entries(weeks)
       .sort(([a], [b]) => a.localeCompare(b))
+      .slice(-16)
       .map(([week, km]) => ({ week: format(new Date(week), "MMM d"), km: Math.round(km * 10) / 10 }));
-  }, [raw]);
+  }, [activities]);
 
-  if (isLoading) return <LoadingChart />;
-  if (error) return <ErrorChart message="Failed to load activity data" />;
-  if (!chartData.length) return <ErrorChart message="No activity data available" />;
+  if (!chartData.length) return <EmptyState message="No weekly mileage yet" sub="Import Garmin or sync runs from Strava" />;
 
   return (
     <div className="h-[260px]">
@@ -114,160 +174,365 @@ function WeeklyMileageChart() {
   );
 }
 
-// ── HRV Trend ──
-function HrvChart() {
-  const { data: raw, isLoading, error } = useIntervalsData("wellness", oldest30d, newest);
+// ── 3. Pace Progression Scatter (running only) ──
+type PaceFilter = "all" | "easy" | "tempo" | "long";
+function PaceProgressionChart({ activities }: { activities: { date: string; type: string | null; avg_pace: string | null; distance_km: number | null }[] }) {
+  const runningOnly = useMemo(() => activities.filter((a) => isRunningActivity(a.type)), [activities]);
+  const [filter, setFilter] = useState<PaceFilter>("all");
 
-  const chartData = useMemo(() => {
-    if (!raw || !Array.isArray(raw)) return [];
-    const points = raw
-      .filter((d: any) => d.hrv != null)
-      .map((d: any) => ({ date: d.id ?? d.date, HRV: d.hrv }));
-    // 7-day rolling avg
-    return points.map((p: any, i: number) => {
-      const slice = points.slice(Math.max(0, i - 6), i + 1);
-      const avg = slice.reduce((s: number, x: any) => s + x.HRV, 0) / slice.length;
-      return { ...p, Avg7: Math.round(avg) };
+  const { points, trendline } = useMemo(() => {
+    const pts = runningOnly
+      .filter((a) => {
+        const pace = parsePaceToMinPerKm(a.avg_pace);
+        if (!pace || !a.date || pace < 2 || pace > 25) return false;
+        const t = inferRunType(a.type);
+        if (filter !== "all" && t !== filter) return false;
+        return true;
+      })
+      .map((a) => ({
+        date: a.date,
+        pace: parsePaceToMinPerKm(a.avg_pace)!,
+        type: inferRunType(a.type),
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    const win = 4 * 7;
+    const trend = pts.map((p, i) => {
+      const slice = pts.slice(Math.max(0, i - win + 1), i + 1);
+      const avg = slice.length ? slice.reduce((s, x) => s + x.pace, 0) / slice.length : p.pace;
+      return { ...p, trend: Math.round(avg * 100) / 100 };
     });
-  }, [raw]);
 
-  if (isLoading) return <LoadingChart />;
-  if (error) return <ErrorChart message="Failed to load HRV data" />;
-  if (!chartData.length) return <ErrorChart message="No HRV data available" />;
+    return { points: pts, trendline: trend };
+  }, [runningOnly, filter]);
+
+  if (!points.length) return <EmptyState message="No pace data yet" sub="Runs need avg_pace (Garmin or Strava)" />;
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-4 flex-wrap">
+        {(["all", "easy", "tempo", "long"] as const).map((f) => (
+          <button
+            key={f}
+            onClick={() => setFilter(f)}
+            className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${filter === f ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:bg-secondary/80"}`}
+          >
+            {f.charAt(0).toUpperCase() + f.slice(1)}
+          </button>
+        ))}
+      </div>
+      <div className="h-[260px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={trendline} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
+            <YAxis dataKey="pace" type="number" tick={{ fontSize: 11 }} domain={[2, 12]} tickFormatter={formatPaceTick} reversed />
+            <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [formatPaceFromMinPerKm(val), "Pace"]} />
+            <Line type="monotone" dataKey="pace" stroke="hsl(211 100% 52%)" strokeWidth={1} dot={{ r: 3 }} name="Pace" />
+            <Line type="monotone" dataKey="trend" stroke="hsl(var(--foreground))" strokeWidth={2} dot={false} strokeDasharray="4 4" name="4w avg" />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+// ── 4. Personal Records Table (running only) ──
+function PersonalRecordsTable({ activities }: { activities: { id: string; date: string; type: string | null; distance_km: number | null; duration_seconds: number | null; splits: unknown }[] }) {
+  const runningOnly = useMemo(() => activities.filter((a) => isRunningActivity(a.type)), [activities]);
+  const prs = useMemo(() => {
+    return PR_DISTANCES.map(({ key, km, label }) => {
+      const best = findBestForDistance(runningOnly, km);
+      if (!best) return { key, label, km, best: null };
+      return {
+        key,
+        label,
+        km,
+        best: {
+          timeSec: best.timeSec,
+          pace: best.paceMinPerKm,
+          date: best.date,
+        },
+      };
+    });
+  }, [runningOnly]);
+
+  const latestDate = prs.reduce((m, p) => (p.best && p.best.date > m ? p.best.date : m), "");
+
+  if (prs.every((p) => !p.best)) return <EmptyState message="No PRs yet" sub="Run race distances to see records" />;
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border">
+            <th className="text-left py-2 font-medium text-muted-foreground">Distance</th>
+            <th className="text-left py-2 font-medium text-muted-foreground">Best Time</th>
+            <th className="text-left py-2 font-medium text-muted-foreground">Pace</th>
+            <th className="text-left py-2 font-medium text-muted-foreground">Date</th>
+          </tr>
+        </thead>
+        <tbody>
+          {prs.map((p) => {
+            if (!p.best) return null;
+            const timeStr = formatDuration(p.best.timeSec);
+            const paceStr = formatPaceFromMinPerKm(p.best.pace);
+            const isLatest = p.best.date === latestDate;
+            return (
+              <tr key={p.key} className="border-b border-border/50">
+                <td className="py-2 font-medium text-foreground">{p.label}</td>
+                <td className="py-2 text-foreground">{timeStr}</td>
+                <td className="py-2 text-muted-foreground">{paceStr}</td>
+                <td className="py-2 text-muted-foreground flex items-center gap-1">
+                  {format(new Date(p.best.date), "MMM d, yyyy")}
+                  {isLatest && <span className="text-xs px-1.5 py-0.5 rounded-full bg-accent/20 text-accent">Latest</span>}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+// ── 5. HR Efficiency Trend ──
+function HREfficiencyChart({ activities }: { activities: { date: string; avg_hr: number | null; avg_pace: string | null }[] }) {
+  const chartData = useMemo(() => {
+    return activities
+      .filter((a) => {
+        const pace = parsePaceToMinPerKm(a.avg_pace);
+        return a.avg_hr != null && a.avg_hr >= 140 && a.avg_hr <= 150 && pace != null && pace >= 2 && pace <= 25;
+      })
+      .map((a) => ({ date: a.date, pace: parsePaceToMinPerKm(a.avg_pace)!, hr: a.avg_hr }))
+      .slice(-12 * 7)
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [activities]);
+
+  if (!chartData.length) return <EmptyState message="No aerobic HR runs yet" sub="Runs with avg HR 140–150 bpm" />;
+
+  const validPaces = chartData.map((d) => d.pace).filter((p) => p >= 2 && p <= 25);
+  const yMin = validPaces.length ? Math.max(2, Math.floor(Math.min(...validPaces) * 10) / 10 - 0.2) : 4;
+  const yMax = validPaces.length ? Math.min(25, Math.ceil(Math.max(...validPaces) * 10) / 10 + 0.2) : 8;
 
   return (
     <div className="h-[240px]">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
-          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
-          <Line type="monotone" dataKey="HRV" stroke="hsl(var(--muted-foreground))" strokeWidth={1} dot={{ r: 2, fill: "hsl(var(--muted-foreground))" }} />
-          <Line type="monotone" dataKey="Avg7" stroke="hsl(141 72% 50%)" strokeWidth={2} dot={false} />
-          <Legend wrapperStyle={{ fontSize: 12 }} />
+          <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
+          <YAxis tick={{ fontSize: 11 }} domain={[yMin, yMax]} tickFormatter={formatPaceTick} reversed />
+          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [formatPaceFromMinPerKm(val), "Pace"]} />
+          <Line type="monotone" dataKey="pace" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={{ r: 3 }} connectNulls />
         </LineChart>
       </ResponsiveContainer>
+      <p className="text-xs text-muted-foreground mt-2">Pace at aerobic HR (140–150 bpm). Faster over time = improved aerobic fitness.</p>
     </div>
   );
 }
 
-// ── Resting HR ──
-function RestingHrChart() {
-  const { data: raw, isLoading, error } = useIntervalsData("wellness", oldest30d, newest);
-
-  const chartData = useMemo(() => {
-    if (!raw || !Array.isArray(raw)) return [];
-    return raw
-      .filter((d: any) => d.restingHR != null)
-      .map((d: any) => ({ date: d.id ?? d.date, RHR: d.restingHR }));
-  }, [raw]);
-
-  if (isLoading) return <LoadingChart />;
-  if (error) return <ErrorChart message="Failed to load resting HR data" />;
-  if (!chartData.length) return <ErrorChart message="No resting HR data available" />;
-
+// ── 6. HRV Trend (from daily_readiness) ──
+function HRVChart({ readiness }: { readiness: { date: string; hrv: number | null }[] }) {
+  const chartData = readiness
+    .filter((r) => r.hrv != null)
+    .map((r) => ({ date: r.date, hrv: r.hrv }))
+    .slice(-120)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!chartData.length) return <EmptyState message="No HRV data yet" sub="Import Garmin wellness to see HRV" />;
   return (
     <div className="h-[240px]">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
-          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} domain={["dataMin - 2", "dataMax + 2"]} unit=" bpm" />
-          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
-          <Line type="monotone" dataKey="RHR" stroke="hsl(0 84% 60%)" strokeWidth={2} dot={{ r: 2 }} />
+          <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
+          <YAxis tick={{ fontSize: 11 }} unit=" ms" tickFormatter={(v) => Math.round(v).toString()} />
+          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [`${Math.round(val)} ms`, "HRV"]} />
+          <Line type="monotone" dataKey="hrv" stroke="hsl(280 70% 55%)" strokeWidth={2} dot={{ r: 2 }} name="HRV" />
         </LineChart>
       </ResponsiveContainer>
     </div>
   );
 }
 
-// ── Sleep Duration ──
-function SleepChart() {
-  const { data: raw, isLoading, error } = useIntervalsData("wellness", oldest30d, newest);
-
-  const chartData = useMemo(() => {
-    if (!raw || !Array.isArray(raw)) return [];
-    return raw
-      .filter((d: any) => d.sleepSecs != null || d.sleepHours != null)
-      .map((d: any) => ({
-        date: d.id ?? d.date,
-        Hours: d.sleepHours ?? (d.sleepSecs ? Math.round((d.sleepSecs / 3600) * 10) / 10 : 0),
-      }));
-  }, [raw]);
-
-  if (isLoading) return <LoadingChart />;
-  if (error) return <ErrorChart message="Failed to load sleep data" />;
-  if (!chartData.length) return <ErrorChart message="No sleep data available" />;
-
+// ── 7. Readiness Score (when no HRV/sleep) ──
+function ReadinessScoreChart({ readiness }: { readiness: { date: string; score: number | null }[] }) {
+  const chartData = readiness
+    .filter((r) => r.score != null)
+    .map((r) => ({ date: r.date, score: r.score }))
+    .slice(-120)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!chartData.length) return <EmptyState message="No readiness score data" sub="Import Garmin Wellness CSV + Metrics JSON (DI-Connect)" />;
   return (
     <div className="h-[240px]">
       <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+        <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
-          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} unit="h" />
-          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
-          <ReferenceLine y={8} stroke="hsl(141 72% 50% / 0.5)" strokeDasharray="4 4" label={{ value: "8h target", position: "right", fontSize: 10, fill: "hsl(var(--muted-foreground))" }} />
-          <Bar dataKey="Hours" fill="hsl(211 100% 52% / 0.7)" radius={[4, 4, 0, 0]} />
-        </BarChart>
+          <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
+          <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} unit="" />
+          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [`${Math.round(val)}`, "Score"]} />
+          <Line type="monotone" dataKey="score" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={{ r: 2 }} name="Score" />
+        </LineChart>
       </ResponsiveContainer>
     </div>
+  );
+}
+
+// ── 8. VO2max Trend (from intervals wellness / Garmin sync) ──
+function VO2maxChart({ readiness }: { readiness: { date: string; vo2max?: number | null }[] }) {
+  const chartData = readiness
+    .filter((r) => r.vo2max != null)
+    .map((r) => ({ date: r.date, vo2max: r.vo2max }))
+    .slice(-120)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!chartData.length) return <EmptyState message="No VO2max data yet" sub="Connect intervals.icu or import Garmin Metrics (DI-Connect-Metrics) for estimated VO2max" />;
+  return (
+    <div className="h-[240px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
+          <YAxis tick={{ fontSize: 11 }} domain={["dataMin - 2", "dataMax + 2"]} unit="" tickFormatter={(v) => `${Number(v).toFixed(1)}`} />
+          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [`${val?.toFixed(1)} ml/kg/min`, "VO2max"]} />
+          <Line type="monotone" dataKey="vo2max" stroke="hsl(160 70% 45%)" strokeWidth={2} dot={{ r: 2 }} name="VO2max" />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── 9. Ramp Rate (fitness change rate) ──
+function RampRateChart({ readiness }: { readiness: { date: string; ramp_rate?: number | null }[] }) {
+  const chartData = readiness
+    .filter((r) => r.ramp_rate != null)
+    .map((r) => ({ date: r.date, rampRate: r.ramp_rate }))
+    .slice(-120)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!chartData.length) return <EmptyState message="No ramp rate data yet" sub="Connect intervals.icu for fitness ramp rate" />;
+  return (
+    <div className="h-[240px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
+          <YAxis tick={{ fontSize: 11 }} unit="" tickFormatter={(v) => `${Number(v).toFixed(1)}`} />
+          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [`${val?.toFixed(2)} /week`, "Ramp rate"]} />
+          <Line type="monotone" dataKey="rampRate" stroke="hsl(280 70% 55%)" strokeWidth={2} dot={{ r: 2 }} name="Ramp rate" />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── 10. Sleep & Resting HR (from daily_readiness) ──
+function SleepRestingChart({ readiness }: { readiness: { date: string; sleep_hours: number | null; resting_hr: number | null }[] }) {
+  const chartData = readiness
+    .filter((r) => r.sleep_hours != null || r.resting_hr != null)
+    .map((r) => ({ date: r.date, sleep: r.sleep_hours, restingHr: r.resting_hr }))
+    .slice(-120)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!chartData.length) return <EmptyState message="No sleep/HR data yet" sub="Import Garmin wellness" />;
+  return (
+    <div className="h-[240px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
+          <YAxis yAxisId="left" tick={{ fontSize: 11 }} tickFormatter={(v: number) => { const h = Math.floor(v); const m = Math.round((v - h) * 60); return m > 0 ? `${h}h${m}m` : `${h}h`; }} />
+          <YAxis yAxisId="right" orientation="right" tick={{ fontSize: 11 }} tickFormatter={(v: number) => String(Math.round(v))} unit=" bpm" />
+          <Tooltip
+            contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }}
+            labelFormatter={(v) => format(new Date(v), "MMM d")}
+            formatter={(val: number, name: string) => {
+              if (name === "Sleep (h)") { const h = Math.floor(val); const m = Math.round((val - h) * 60); return [`${h}h ${m}m`, "Sleep"]; }
+              if (name === "Resting HR") return [`${Math.round(val)} bpm`, "Resting HR"];
+              return [String(val), name];
+            }}
+          />
+          <Line yAxisId="left" type="monotone" dataKey="sleep" stroke="hsl(220 70% 50%)" strokeWidth={2} dot={{ r: 2 }} name="Sleep (h)" />
+          <Line yAxisId="right" type="monotone" dataKey="restingHr" stroke="hsl(0 70% 55%)" strokeWidth={2} dot={{ r: 2 }} name="Resting HR" />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+type StatsTab = "runs" | "wellness";
+
+function RunningStatsSection({
+  activities,
+  readiness,
+}: {
+  activities: { date: string; type: string | null; distance_km: number | null; duration_seconds: number | null; avg_hr: number | null; avg_pace: string | null; id: string; splits: unknown }[];
+  readiness: { date: string; ctl: number | null; atl: number | null; tsb: number | null }[];
+}) {
+  const runningActivities = useMemo(
+    () => activities.filter((a) => isRunningActivity(a.type) && (a.distance_km ?? 0) <= 150),
+    [activities]
+  );
+  return (
+    <>
+      <ChartCard icon={TrendingUp} title="Fitness & Fatigue (CTL / ATL / TSB) — 16 weeks">
+        <FitnessChart activities={runningActivities} readiness={readiness} />
+      </ChartCard>
+      <ChartCard icon={BarChart3} title="Weekly Mileage — 16 weeks (runs only)">
+        <WeeklyMileageChartSimple activities={runningActivities} />
+      </ChartCard>
+      <ChartCard icon={Activity} title="Pace Progression (runs only)">
+        <PaceProgressionChart activities={runningActivities} />
+      </ChartCard>
+      <ChartCard icon={Trophy} title="Personal Records (runs only)">
+        <PersonalRecordsTable activities={runningActivities} />
+      </ChartCard>
+      <ChartCard icon={Heart} title="HR Efficiency Trend — aerobic pace (140–150 bpm)">
+        <HREfficiencyChart activities={runningActivities} />
+      </ChartCard>
+    </>
   );
 }
 
 // ── Main Page ──
 export default function Stats() {
-  const { isConnected, isLoading } = useIntervalsIntegration();
   const navigate = useNavigate();
+  const [tab, setTab] = useState<StatsTab>("runs");
+  const { connected: stravaConnected, loading: stravaLoading } = useStravaConnection();
+  const { data: activities = [], isLoading: activitiesLoading } = useMergedActivities(730);
+  const { data: readiness = [], isLoading: readinessLoading } = useMergedReadiness(730);
+  useEffect(() => {
+    if (readiness.length > 0 && activities.length === 0) setTab("wellness");
+  }, [readiness.length, activities.length]);
 
-  if (isLoading) {
+  const isLoading = stravaLoading || activitiesLoading || readinessLoading;
+  const hasData = activities.length > 0 || readiness.length > 0;
+
+  if (isLoading && !hasData) {
     return (
       <AppLayout>
         <div className="animate-fade-in space-y-6">
-          <h1 className="text-2xl font-semibold text-foreground">Stats & Progress</h1>
-          <LoadingChart />
+          <h1 className="text-2xl font-semibold text-foreground">Stats & Analytics</h1>
+          <div className="space-y-5">
+            <ChartCard icon={TrendingUp} title="Fitness & Fatigue"><LoadingSkeleton /></ChartCard>
+            <ChartCard icon={BarChart3} title="Weekly Mileage"><LoadingSkeleton /></ChartCard>
+          </div>
         </div>
       </AppLayout>
     );
   }
 
-  if (!isConnected) {
+  if (!hasData) {
     return (
       <AppLayout>
         <div className="animate-fade-in space-y-6">
-          <h1 className="text-2xl font-semibold text-foreground">Stats & Progress</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Stats & Analytics</h1>
           <div className="glass-card p-12 text-center">
             <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-5">
               <Link2 className="w-7 h-7 text-primary" />
             </div>
-            <h2 className="text-lg font-medium text-foreground mb-2">
-              Connect intervals.icu
-            </h2>
-            <p className="text-sm text-muted-foreground max-w-md mx-auto mb-4">
-              Link your intervals.icu account to see fitness charts, mileage, HRV, and more.
+            <h2 className="text-lg font-medium text-foreground mb-2">Import your data to see stats</h2>
+            <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
+              Drop your Garmin export (DI_CONNECT folder or ZIP) in Settings to see CTL/ATL/TSB, weekly mileage, pace trends, PRs, HRV, and sleep.
             </p>
-            <div className="text-left max-w-sm mx-auto mb-6 space-y-2">
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">1.</span> Go to{" "}
-                <a href="https://intervals.icu/settings" target="_blank" rel="noopener noreferrer" className="text-primary underline">intervals.icu → Settings</a>
-              </p>
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">2.</span> Copy your <span className="font-medium text-foreground">Athlete ID</span> (starts with <code className="text-xs bg-secondary px-1.5 py-0.5 rounded">i</code>)
-              </p>
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">3.</span> Under <span className="font-medium text-foreground">API</span>, create an API key
-              </p>
-              <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">4.</span> Paste both in{" "}
-                <span className="font-medium text-foreground">Settings → intervals.icu</span>
-              </p>
-            </div>
-            <button
-              onClick={() => navigate("/settings")}
-              className="pill-button bg-primary text-primary-foreground gap-2"
-            >
-              Go to Settings
+            <button onClick={() => navigate("/settings")} className="pill-button bg-primary text-primary-foreground gap-2">
+              Import Garmin data
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>
@@ -279,28 +544,57 @@ export default function Stats() {
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-5">
-        <h1 className="text-2xl font-semibold text-foreground">Stats & Progress</h1>
-
-        <ChartCard icon={TrendingUp} title="Fitness & Fatigue (CTL / ATL / TSB) — 16 weeks">
-          <FitnessChart />
-        </ChartCard>
-
-        <ChartCard icon={BarChart3} title="Weekly Mileage — 16 weeks">
-          <WeeklyMileageChart />
-        </ChartCard>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
-          <ChartCard icon={Activity} title="HRV Trend — 30 days">
-            <HrvChart />
-          </ChartCard>
-          <ChartCard icon={Heart} title="Resting HR — 30 days">
-            <RestingHrChart />
-          </ChartCard>
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+          <h1 className="text-2xl font-semibold text-foreground">Stats & Analytics</h1>
+          <div className="flex rounded-lg bg-muted/60 p-1">
+            <button
+              onClick={() => setTab("runs")}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === "runs" ? "bg-background text-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              Runs & Fitness
+            </button>
+            <button
+              onClick={() => setTab("wellness")}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === "wellness" ? "bg-background text-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              Wellness
+            </button>
+          </div>
         </div>
 
-        <ChartCard icon={Moon} title="Sleep Duration — 30 days">
-          <SleepChart />
-        </ChartCard>
+        {tab === "runs" && (
+          <div className="space-y-5">
+            <RunningStatsSection activities={activities} readiness={readiness} />
+          </div>
+        )}
+
+        {tab === "wellness" && (
+          <div className="space-y-5">
+            <ChartCard icon={TrendingUp} title="Fitness & Fatigue (CTL / ATL / TSB)">
+              <FitnessChart activities={activities.filter((a) => isRunningActivity(a.type))} readiness={readiness} />
+            </ChartCard>
+
+            <ChartCard icon={Activity} title="Readiness Score">
+              <ReadinessScoreChart readiness={readiness} />
+            </ChartCard>
+
+            <ChartCard icon={Zap} title="HRV Trend">
+              <HRVChart readiness={readiness} />
+            </ChartCard>
+
+            <ChartCard icon={Wind} title="VO2max">
+              <VO2maxChart readiness={readiness} />
+            </ChartCard>
+
+            <ChartCard icon={BarChart3} title="Ramp Rate">
+              <RampRateChart readiness={readiness} />
+            </ChartCard>
+
+            <ChartCard icon={Moon} title="Sleep & Resting HR">
+              <SleepRestingChart readiness={readiness} />
+            </ChartCard>
+          </div>
+        )}
       </div>
     </AppLayout>
   );

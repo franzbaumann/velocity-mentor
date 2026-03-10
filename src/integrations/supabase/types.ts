@@ -25,14 +25,21 @@ export type Database = {
           distance_km: number | null
           duration_seconds: number | null
           elevation_gain: number | null
+          external_id: string | null
           garmin_id: string | null
           hr_zones: Json | null
+          hr_zone_times: Json | null
           id: string
+          icu_training_load: number | null
+          lap_splits: Json | null
           max_hr: number | null
+          pace_zone_times: Json | null
+          perceived_exertion: number | null
           polyline: string | null
           source: Database["public"]["Enums"]["activity_source"] | null
           splits: Json | null
           strava_id: string | null
+          trimp: number | null
           type: string | null
           user_id: string
         }
@@ -46,14 +53,21 @@ export type Database = {
           distance_km?: number | null
           duration_seconds?: number | null
           elevation_gain?: number | null
+          external_id?: string | null
           garmin_id?: string | null
           hr_zones?: Json | null
+          hr_zone_times?: Json | null
           id?: string
+          icu_training_load?: number | null
+          lap_splits?: Json | null
           max_hr?: number | null
+          pace_zone_times?: Json | null
+          perceived_exertion?: number | null
           polyline?: string | null
           source?: Database["public"]["Enums"]["activity_source"] | null
           splits?: Json | null
           strava_id?: string | null
+          trimp?: number | null
           type?: string | null
           user_id: string
         }
@@ -67,16 +81,65 @@ export type Database = {
           distance_km?: number | null
           duration_seconds?: number | null
           elevation_gain?: number | null
+          external_id?: string | null
           garmin_id?: string | null
           hr_zones?: Json | null
+          hr_zone_times?: Json | null
           id?: string
+          icu_training_load?: number | null
+          lap_splits?: Json | null
           max_hr?: number | null
+          pace_zone_times?: Json | null
+          perceived_exertion?: number | null
           polyline?: string | null
           source?: Database["public"]["Enums"]["activity_source"] | null
           splits?: Json | null
           strava_id?: string | null
+          trimp?: number | null
           type?: string | null
           user_id?: string
+        }
+        Relationships: []
+      }
+      activity_streams: {
+        Row: {
+          id: string
+          user_id: string
+          activity_id: string
+          heartrate: number[] | null
+          cadence: number[] | null
+          altitude: number[] | null
+          pace: number[] | null
+          distance: number[] | null
+          time: number[] | null
+          latlng: number[][] | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          activity_id: string
+          heartrate?: number[] | null
+          cadence?: number[] | null
+          altitude?: number[] | null
+          pace?: number[] | null
+          distance?: number[] | null
+          time?: number[] | null
+          latlng?: number[][] | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          activity_id?: string
+          heartrate?: number[] | null
+          cadence?: number[] | null
+          altitude?: number[] | null
+          pace?: number[] | null
+          distance?: number[] | null
+          time?: number[] | null
+          latlng?: number[][] | null
+          created_at?: string
         }
         Relationships: []
       }
@@ -85,7 +148,12 @@ export type Database = {
           created_at: string
           goal_race: Json | null
           id: string
+          lab_name: string | null
+          lab_test_date: string | null
+          lactate_threshold_hr: number | null
+          lactate_threshold_pace: string | null
           max_hr: number | null
+          max_hr_measured: number | null
           name: string
           narrative: string | null
           preferred_longrun_day: string | null
@@ -97,12 +165,19 @@ export type Database = {
           updated_at: string
           user_id: string
           vdot: number | null
+          vlamax: number | null
+          vo2max: number | null
         }
         Insert: {
           created_at?: string
           goal_race?: Json | null
           id?: string
+          lab_name?: string | null
+          lab_test_date?: string | null
+          lactate_threshold_hr?: number | null
+          lactate_threshold_pace?: string | null
           max_hr?: number | null
+          max_hr_measured?: number | null
           name?: string
           narrative?: string | null
           preferred_longrun_day?: string | null
@@ -114,12 +189,19 @@ export type Database = {
           updated_at?: string
           user_id: string
           vdot?: number | null
+          vlamax?: number | null
+          vo2max?: number | null
         }
         Update: {
           created_at?: string
           goal_race?: Json | null
           id?: string
+          lab_name?: string | null
+          lab_test_date?: string | null
+          lactate_threshold_hr?: number | null
+          lactate_threshold_pace?: string | null
           max_hr?: number | null
+          max_hr_measured?: number | null
           name?: string
           narrative?: string | null
           preferred_longrun_day?: string | null
@@ -131,6 +213,8 @@ export type Database = {
           updated_at?: string
           user_id?: string
           vdot?: number | null
+          vlamax?: number | null
+          vo2max?: number | null
         }
         Relationships: []
       }
@@ -139,6 +223,7 @@ export type Database = {
           content: string
           created_at: string
           id: string
+          message_type: string | null
           role: Database["public"]["Enums"]["coach_role"]
           timestamp: string
           triggered_by: Database["public"]["Enums"]["coach_trigger"] | null
@@ -148,6 +233,7 @@ export type Database = {
           content: string
           created_at?: string
           id?: string
+          message_type?: string | null
           role?: Database["public"]["Enums"]["coach_role"]
           timestamp?: string
           triggered_by?: Database["public"]["Enums"]["coach_trigger"] | null
@@ -157,6 +243,7 @@ export type Database = {
           content?: string
           created_at?: string
           id?: string
+          message_type?: string | null
           role?: Database["public"]["Enums"]["coach_role"]
           timestamp?: string
           triggered_by?: Database["public"]["Enums"]["coach_trigger"] | null
@@ -245,6 +332,195 @@ export type Database = {
         }
         Relationships: []
       }
+      training_plan: {
+        Row: {
+          id: string
+          user_id: string
+          race_date: string | null
+          race_type: string | null
+          target_time: string | null
+          weeks_total: number | null
+          plan_name: string | null
+          philosophy: string | null
+          goal_race: string | null
+          goal_date: string | null
+          goal_time: string | null
+          is_active: boolean | null
+          start_date: string | null
+          end_date: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          race_date?: string | null
+          race_type?: string | null
+          target_time?: string | null
+          weeks_total?: number | null
+          plan_name?: string | null
+          philosophy?: string | null
+          goal_race?: string | null
+          goal_date?: string | null
+          goal_time?: string | null
+          is_active?: boolean | null
+          start_date?: string | null
+          end_date?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          race_date?: string | null
+          race_type?: string | null
+          target_time?: string | null
+          weeks_total?: number | null
+          plan_name?: string | null
+          philosophy?: string | null
+          goal_race?: string | null
+          goal_date?: string | null
+          goal_time?: string | null
+          is_active?: boolean | null
+          start_date?: string | null
+          end_date?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      training_week: {
+        Row: {
+          id: string
+          plan_id: string
+          week_number: number
+          start_date: string
+          notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          plan_id: string
+          week_number: number
+          start_date: string
+          notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          plan_id?: string
+          week_number?: number
+          start_date?: string
+          notes?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      training_session: {
+        Row: {
+          id: string
+          week_id: string
+          day_of_week: number
+          scheduled_date: string | null
+          session_type: string
+          description: string
+          distance_km: number | null
+          duration_min: number | null
+          pace_target: string | null
+          target_hr_zone: number | null
+          tss_estimate: number | null
+          completed_activity_id: string | null
+          workout_type: string | null
+          notes: string | null
+          order_index: number
+          completed_at: string | null
+          created_at: string
+          updated_at: string
+        }
+        Insert: {
+          id?: string
+          week_id: string
+          day_of_week: number
+          scheduled_date?: string | null
+          session_type: string
+          description: string
+          distance_km?: number | null
+          duration_min?: number | null
+          pace_target?: string | null
+          target_hr_zone?: number | null
+          tss_estimate?: number | null
+          completed_activity_id?: string | null
+          workout_type?: string | null
+          notes?: string | null
+          order_index?: number
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Update: {
+          id?: string
+          week_id?: string
+          day_of_week?: number
+          scheduled_date?: string | null
+          session_type?: string
+          description?: string
+          distance_km?: number | null
+          duration_min?: number | null
+          pace_target?: string | null
+          target_hr_zone?: number | null
+          tss_estimate?: number | null
+          completed_activity_id?: string | null
+          workout_type?: string | null
+          notes?: string | null
+          order_index?: number
+          completed_at?: string | null
+          created_at?: string
+          updated_at?: string
+        }
+        Relationships: []
+      }
+      race_predictions: {
+        Row: {
+          id: string
+          user_id: string
+          predicted_at: string
+          goal_distance: string | null
+          predicted_time_seconds: number | null
+          predicted_pace: string | null
+          ctl_at_prediction: number | null
+          zone2_pace: string | null
+          threshold_pace: string | null
+          vo2max_pace: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          predicted_at?: string
+          goal_distance?: string | null
+          predicted_time_seconds?: number | null
+          predicted_pace?: string | null
+          ctl_at_prediction?: number | null
+          zone2_pace?: string | null
+          threshold_pace?: string | null
+          vo2max_pace?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          predicted_at?: string
+          goal_distance?: string | null
+          predicted_time_seconds?: number | null
+          predicted_pace?: string | null
+          ctl_at_prediction?: number | null
+          zone2_pace?: string | null
+          threshold_pace?: string | null
+          vo2max_pace?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       oauth_tokens: {
         Row: {
           access_token: string
@@ -330,11 +606,11 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      activity_source: "garmin" | "strava" | "manual"
+      activity_source: "garmin" | "strava" | "manual" | "intervals_icu"
       coach_role: "user" | "coach"
       coach_trigger: "user" | "proactive" | "activity_sync" | "readiness"
       oauth_provider: "garmin" | "strava"
-      training_philosophy: "jack_daniels" | "pfitzinger" | "hansons" | "ai"
+      training_philosophy: "jack_daniels" | "pfitzinger" | "hansons" | "ai" | "80_20" | "lydiard"
     }
     CompositeTypes: {
       [_ in never]: never
@@ -462,11 +738,11 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      activity_source: ["garmin", "strava", "manual"],
+      activity_source: ["garmin", "strava", "manual", "intervals_icu"],
       coach_role: ["user", "coach"],
       coach_trigger: ["user", "proactive", "activity_sync", "readiness"],
       oauth_provider: ["garmin", "strava"],
-      training_philosophy: ["jack_daniels", "pfitzinger", "hansons", "ai"],
+      training_philosophy: ["jack_daniels", "pfitzinger", "hansons", "ai", "80_20", "lydiard"],
     },
   },
 } as const

@@ -5,3 +5,18 @@ verify_jwt = false
 
 [functions.intervals-proxy]
 verify_jwt = false
+
+[functions.coach-generate-plan]
+verify_jwt = true
+
+[functions.strava-oauth]
+verify_jwt = false
+
+[functions.strava-sync]
+verify_jwt = false
+
+[functions.strava-save-personal-token]
+verify_jwt = false
+
+[functions.garmin-import-zip]
+verify_jwt = false

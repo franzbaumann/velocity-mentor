@@ -2,17 +2,14 @@ import { ReadinessRing } from "@/components/ReadinessRing";
 import { WorkoutBadge } from "@/components/WorkoutBadge";
 import { Sparkline } from "@/components/Sparkline";
 import { AppLayout } from "@/components/AppLayout";
-import {
-  readiness,
-  todaysWorkout,
-  weekPlan,
-  weekStats,
-  lastActivity,
-  recoveryMetrics,
-  athlete,
-} from "@/data/mockData";
-import { TrendingDown, TrendingUp, Moon, Heart, ChevronRight } from "lucide-react";
+import { useGreeting } from "@/hooks/useGreeting";
+import { useDashboardData } from "@/hooks/useDashboardData";
+import { useGarminImportStatus } from "@/hooks/useGarminImportStatus";
+import { predictRaceTime, formatRaceTime, calculateZonePaces, findBestEffort } from "@/lib/race-prediction";
+import { TrendingDown, Moon, Heart } from "lucide-react";
+import { formatSleepHours } from "@/lib/format";
 import { motion } from "framer-motion";
+import { Link } from "react-router-dom";
 
 const fadeIn = {
   initial: { opacity: 0, y: 12 },
@@ -20,17 +17,66 @@ const fadeIn = {
   transition: { duration: 0.3 },
 };
 
+function RacePredictionCard({ activities, ctl }: { activities: Array<{ distance_km: number | null; duration_seconds: number | null; date: string }>; ctl: number | null }) {
+  const best = findBestEffort(activities);
+  if (!best || !ctl) return null;
+
+  const goalKm = 21.1;
+  const baselineCTL = Math.max(ctl * 0.7, 20);
+  const predicted = predictRaceTime(best.timeSeconds, best.distanceKm, goalKm, ctl, baselineCTL);
+  const paces = calculateZonePaces(predicted, goalKm);
+
+  return (
+    <div className="glass-card p-5">
+      <div className="flex items-center gap-2 mb-3">
+        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+          <span className="text-sm">🏁</span>
+        </div>
+        <div>
+          <p className="text-sm font-medium text-foreground">Race Prediction</p>
+          <p className="text-xs text-muted-foreground">Half Marathon</p>
+        </div>
+      </div>
+      <p className="text-3xl font-bold tabular-nums text-foreground mb-2">{formatRaceTime(predicted)}</p>
+      <div className="space-y-1 text-xs text-muted-foreground">
+        <p>Z2 pace: {paces.zone2}</p>
+        <p>Threshold: {paces.threshold}</p>
+        <p>VO2max: {paces.vo2max}</p>
+      </div>
+      <p className="text-[10px] text-muted-foreground mt-3">Based on best effort · CTL {Math.round(ctl)}</p>
+    </div>
+  );
+}
+
 export default function Dashboard() {
+  const greeting = useGreeting();
+  const { weekStats, lastActivity, recoveryMetrics, readiness, weekPlan, todaysWorkout, athlete, isSampleData, activities } = useDashboardData();
+  const garminBanner = useGarminImportStatus();
   const progressPct = Math.round((weekStats.actualKm / weekStats.plannedKm) * 100);
 
   return (
     <AppLayout>
       <motion.div {...fadeIn} className="space-y-6">
+        {/* Garmin import banners - hide when intervals.icu is connected and has real data */}
+        {garminBanner === "never" && !isSampleData && (
+          <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground flex items-center justify-between gap-3">
+            <span>Import your Garmin data to unlock real stats</span>
+            <Link
+              to="/settings"
+              className="shrink-0 text-sm font-medium text-primary hover:underline"
+            >
+              Settings
+            </Link>
+          </div>
+        )}
+        {garminBanner && garminBanner !== "never" && (
+          <div className="rounded-xl border border-warning/30 bg-warning/5 px-4 py-3 text-sm text-muted-foreground">
+            {garminBanner}
+          </div>
+        )}
         {/* Page header */}
         <div>
-          <h1 className="text-2xl font-semibold text-foreground">
-            Good morning, {athlete.name.split(" ")[0]}
-          </h1>
+          <h1 className="text-2xl font-semibold text-foreground">{greeting}</h1>
           <p className="text-sm text-muted-foreground mt-1">
             Week 6 of 14 · {athlete.currentPhase} Phase · {athlete.goalRace.type} in{" "}
             {athlete.goalRace.weeksRemaining} weeks
@@ -38,7 +84,10 @@ export default function Dashboard() {
         </div>
 
         {/* Readiness Card */}
-        <div className="glass-card p-6">
+        <div className="glass-card p-6 relative">
+          {isSampleData && (
+            <span className="absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Sample</span>
+          )}
           <div className="flex items-center gap-6">
             <ReadinessRing score={readiness.score} size={96} />
             <div className="flex-1 min-w-0">
@@ -55,9 +104,9 @@ export default function Dashboard() {
                   <TrendingDown className="w-3 h-3 text-warning" />
                 </span>
                 <span className="flex items-center gap-1">
-                  <Moon className="w-3 h-3" /> {readiness.sleepHours}h sleep
+                  <Moon className="w-3 h-3" /> {formatSleepHours(readiness.sleepHours)} sleep
                 </span>
-                <span className="mono-text">TSB {readiness.tsb}</span>
+                <span className="mono-text">TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}</span>
               </div>
             </div>
           </div>
@@ -119,7 +168,7 @@ export default function Dashboard() {
               </div>
               <div>
                 <p className="text-muted-foreground text-xs">Avg HR</p>
-                <p className="mono-text font-medium text-foreground">{lastActivity.avgHr} bpm</p>
+                <p className="mono-text font-medium text-foreground">{Math.round(lastActivity.avgHr)} bpm</p>
               </div>
               <div>
                 <p className="text-muted-foreground text-xs">Duration</p>
@@ -162,7 +211,7 @@ export default function Dashboard() {
                 <p className="text-xs text-muted-foreground">Sleep</p>
                 <div className="flex items-center gap-1.5">
                   <span className="mono-text text-lg font-semibold text-foreground">
-                    {recoveryMetrics.sleepHours}h
+                    {formatSleepHours(recoveryMetrics.sleepHours)}
                   </span>
                   <span className="text-xs text-muted-foreground">
                     {recoveryMetrics.sleepQuality}/10
@@ -179,6 +228,9 @@ export default function Dashboard() {
               <Sparkline data={recoveryMetrics.restingHrTrend} color="hsl(0, 84%, 60%)" />
             </div>
           </div>
+
+          {/* Card 4 — Race Prediction */}
+          <RacePredictionCard activities={activities} ctl={readiness.ctl} />
         </div>
 
         {/* Upcoming 7 days */}

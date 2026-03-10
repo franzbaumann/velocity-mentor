@@ -23,7 +23,14 @@
   <meta name="twitter:description" content="Sub 3 boysens hemliga vapen">
 </head>
 
-  <body>
+  <body style="margin:0">
+    <script>
+      (function(){
+        var t = localStorage.getItem('paceiq-theme') || 'system';
+        var dark = t === 'dark' || (t === 'system' && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        if(dark) document.documentElement.classList.add('dark');
+      })();
+    </script>
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>

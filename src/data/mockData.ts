@@ -1,7 +1,7 @@
 // Mock data for a fictional athlete: 38yo male, VDOT 52, targeting 2:55 marathon in 14 weeks
 
 export const athlete = {
-  name: "Marcus Chen",
+  name: "Sample Athlete",
   vdot: 52,
   maxHr: 186,
   restingHr: 48,

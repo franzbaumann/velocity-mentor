@@ -1,13 +1,22 @@
-
--- Enums
-CREATE TYPE public.training_philosophy AS ENUM ('jack_daniels', 'pfitzinger', 'hansons', 'ai');
-CREATE TYPE public.activity_source AS ENUM ('garmin', 'strava', 'manual');
-CREATE TYPE public.coach_role AS ENUM ('user', 'coach');
-CREATE TYPE public.coach_trigger AS ENUM ('user', 'proactive', 'activity_sync', 'readiness');
-CREATE TYPE public.oauth_provider AS ENUM ('garmin', 'strava');
+-- Enums (idempotent - skip if already exists)
+DO $$ BEGIN
+  CREATE TYPE public.training_philosophy AS ENUM ('jack_daniels', 'pfitzinger', 'hansons', 'ai');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE public.activity_source AS ENUM ('garmin', 'strava', 'manual');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE public.coach_role AS ENUM ('user', 'coach');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE public.coach_trigger AS ENUM ('user', 'proactive', 'activity_sync', 'readiness');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE TYPE public.oauth_provider AS ENUM ('garmin', 'strava');
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- athlete_profile
-CREATE TABLE public.athlete_profile (
+CREATE TABLE IF NOT EXISTS public.athlete_profile (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   name TEXT NOT NULL DEFAULT '',
@@ -24,10 +33,12 @@ CREATE TABLE public.athlete_profile (
   UNIQUE(user_id)
 );
 ALTER TABLE public.athlete_profile ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own profile" ON public.athlete_profile FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own profile" ON public.athlete_profile FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- activity
-CREATE TABLE public.activity (
+CREATE TABLE IF NOT EXISTS public.activity (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   garmin_id TEXT,
@@ -49,12 +60,14 @@ CREATE TABLE public.activity (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.activity ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own activities" ON public.activity FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
-CREATE UNIQUE INDEX idx_activity_strava ON public.activity(user_id, strava_id) WHERE strava_id IS NOT NULL;
-CREATE UNIQUE INDEX idx_activity_garmin ON public.activity(user_id, garmin_id) WHERE garmin_id IS NOT NULL;
+DO $$ BEGIN
+  CREATE POLICY "Users manage own activities" ON public.activity FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_strava ON public.activity(user_id, strava_id) WHERE strava_id IS NOT NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_activity_garmin ON public.activity(user_id, garmin_id) WHERE garmin_id IS NOT NULL;
 
 -- daily_readiness
-CREATE TABLE public.daily_readiness (
+CREATE TABLE IF NOT EXISTS public.daily_readiness (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   date DATE NOT NULL DEFAULT CURRENT_DATE,
@@ -72,10 +85,12 @@ CREATE TABLE public.daily_readiness (
   UNIQUE(user_id, date)
 );
 ALTER TABLE public.daily_readiness ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own readiness" ON public.daily_readiness FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own readiness" ON public.daily_readiness FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- coach_message
-CREATE TABLE public.coach_message (
+CREATE TABLE IF NOT EXISTS public.coach_message (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   timestamp TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -85,10 +100,12 @@ CREATE TABLE public.coach_message (
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 ALTER TABLE public.coach_message ENABLE ROW LEVEL SECURITY;
-CREATE POLICY "Users manage own messages" ON public.coach_message FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users manage own messages" ON public.coach_message FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- oauth_tokens (sensitive - tokens only accessed via edge functions)
-CREATE TABLE public.oauth_tokens (
+CREATE TABLE IF NOT EXISTS public.oauth_tokens (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID REFERENCES auth.users(id) ON DELETE CASCADE NOT NULL,
   provider public.oauth_provider NOT NULL,
@@ -104,13 +121,15 @@ CREATE TABLE public.oauth_tokens (
   UNIQUE(user_id, provider)
 );
 ALTER TABLE public.oauth_tokens ENABLE ROW LEVEL SECURITY;
--- Only edge functions (service role) should read tokens directly
--- Users can see connection status via a view
-CREATE POLICY "Users can see own token metadata" ON public.oauth_tokens FOR SELECT USING (auth.uid() = user_id);
-CREATE POLICY "Users can delete own tokens" ON public.oauth_tokens FOR DELETE USING (auth.uid() = user_id);
+DO $$ BEGIN
+  CREATE POLICY "Users can see own token metadata" ON public.oauth_tokens FOR SELECT USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
+DO $$ BEGIN
+  CREATE POLICY "Users can delete own tokens" ON public.oauth_tokens FOR DELETE USING (auth.uid() = user_id);
+EXCEPTION WHEN duplicate_object THEN NULL; END $$;
 
 -- View for safe token display (no access_token/refresh_token)
-CREATE VIEW public.oauth_connections WITH (security_invoker = on) AS
+CREATE OR REPLACE VIEW public.oauth_connections WITH (security_invoker = on) AS
   SELECT id, user_id, provider, athlete_name, athlete_id, last_sync_at, expires_at, created_at
   FROM public.oauth_tokens;
 
@@ -128,6 +147,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW
@@ -145,5 +165,7 @@ BEGIN
 END;
 $$;
 
+DROP TRIGGER IF EXISTS update_athlete_profile_updated_at ON public.athlete_profile;
 CREATE TRIGGER update_athlete_profile_updated_at BEFORE UPDATE ON public.athlete_profile FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();
+DROP TRIGGER IF EXISTS update_oauth_tokens_updated_at ON public.oauth_tokens;
 CREATE TRIGGER update_oauth_tokens_updated_at BEFORE UPDATE ON public.oauth_tokens FOR EACH ROW EXECUTE FUNCTION public.update_updated_at_column();

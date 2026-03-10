@@ -5,23 +5,46 @@ import {
   Activity,
   MessageCircle,
   BarChart3,
+  BookOpen,
   Settings,
   ChevronLeft,
   Zap,
+  LogOut,
+  Sun,
+  Moon,
+  Monitor,
 } from "lucide-react";
 import { useState } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { useTheme, type Theme } from "@/hooks/useTheme";
 
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Training Plan", url: "/plan", icon: Calendar },
   { title: "Activities", url: "/activities", icon: Activity },
-  { title: "AI Coach", url: "/coach", icon: MessageCircle },
+  { title: "Kipcoachee", url: "/coach", icon: MessageCircle },
   { title: "Stats", url: "/stats", icon: BarChart3 },
+  { title: "Philosophy", url: "/philosophy", icon: BookOpen },
   { title: "Settings", url: "/settings", icon: Settings },
+];
+
+const themeOptions: { value: Theme; icon: typeof Sun; label: string }[] = [
+  { value: "light", icon: Sun, label: "Light" },
+  { value: "dark", icon: Moon, label: "Dark" },
+  { value: "system", icon: Monitor, label: "System" },
 ];
 
 export function AppSidebar() {
   const [collapsed, setCollapsed] = useState(false);
+  const { theme, setTheme } = useTheme();
+
+  const cycleTheme = () => {
+    const order: Theme[] = ["light", "dark", "system"];
+    const next = order[(order.indexOf(theme) + 1) % order.length];
+    setTheme(next);
+  };
+
+  const ThemeIcon = themeOptions.find((o) => o.value === theme)?.icon ?? Monitor;
 
   return (
     <aside
@@ -29,7 +52,6 @@ export function AppSidebar() {
         collapsed ? "w-16" : "w-60"
       }`}
     >
-      {/* Brand */}
       <div className="flex items-center gap-2.5 px-4 h-16 border-b border-border flex-shrink-0">
         <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
           <Zap className="w-4 h-4 text-primary-foreground" />
@@ -41,7 +63,6 @@ export function AppSidebar() {
         )}
       </div>
 
-      {/* Nav */}
       <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
         {navItems.map((item) => (
           <NavLink
@@ -57,7 +78,42 @@ export function AppSidebar() {
         ))}
       </nav>
 
-      {/* Collapse toggle */}
+      {/* Theme toggle */}
+      {collapsed ? (
+        <button
+          onClick={cycleTheme}
+          className="flex items-center justify-center px-3 py-2.5 mx-2 mb-1 rounded-xl text-sm text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+          title={`Theme: ${theme}`}
+        >
+          <ThemeIcon className="w-[18px] h-[18px]" />
+        </button>
+      ) : (
+        <div className="mx-2 mb-1 flex rounded-xl bg-secondary/60 p-1">
+          {themeOptions.map((opt) => (
+            <button
+              key={opt.value}
+              onClick={() => setTheme(opt.value)}
+              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                theme === opt.value
+                  ? "bg-background text-foreground shadow-sm"
+                  : "text-muted-foreground hover:text-foreground"
+              }`}
+            >
+              <opt.icon className="w-3.5 h-3.5" />
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <button
+        onClick={() => supabase.auth.signOut()}
+        className="flex items-center gap-3 px-3 py-2.5 mx-2 mb-2 rounded-xl text-sm text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+      >
+        <LogOut className="w-[18px] h-[18px] flex-shrink-0" />
+        {!collapsed && <span>Sign out</span>}
+      </button>
+
       <button
         onClick={() => setCollapsed(!collapsed)}
         className="flex items-center justify-center h-12 border-t border-border text-muted-foreground hover:text-foreground transition-colors"
