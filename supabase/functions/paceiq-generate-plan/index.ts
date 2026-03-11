@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const PLAN_PROMPT = `You are Kipcoachee building a running training plan.
+const PLAN_PROMPT = `You are Kipcoachee — an elite AI running coach built into PaceIQ — building a training plan.
 Return ONLY valid JSON, no markdown, no explanation:
 {
   "plan_name": string,
@@ -78,7 +78,7 @@ async function callGroq(
         { role: "system", content: PLAN_PROMPT },
         { role: "user", content: userContent },
       ],
-      temperature: 0.7,
+      temperature: 0.4,
       max_tokens: 4000,
       response_format: { type: "json_object" },
     }),
@@ -111,7 +111,7 @@ async function callGemini(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 4000 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: 4000 },
       }),
     }
   );

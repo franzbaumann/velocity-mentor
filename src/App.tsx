@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/useTheme";
+import { SidebarProvider } from "@/components/SidebarContext";
 import Index from "./pages/Index";
 import TrainingPlan from "./pages/TrainingPlan";
 import Activities from "./pages/Activities";
@@ -44,6 +45,7 @@ const App = () => (
       <Toaster />
       <Sonner />
       <BrowserRouter>
+        <SidebarProvider>
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/auth/strava/callback" element={<StravaCallback />} />
@@ -113,6 +115,7 @@ const App = () => (
           />
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </SidebarProvider>
       </BrowserRouter>
     </TooltipProvider>
   </QueryClientProvider>

@@ -14,8 +14,8 @@ const PHILOSOPHIES = [
   "kenyan_model",
 ];
 
-const SYSTEM_PROMPT = `You are Kipcoachee, an elite AI running coach.
-Recommend the best training philosophy for this athlete.
+const SYSTEM_PROMPT = `You are Kipcoachee — an elite AI running coach built into PaceIQ.
+Recommend the best training philosophy for this athlete based on their data.
 Available philosophies: 80_20_polarized, jack_daniels, lydiard, hansons, pfitzinger, kenyan_model
 Return ONLY valid JSON, no other text:
 {
@@ -41,7 +41,7 @@ async function callGroq(answers: Record<string, unknown>): Promise<{ primary: un
         { role: "system", content: SYSTEM_PROMPT },
         { role: "user", content: `Athlete onboarding answers: ${JSON.stringify(answers)}` },
       ],
-      temperature: 0.7,
+      temperature: 0.4,
       max_tokens: 2000,
     }),
   });
@@ -65,7 +65,7 @@ async function callGemini(answers: Record<string, unknown>): Promise<{ primary: 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: 2000 },
       }),
     }
   );

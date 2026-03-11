@@ -7,16 +7,17 @@ import {
   BarChart3,
   BookOpen,
   Settings,
-  ChevronLeft,
   Zap,
   LogOut,
   Sun,
   Moon,
   Monitor,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useCallback } from "react";
+import { useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useTheme, type Theme } from "@/hooks/useTheme";
+import { useSidebar } from "@/components/SidebarContext";
 
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -35,8 +36,28 @@ const themeOptions: { value: Theme; icon: typeof Sun; label: string }[] = [
 ];
 
 export function AppSidebar() {
-  const [collapsed, setCollapsed] = useState(false);
+  const { collapsed, setCollapsed, hoverExpanded, setHoverExpanded } = useSidebar();
   const { theme, setTheme } = useTheme();
+  const location = useLocation();
+  const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const expanded = !collapsed || hoverExpanded;
+
+  const handleNavClick = useCallback(() => {
+    setCollapsed(true);
+    setHoverExpanded(false);
+  }, [setCollapsed, setHoverExpanded]);
+
+  const handleMouseEnter = useCallback(() => {
+    if (!collapsed) return;
+    if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
+    hoverTimeout.current = setTimeout(() => setHoverExpanded(true), 120);
+  }, [collapsed, setHoverExpanded]);
+
+  const handleMouseLeave = useCallback(() => {
+    if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
+    hoverTimeout.current = setTimeout(() => setHoverExpanded(false), 200);
+  }, [setHoverExpanded]);
 
   const cycleTheme = () => {
     const order: Theme[] = ["light", "dark", "system"];
@@ -48,38 +69,48 @@ export function AppSidebar() {
 
   return (
     <aside
-      className={`fixed top-0 left-0 z-40 h-screen glass-card rounded-none border-r border-border transition-all duration-300 flex flex-col ${
-        collapsed ? "w-16" : "w-60"
-      }`}
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+      className={`fixed top-0 left-0 z-40 h-screen glass-card rounded-none border-r border-border flex flex-col transition-[width] duration-300 ease-in-out ${
+        expanded ? "w-60" : "w-16"
+      } ${hoverExpanded ? "shadow-xl" : ""}`}
     >
       <div className="flex items-center gap-2.5 px-4 h-16 border-b border-border flex-shrink-0">
         <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
           <Zap className="w-4 h-4 text-primary-foreground" />
         </div>
-        {!collapsed && (
-          <span className="text-lg font-semibold text-foreground tracking-tight">
-            PaceIQ
-          </span>
-        )}
+        <span
+          className={`text-lg font-semibold text-foreground tracking-tight transition-opacity duration-200 whitespace-nowrap ${
+            expanded ? "opacity-100" : "opacity-0 w-0 overflow-hidden"
+          }`}
+        >
+          PaceIQ
+        </span>
       </div>
 
-      <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto">
+      <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto overflow-x-hidden">
         {navItems.map((item) => (
           <NavLink
             key={item.title}
             to={item.url}
             end={item.url === "/"}
+            onClick={handleNavClick}
             className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-secondary transition-colors"
             activeClassName="bg-primary/10 text-primary font-medium"
           >
             <item.icon className="w-[18px] h-[18px] flex-shrink-0" />
-            {!collapsed && <span>{item.title}</span>}
+            <span
+              className={`transition-opacity duration-200 whitespace-nowrap ${
+                expanded ? "opacity-100" : "opacity-0 w-0 overflow-hidden"
+              }`}
+            >
+              {item.title}
+            </span>
           </NavLink>
         ))}
       </nav>
 
-      {/* Theme toggle */}
-      {collapsed ? (
+      {!expanded ? (
         <button
           onClick={cycleTheme}
           className="flex items-center justify-center px-3 py-2.5 mx-2 mb-1 rounded-xl text-sm text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
@@ -108,21 +139,16 @@ export function AppSidebar() {
 
       <button
         onClick={() => supabase.auth.signOut()}
-        className="flex items-center gap-3 px-3 py-2.5 mx-2 mb-2 rounded-xl text-sm text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+        className="flex items-center gap-3 px-3 py-2.5 mx-2 mb-4 rounded-xl text-sm text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
       >
         <LogOut className="w-[18px] h-[18px] flex-shrink-0" />
-        {!collapsed && <span>Sign out</span>}
-      </button>
-
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="flex items-center justify-center h-12 border-t border-border text-muted-foreground hover:text-foreground transition-colors"
-      >
-        <ChevronLeft
-          className={`w-4 h-4 transition-transform duration-300 ${
-            collapsed ? "rotate-180" : ""
+        <span
+          className={`transition-opacity duration-200 whitespace-nowrap ${
+            expanded ? "opacity-100" : "opacity-0 w-0 overflow-hidden"
           }`}
-        />
+        >
+          Sign out
+        </span>
       </button>
     </aside>
   );

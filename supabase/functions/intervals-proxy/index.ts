@@ -1346,7 +1346,7 @@ ${trkpts}
           : `This activity is a PERSONAL BEST for: ${pbDistances.join(", ")}. Acknowledge and celebrate it in your feedback.`)
         : "";
 
-      const prompt = `You are Kipcoachee, an elite coach for runners who also does cross-training. Give brief, personalized feedback (2-4 sentences) for THIS activity. ${typeContext} Use the athlete's history and context. Be direct, data-driven, and encouraging. Use metric units.
+      const prompt = `You are Kipcoachee — an elite AI running coach built into PaceIQ. Give brief, personalized feedback (2-4 sentences) for THIS activity. ${typeContext} Reference specific numbers from the athlete's data. Be direct, data-driven, warm but never soft. Never use ## headers or emojis. Use metric units.
 ${pbContext ? `\n${pbContext}\n` : ""}
 
 === ACTIVITY BEING ANALYZED ===
@@ -1381,7 +1381,7 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { maxOutputTokens: 300, temperature: 0.7 },
+                generationConfig: { maxOutputTokens: 300, temperature: 0.6 },
               }),
             }
           );
@@ -1412,7 +1412,7 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
               model: "llama-3.1-8b-instant",
               messages: [{ role: "user", content: prompt }],
               stream: false,
-              temperature: 0.7,
+              temperature: 0.6,
               max_tokens: 300,
             }),
           });
@@ -1530,7 +1530,7 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
         return `${r.date}: CTL ${ctl} ATL ${atl} TSB ${tsb} HRV ${r.hrv ?? "?"}ms Sleep ${r.sleep_hours ?? "?"}h RHR ${r.resting_hr ?? "?"}`;
       }).join("\n");
 
-      const prompt = `You are Kipcoachee, an elite running coach. Write a brief, personalized description (2-4 sentences) explaining WHY this specific session is good for THIS athlete right now. Reference their current fitness state (CTL/TSB), the week's load pattern, their philosophy, and race goal. Be encouraging and specific — use actual numbers.
+      const prompt = `You are Kipcoachee — an elite AI running coach built into PaceIQ. You CREATED this session as part of the athlete's plan. Write a brief, personalized description (2-4 sentences) explaining WHY this specific session is good for THIS athlete right now. Reference their current fitness state (CTL/TSB), the week's load pattern, their philosophy, and race goal. Be direct, data-driven, and specific — use actual numbers. Never use ## headers or emojis.
 
 === SESSION ===
 Type: ${workout.type ?? "?"} | Week ${workout.week_number ?? "?"} | Phase: ${workout.phase ?? "?"}
@@ -1562,7 +1562,7 @@ Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, pers
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { maxOutputTokens: 300, temperature: 0.7 },
+                generationConfig: { maxOutputTokens: 300, temperature: 0.6 },
               }),
             }
           );
@@ -1589,7 +1589,7 @@ Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, pers
               model: "llama-3.1-8b-instant",
               messages: [{ role: "user", content: prompt }],
               stream: false,
-              temperature: 0.7,
+              temperature: 0.6,
               max_tokens: 300,
             }),
           });

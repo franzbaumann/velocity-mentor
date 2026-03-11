@@ -7,88 +7,426 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const SYSTEM_PROMPT = `You are Kipcoachee — an elite AI running coach who creates live, adaptable training programs. You blend the philosophies of the world's best coaches (Jack Daniels, Pfitzinger, Hansons, Lydiard, Canova, 80/20) and adapt your approach to each athlete.
+// ---------------------------------------------------------------------------
+// Types — mirrors src/lib/kipcoachee/types.ts
+// ---------------------------------------------------------------------------
 
-CRITICAL — KNOW YOUR ATHLETE BEFORE ANSWERING:
-Before answering ANY question, mentally review ALL the context data provided (profile, plan, workouts, readiness, activities, PBs). You know this athlete — their name, goals, history, current fitness. NEVER ask questions you already have the answer to in the data. NEVER respond as if you don't know who you're talking to when you have their full profile.
+interface RecentActivity {
+  date: string;
+  name: string;
+  distance_km: number | null;
+  avg_pace: string | null;
+  avg_hr: number | null;
+  tss: number | null;
+}
 
-When the athlete asks about a SPECIFIC WORKOUT or session:
-1. Check if it appears in their current training plan workouts. If it does, you CREATED this workout.
-2. Explain WHY this session is in the plan — what phase they're in, what physiological adaptation it targets (aerobic base, lactate threshold, VO2max, race specificity, recovery), and how it fits into the week's load pattern.
-3. Reference their current CTL/ATL/TSB, recent activities, and readiness to explain why NOW is the right time for this session.
-4. If it's an easy run: explain recovery purpose, aerobic development, keeping the engine running between harder sessions.
-5. If it's a quality session: explain the training stimulus, expected adaptations, and how it connects to their race goal.
-6. NEVER ask generic follow-up questions like "How are you feeling?" when you already have HRV, sleep, and readiness data. Use the data first.
+interface PersonalRecord {
+  distance: string;
+  time: string;
+  date_achieved?: string;
+}
 
-ALWAYS START ANSWERS BY ANALYZING THE DATA:
-- Open with your assessment based on their current state (CTL/TSB/readiness/recent sessions).
-- Reference specific numbers: "Your CTL is X, TSB is Y, you ran Zkm yesterday at W pace."
-- Be specific and personal, never generic.
+interface PlanSummary {
+  name: string;
+  philosophy: string;
+  current_week: number | null;
+  total_weeks: number | null;
+  peak_km: number | null;
+}
+
+interface AthleteContext {
+  name: string;
+  ctl: number | null;
+  atl: number | null;
+  tsb: number | null;
+  hrv_today: number | null;
+  hrv_7d_avg: number | null;
+  hrv_trend: "rising" | "falling" | "stable" | "unknown";
+  resting_hr: number | null;
+  philosophy: string | null;
+  goal: string | null;
+  goal_time: string | null;
+  race_date: string | null;
+  weeks_to_race: number | null;
+  injuries: string | null;
+  recent_activities: RecentActivity[];
+  this_week_km: number;
+  planned_week_km: number;
+  four_week_avg_km: number;
+  prs: PersonalRecord[];
+  plan: PlanSummary | null;
+  plan_workouts_text: string;
+  onboarding_answers: Record<string, unknown> | null;
+  readiness_history_text: string;
+}
+
+// ---------------------------------------------------------------------------
+// Context Builder — pulls all athlete data from Supabase
+// ---------------------------------------------------------------------------
+
+function resolveCtlAtlTsb(r: Record<string, unknown>) {
+  const ctl = (r.ctl ?? r.icu_ctl ?? null) as number | null;
+  const atl = (r.atl ?? r.icu_atl ?? null) as number | null;
+  const rawTsb = (r.tsb ?? r.icu_tsb ?? null) as number | null;
+  const tsb = rawTsb ?? (ctl != null && atl != null ? ctl - atl : null);
+  return { ctl, atl, tsb };
+}
+
+function isThisWeek(d: Date): boolean {
+  const now = new Date();
+  const mon = new Date(now);
+  mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
+  mon.setHours(0, 0, 0, 0);
+  const sun = new Date(mon);
+  sun.setDate(sun.getDate() + 7);
+  return d >= mon && d < sun;
+}
+
+function calculate4WeekAvg(activities: Record<string, unknown>[]): number {
+  if (!activities.length) return 0;
+  const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
+  const recent = activities.filter((a) => new Date(String(a.date ?? "")) >= fourWeeksAgo);
+  const totalKm = recent.reduce((s, a) => s + (Number(a.distance_km) || 0), 0);
+  return Math.round((totalKm / 4) * 10) / 10;
+}
+
+async function buildAthleteContext(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  userId: string,
+  intakeAnswers: Record<string, unknown> | null,
+  intervalsContext: { wellness?: unknown[]; activities?: unknown[] } | null,
+): Promise<AthleteContext> {
+  const [profileRes, readinessRes, activitiesRes, planRes, workoutsRes, pbsRes] = await Promise.all([
+    supabaseAdmin.from("athlete_profile").select("*").eq("user_id", userId).maybeSingle(),
+    supabaseAdmin.from("daily_readiness").select("*").eq("user_id", userId).order("date", { ascending: false }).limit(7),
+    supabaseAdmin.from("activity").select("*").eq("user_id", userId).order("date", { ascending: false }).limit(30),
+    supabaseAdmin.from("training_plan").select("*").eq("user_id", userId).eq("is_active", true).order("created_at", { ascending: false }).limit(1).maybeSingle(),
+    supabaseAdmin.from("training_plan_workout").select("*").eq("user_id", userId).order("date", { ascending: true }).limit(200),
+    supabaseAdmin.from("personal_records").select("distance, date_achieved, best_time_seconds, best_pace").eq("user_id", userId).order("date_achieved", { ascending: false }).limit(20),
+  ]);
+
+  const p = profileRes?.data as Record<string, unknown> | null;
+  const readiness = (readinessRes?.data ?? []) as Record<string, unknown>[];
+  const activities = (activitiesRes?.data ?? []) as Record<string, unknown>[];
+  const planRow = planRes?.data as Record<string, unknown> | null;
+  const workouts = (workoutsRes?.data ?? []) as Record<string, unknown>[];
+  const pbs = (pbsRes?.data ?? []) as Record<string, unknown>[];
+
+  // Readiness
+  const today = readiness[0] ?? {};
+  const { ctl, atl, tsb } = resolveCtlAtlTsb(today);
+  const hrvToday = (today.hrv ?? today.hrv_rmssd ?? null) as number | null;
+  const hrvValues = readiness.map((r) => (r.hrv ?? r.hrv_rmssd ?? null) as number | null).filter((v): v is number => v != null);
+  const hrv7dAvg = hrvValues.length ? Math.round((hrvValues.reduce((a, b) => a + b, 0) / hrvValues.length) * 10) / 10 : null;
+  const hrvTrend: AthleteContext["hrv_trend"] =
+    hrvToday != null && hrv7dAvg != null
+      ? hrvToday > hrv7dAvg * 1.05 ? "rising" : hrvToday < hrv7dAvg * 0.95 ? "falling" : "stable"
+      : "unknown";
+
+  const readinessHistoryText = readiness.map((r) => {
+    const { ctl: c, atl: a, tsb: t } = resolveCtlAtlTsb(r);
+    const hrv = r.hrv ?? r.hrv_rmssd ?? "?";
+    const sleep = r.sleep_hours ?? (typeof r.sleep_secs === "number" ? ((r.sleep_secs as number) / 3600).toFixed(1) : "?");
+    const rhr = r.resting_hr ?? "?";
+    return `${r.date}: CTL ${c ?? "?"} | ATL ${a ?? "?"} | TSB ${t ?? "?"} | HRV ${hrv}ms | sleep ${sleep}h | RHR ${rhr}`;
+  }).join("\n");
+
+  // Recent activities
+  const recentActivities: RecentActivity[] = activities.slice(0, 14).map((a) => ({
+    date: String(a.date ?? "?"),
+    name: String(a.type ?? a.name ?? "run"),
+    distance_km: a.distance_km != null ? Number(a.distance_km) : null,
+    avg_pace: a.avg_pace != null ? String(a.avg_pace) : null,
+    avg_hr: a.avg_hr != null ? Number(a.avg_hr) : null,
+    tss: (a.icu_training_load ?? a.training_load ?? null) != null ? Number(a.icu_training_load ?? a.training_load) : null,
+  }));
+
+  const thisWeekKm = Math.round(
+    activities.filter((a) => isThisWeek(new Date(String(a.date ?? "")))).reduce((s, a) => s + (Number(a.distance_km) || 0), 0) * 10,
+  ) / 10;
+
+  // PRs
+  const prList: PersonalRecord[] = pbs.slice(0, 10).map((pr) => {
+    const secs = Number(pr.best_time_seconds) || 0;
+    const timeStr = secs > 0 ? `${Math.floor(secs / 60)}:${String(Math.round(secs % 60)).padStart(2, "0")}` : "?";
+    return { distance: String(pr.distance ?? "?"), time: timeStr, date_achieved: String(pr.date_achieved ?? "?") };
+  });
+
+  // Plan
+  let planSummary: PlanSummary | null = null;
+  let planWorkoutsText = "";
+  let plannedWeekKm = 0;
+
+  if (planRow) {
+    const todayStr = new Date().toISOString().slice(0, 10);
+    const planId = planRow.id;
+    const planWorkouts = workouts.filter((w) => w.plan_id === planId);
+
+    planSummary = {
+      name: String(planRow.plan_name ?? "Training Plan"),
+      philosophy: String(planRow.philosophy ?? "?"),
+      current_week: null,
+      total_weeks: planRow.total_weeks != null ? Number(planRow.total_weeks) : null,
+      peak_km: planRow.peak_weekly_km != null ? Number(planRow.peak_weekly_km) : null,
+    };
+
+    if (planWorkouts.length > 0) {
+      const byWeek = new Map<number, typeof planWorkouts>();
+      for (const w of planWorkouts) {
+        const wn = Number(w.week_number ?? 0);
+        if (!byWeek.has(wn)) byWeek.set(wn, []);
+        byWeek.get(wn)!.push(w);
+      }
+      const sortedWeeks = [...byWeek.keys()].sort((a, b) => a - b);
+      const lines: string[] = [];
+
+      for (const wn of sortedWeeks) {
+        const weekWorkouts = byWeek.get(wn)!;
+        const weekFocus = String(weekWorkouts[0]?.week_focus ?? weekWorkouts[0]?.phase ?? "");
+        const weekKm = weekWorkouts.reduce((s, w) => s + (Number(w.distance_km) || 0), 0);
+        const isPast = weekWorkouts.every((w) => String(w.date ?? "").slice(0, 10) < todayStr);
+        const isCurrent = weekWorkouts.some((w) => {
+          const d = String(w.date ?? "").slice(0, 10);
+          const weekEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+          return d >= todayStr && d <= weekEnd;
+        });
+
+        if (isCurrent) {
+          planSummary!.current_week = wn;
+          plannedWeekKm = weekKm;
+        }
+
+        const marker = isCurrent ? " ← CURRENT WEEK" : isPast ? " (done)" : "";
+        lines.push(`Week ${wn}${weekFocus ? ` — ${weekFocus}` : ""} (~${Math.round(weekKm)}km)${marker}`);
+        for (const w of weekWorkouts) {
+          const d = w.date ? String(w.date).slice(0, 10) : "?";
+          const done = w.completed ? " ✓" : "";
+          lines.push(`  - ${d}: ${w.name ?? w.type ?? "workout"} ${w.distance_km ? `${w.distance_km}km` : ""} ${w.duration_minutes ? `${w.duration_minutes}min` : ""} ${w.target_pace ? `@${w.target_pace}` : ""} (${w.type ?? "easy"})${done}`);
+        }
+      }
+      planWorkoutsText = lines.join("\n");
+    }
+  }
+
+  // Merge intervals.icu data if available (client-side wellness/activities)
+  if (intervalsContext) {
+    const w = intervalsContext.wellness;
+    if (Array.isArray(w) && w.length > 0) {
+      const last = w[w.length - 1] as Record<string, unknown>;
+      if (ctl == null && last) {
+        const ic = resolveCtlAtlTsb(last);
+        if (ic.ctl != null) Object.assign(today, { ctl: ic.ctl, atl: ic.atl, tsb: ic.tsb });
+      }
+    }
+  }
+
+  // Weeks to race
+  const raceDate = p?.goal_race_date ? String(p.goal_race_date) : null;
+  const weeksToRace = raceDate ? Math.ceil((new Date(raceDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 7)) : null;
+
+  // Onboarding answers
+  const onboarding = p?.onboarding_answers && typeof p.onboarding_answers === "object"
+    ? p.onboarding_answers as Record<string, unknown>
+    : intakeAnswers;
+
+  return {
+    name: String(p?.name ?? "there").split(" ")[0],
+    ctl: resolveCtlAtlTsb(today).ctl,
+    atl: resolveCtlAtlTsb(today).atl,
+    tsb: resolveCtlAtlTsb(today).tsb,
+    hrv_today: hrvToday,
+    hrv_7d_avg: hrv7dAvg,
+    hrv_trend: hrvTrend,
+    resting_hr: (today.resting_hr ?? null) as number | null,
+    philosophy: String(p?.training_philosophy ?? p?.recommended_philosophy ?? p?.philosophy ?? ""),
+    goal: String(p?.goal_race_name ?? p?.goal_distance ?? ""),
+    goal_time: p?.goal_time ? String(p.goal_time) : null,
+    race_date: raceDate,
+    weeks_to_race: weeksToRace,
+    injuries: p?.injury_history_text ? String(p.injury_history_text) : null,
+    recent_activities: recentActivities,
+    this_week_km: thisWeekKm,
+    planned_week_km: Math.round(plannedWeekKm * 10) / 10,
+    four_week_avg_km: calculate4WeekAvg(activities),
+    prs: prList,
+    plan: planSummary,
+    plan_workouts_text: planWorkoutsText,
+    onboarding_answers: onboarding,
+    readiness_history_text: readinessHistoryText,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// System Prompt Builder — canonical version lives in src/lib/kipcoachee/system-prompt.ts
+// This is the Deno-compatible copy used by the edge function.
+// ---------------------------------------------------------------------------
+
+function buildKipcoacheeSystemPrompt(ctx: AthleteContext): string {
+  const v = (val: unknown, fallback = "unknown") =>
+    val != null && val !== "" ? String(val) : fallback;
+
+  const activitiesBlock =
+    ctx.recent_activities.length > 0
+      ? ctx.recent_activities
+          .map((a) => `- ${a.date}: ${a.name} — ${v(a.distance_km)}km @ ${v(a.avg_pace)}/km, avg HR ${v(a.avg_hr)}, load ${v(a.tss)}`)
+          .join("\n")
+      : "No recent activities synced.";
+
+  const prsBlock =
+    ctx.prs.length > 0
+      ? ctx.prs.map((pr) => `${pr.distance}: ${pr.time}`).join(", ")
+      : "none recorded";
+
+  return `You are Kipcoachee — an elite AI running coach built into PaceIQ.
+
+WHO YOU ARE
+You are direct, data-driven, and deeply knowledgeable about endurance training science. You speak like a world-class coach who has worked with everyone from beginners to Olympic athletes. You are warm but never soft. You push when needed, back off when the data says to. You are never generic — every response references this specific athlete's data.
+
+Your coaching is grounded in exercise physiology:
+- You understand CTL/ATL/TSB and use them to guide load decisions
+- You know the difference between aerobic and anaerobic adaptation
+- You understand HRV as a recovery signal, not just a number
+- You know all major training philosophies: 80/20, Jack Daniels, Lydiard, Hansons, Pfitzinger, Kenyan model
+- You understand lactate threshold, VO2max, cardiac drift, running economy
+- You can read FIT file metrics and explain what they mean
+
+CURRENT ATHLETE DATA
+Name: ${v(ctx.name, "Athlete")}
+CTL (fitness): ${v(ctx.ctl)}
+ATL (fatigue): ${v(ctx.atl)}
+TSB (form): ${v(ctx.tsb)}
+HRV today: ${v(ctx.hrv_today)}${ctx.hrv_today != null ? "ms" : ""}
+HRV 7-day average: ${v(ctx.hrv_7d_avg)}${ctx.hrv_7d_avg != null ? "ms" : ""}
+HRV trend: ${v(ctx.hrv_trend)}
+Resting HR today: ${v(ctx.resting_hr)}${ctx.resting_hr != null ? " bpm" : ""}
+Recommended philosophy: ${v(ctx.philosophy, "not set")}
+Goal: ${v(ctx.goal, "not set")}
+Race date: ${v(ctx.race_date, "not set")}
+Weeks to race: ${v(ctx.weeks_to_race)}
+Goal time: ${v(ctx.goal_time, "not set")}
+Injury history: ${v(ctx.injuries, "none reported")}
+
+Last 14 days:
+${activitiesBlock}
+
+This week: ${ctx.this_week_km}km of planned ${ctx.planned_week_km}km
+Last 4 weeks avg: ${ctx.four_week_avg_km}km/week
+Personal records: ${prsBlock}
+
+${ctx.plan ? `ACTIVE TRAINING PLAN
+Name: ${ctx.plan.name}
+Philosophy: ${ctx.plan.philosophy}
+Week: ${v(ctx.plan.current_week)} of ${v(ctx.plan.total_weeks)}
+Peak volume: ${v(ctx.plan.peak_km)}km/week` : "No active training plan."}
+
+${ctx.plan_workouts_text ? `PLAN WORKOUTS (you created these — explain their purpose when asked)
+${ctx.plan_workouts_text}` : ""}
+
+${ctx.readiness_history_text ? `READINESS HISTORY (last 7 days)
+${ctx.readiness_history_text}` : ""}
+
+${ctx.onboarding_answers ? `ONBOARDING ANSWERS (athlete's self-reported context)
+${JSON.stringify(ctx.onboarding_answers, null, 2)}` : ""}
+
+HOW YOU THINK — DECISION FRAMEWORK
+
+Before every response, silently run through this:
+
+1. READINESS CHECK
+   - Is HRV low (>15% below 7d average)? → Flag it, suggest easier session
+   - Is TSB below -20? → Athlete is fatigued, no hard sessions
+   - Is TSB above +15? → Athlete is fresh, good time for quality
+   - Is resting HR elevated (>5bpm above normal)? → Possible illness/overreach
+
+2. LOAD CHECK
+   - Is CTL rising too fast (>5 points/week)? → Injury risk, flag it
+   - Has athlete missed sessions this week? → Adjust expectations, don't pile on
+   - Is this a build week or recovery week in the plan? → Respond accordingly
+
+3. CONTEXT CHECK
+   - How many weeks to race? → Urgency of training changes
+   - What phase are we in? Base/Build/Peak/Taper → Different advice applies
+   - Any active injuries? → Always factor these in, never ignore
+
+4. PHILOSOPHY CHECK
+   - What philosophy is this athlete on? → All advice must be consistent with it
+   - 80/20: never suggest hard sessions if already at 20% intensity quota
+   - Jack Daniels: reference VDOT paces specifically
+   - Pfitzinger: high volume is expected, MLR runs are core
+
+HOW YOU COMMUNICATE
+
+ALWAYS:
+- Reference specific data points in your response ("your CTL is 42 and rising well")
+- Be concrete ("run 12km easy, keep HR under 145") not vague ("go for an easy run")
+- Acknowledge what the athlete just told you before responding
+- Use their name occasionally — not every message, but sometimes
+- Sound like a coach texting an athlete — direct, no fluff
+- Give ONE clear recommendation per message, not a list of options
+- End with something actionable or a single focused question
+
+NEVER:
+- Use ## or ### markdown headers — they look ugly in chat. Use **bold** for section titles.
+- Say "Great question!" or "That's interesting!" or any filler phrases
+- Give generic advice that could apply to any runner
+- Contradict previous advice without explaining why the data changed
+- Suggest hard sessions when HRV is low or TSB is very negative
+- Ignore injury history when recommending workouts
+- Use emojis
+- Write more than 4 sentences in a single message unless building a training plan
+- Ask questions you already have the answer to in the data above
+- Pretend to have data you don't have
+
+HOW YOU HANDLE SPECIFIC SITUATIONS
+
+When athlete asks "should I run today?":
+Check TSB, HRV, resting HR and last 3 days load. Give a clear Go/Modify/Rest recommendation with specific reason from their data.
+
+When athlete reports a completed workout:
+Comment on 1-2 specific metrics from the activity (pace, HR, cardiac drift, cadence). Compare to their targets. One sentence on what it means for their fitness. One forward-looking sentence.
+
+When athlete reports pain or injury:
+Ask specific diagnostic questions: where exactly, when does it hurt (start/during/after), scale 1-10, how long. Don't diagnose. Adjust upcoming plan conservatively. Suggest seeing a physio if >3 days.
+
+When athlete is demotivated:
+Acknowledge it briefly. Reference a specific positive data point from their recent training. Reframe the goal. Keep it short — 2-3 sentences max.
+
+When building or adjusting a training plan:
+Always explain the WHY behind each phase. Reference their specific CTL, injury history and goal.
+
+When athlete asks about a SPECIFIC session from the plan:
+This is YOUR session — you created it. Explain why it's there: what phase, what adaptation, how it fits the week's load pattern, and why now is the right time based on CTL/TSB.
+
+When athlete asks about pace/zones:
+Calculate from their actual data — VDOT from PRs, or threshold from lab test if available. Never use generic percentages.
+
+When data is missing:
+Be transparent: "I don't have your HRV data yet — once you sync intervals.icu I can give you more precise guidance. Based on what I can see..."
 
 INTAKE CONVERSATION (only when athlete is genuinely new — no profile data exists):
-Conduct a DEEP conversation to gather the athlete's full history. Ask one or two questions at a time. Probe for:
-- Running journey: How did they start? How long have they been running? What drew them to it?
-- Race history: PRs at every distance, when they ran them, breakthrough races, disappointments.
-- Current training: Weekly volume, frequency, typical sessions, long run length, how they feel.
-- Goals: Next race (distance, date, target time), medium-term ambitions, why they matter.
-- Injuries: Current niggles, past injuries (stress fractures, IT band, etc.), what’s worked for recovery.
-- Life context: Work hours, family, sleep, stress, travel — what affects their training capacity.
-- Philosophy: What approaches have they tried? What resonated? Daniels, Pfitzinger, 80/20, etc.?
-- Physiology: Resting HR, max HR if known, any lab tests, perceived effort zones.
+Conduct a DEEP conversation to gather the athlete's full history. Ask one or two questions at a time. Probe for running journey, race history, current training, goals, injuries, life context, philosophy, and physiology. Let them tell their story. Follow up on every detail. Extract specifics: paces, distances, dates, feelings.
 
-Let them tell their story. Follow up on every detail. Extract specifics: paces, distances, dates, feelings.
+TONE BY SITUATION
 
-CORE PRINCIPLES:
-1. LIVE & ADAPTIVE: Training plans change based on fatigue (CTL/ATL/TSB), stress, sleep, HRV, and readiness. Never rigid — always responsive to the athlete's current state.
-2. INJURY MINIMIZATION: Err conservative. When TSB is very negative, HRV drops, sleep is poor, or life stress is high, reduce load and prioritize recovery. Flag risk proactively.
-3. PEAK AT THE RIGHT TIME: Periodize toward the goal race. Build aerobic base first (Lydiard), add specific work (Canova), taper appropriately. Consistency over short-term gains.
-4. PHILOSOPHY BLENDING: Use the athlete's preferred philosophy when known, blend elements as needed.
-5. USE ALL DATA: The conversation history, intervals.icu wellness (CTL, ATL, TSB, HRV, sleep, resting HR), and activities. When data is sparse, work with what you have.
+Pre-workout: Focused, specific, brief. Like a coach sending a WhatsApp before a session.
+Post-workout: Analytical but warm. Like a coach reviewing a session together.
+Recovery day: Calm, reassuring. Remind them recovery is training.
+Race week: Sharp, confidence-building. No second-guessing the plan.
+Bad patch/demotivation: Direct empathy, then pivot to data and forward focus.
+Injury scare: Calm, methodical, never alarmist but never dismissive.
 
-Your tone: Direct, data-driven, serious but encouraging. Never generic or fluffy. Use the athlete's data in every answer.
-
-When building plans:
-- Week-by-week structure with specific sessions (easy, tempo, intervals, long run).
-- Adapt volume and intensity based on readiness — if fatigued, cut a session or reduce intensity.
-- Include recovery weeks and race-specific blocks.
-- Use metric units (km, /km pace) unless athlete specifies otherwise.
-
-FORMATTING (critical — your response is rendered in a chat bubble):
-- NEVER use ## or ### headers. They look ugly in chat bubbles. Instead use **bold text** for section titles on their own line.
-- Use bullet lists (- or •) for workouts, tips, or steps. Keep each bullet to one clear line.
-- For training programs: Use **bold** for week/day names (e.g. "**Week 1 — Base Building**"), then bullet points for each session (e.g. "- Easy 45min @ 5:30/km").
-- Break long answers into short paragraphs (2-3 sentences max). Separate sections with a blank line and a bold title.
-- Keep it conversational — you're chatting, not writing a document. Short, punchy, readable.
-
-When data is missing: Still give actionable advice. Recommend connecting intervals.icu for live adaptation.
-
-GOAL TIME REALISM:
-- When the athlete states a goal time (e.g. marathon in 2:30), assess it against their data: recent race results, VDOT, weekly volume, best paces. If it is clearly unrealistic (e.g. 4:00 marathon for someone with 5:30/km easy pace and no recent races), tell them kindly and suggest a more achievable target with reasoning.
-- Before they commit to a goal: Proactively recommend a target time based on their history, VDOT, recent activities, and readiness. Say "Based on your X, I'd suggest aiming for Y. Here's why."
-- Use Jack Daniels VDOT equivalencies and training-load context. Be encouraging but honest.
-
-PROACTIVE PLAN ADJUSTMENTS (critical — be proactive, not reactive):
-When the athlete has an existing plan, PROPOSE concrete plan adjustments whenever you sense risk of injury or illness. Do NOT wait for them to ask "adjust my plan." Triggers include:
+PROACTIVE PLAN ADJUSTMENTS
+When the athlete has an existing plan, PROPOSE concrete plan adjustments whenever you sense risk of injury or overtraining. Triggers:
 - Fatigue, tiredness, feeling run down after a hard week
-- Any niggle, ache, or pain (Achilles, knee, shin, etc.)
+- Any niggle, ache, or pain
 - Negative TSB, low HRV, poor sleep, high life stress
-- "Coming back from" illness, travel, or time off
-- Overtraining signs: heavy legs, elevated RHR, low motivation
+- Coming back from illness, travel, or time off
 
-When any of these apply: 1) Explain your reasoning and the suggested changes. 2) Ask "Does this work for you?" 3) Include the adjust_plan JSON with ONLY the modified week(s). The user sees an "Apply to my plan" button.
+When adjusting: explain reasoning, ask "Does this work for you?", then include the JSON block. For injury/recovery, propose a SHORT recovery block (1-3 weeks) — do NOT replace the whole plan. Include ONLY the modified weeks.
 
-CRITICAL — adjust_plan behavior:
-- For injury/recovery (Achilles, niggle, fatigue, illness): Propose a SHORT recovery block (1–3 weeks) to get the athlete feeling good, then they RESUME their existing plan. Do NOT replace the whole plan.
-- Include ONLY the weeks you are modifying in the JSON. E.g. if they're in week 5 and need recovery, output weeks 5 and 6 with reduced volume. The system will merge these into the existing plan — the rest of the plan stays intact.
-- NEVER output a full replacement plan for adjust_plan. Only the modified weeks. Focus on: reduce load → recover → return to plan.
+PLAN OUTPUT FORMAT
+Use action "adjust_plan" when modifying, "create_plan" for new plans. Always explain first, JSON last. The JSON is hidden — user sees an Apply button.
 
-PLAN ADJUSTMENT FORMAT:
-1. FIRST explain the suggested changes clearly — bullet points, headers, no raw code.
-2. Ask for confirmation: "Does this work for you?" or "Want me to apply these changes?"
-3. THEN include the JSON block. Use action "adjust_plan" when modifying an existing plan, "create_plan" for a brand new plan.
-4. NEVER show raw JSON as the main content — always lead with clear explanation. The JSON is hidden and shown as an interactive Apply button.
-
-STRUCTURED PLAN FORMAT (put at end of message, in \`\`\`json block):
 \`\`\`json
 {
   "action": "create_plan" or "adjust_plan",
@@ -118,7 +456,15 @@ STRUCTURED PLAN FORMAT (put at end of message, in \`\`\`json block):
 }
 \`\`\`
 
-GENERATE PLAN TRIGGER: When you have gathered enough context to build a plan, include "I have all the data I need" or "I'm ready to generate your plan" — this surfaces a Generate button. Do this only when you genuinely have enough information.`;
+GENERATE PLAN TRIGGER: When you have gathered enough context to build a plan, include "I have all the data I need" or "I'm ready to generate your plan" — this surfaces a Generate button.
+
+GOAL TIME REALISM
+Assess goal times against their data: recent races, VDOT, weekly volume. If unrealistic, say so kindly and suggest a more achievable target. Proactively recommend target times based on history.`;
+}
+
+// ---------------------------------------------------------------------------
+// Edge Function Handler
+// ---------------------------------------------------------------------------
 
 serve(async (req) => {
   if (req.method === "OPTIONS") {
@@ -130,9 +476,7 @@ serve(async (req) => {
     const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
     if (!GEMINI_API_KEY && !GROQ_API_KEY) {
       return new Response(
-        JSON.stringify({
-          error: "Kipcoachee needs GEMINI_API_KEY or GROQ_API_KEY. Set one: supabase secrets set GEMINI_API_KEY=... (free at aistudio.google.com) or GROQ_API_KEY=... (free at console.groq.com)",
-        }),
+        JSON.stringify({ error: "Kipcoachee needs GEMINI_API_KEY or GROQ_API_KEY." }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -140,7 +484,6 @@ serve(async (req) => {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-    // Optional auth — chat works with or without sign-in
     let user: { id: string } | null = null;
     const authHeader = req.headers.get("authorization") ?? "";
     const token = authHeader.replace("Bearer ", "").trim();
@@ -165,152 +508,40 @@ serve(async (req) => {
       intervalsContext = body?.intervalsContext ?? null;
     } catch {
       return new Response(JSON.stringify({ error: "Invalid request body" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
     if (messages.length === 0) {
       return new Response(JSON.stringify({ error: "No messages provided" }), {
-        status: 400,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
+        status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
-    // Fetch athlete context only when signed in
-    const [profileRes, readinessRes, activitiesRes, planRes, workoutsRes, pbsRes] = user
-      ? await Promise.all([
-          supabaseAdmin.from("athlete_profile").select("*").eq("user_id", user.id).maybeSingle(),
-          supabaseAdmin.from("daily_readiness").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(7),
-          supabaseAdmin.from("activity").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
-          supabaseAdmin.from("training_plan").select("*").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }).limit(1).maybeSingle(),
-          supabaseAdmin.from("training_plan_workout").select("*").eq("user_id", user.id).order("date", { ascending: true }).limit(200),
-          supabaseAdmin.from("personal_records").select("distance, date_achieved, best_time_seconds, best_pace").eq("user_id", user.id).order("date_achieved", { ascending: false }).limit(20),
-        ])
-      : [null, null, null, null, null, null] as const;
+    // Build full athlete context and system prompt
+    const athleteContext = user
+      ? await buildAthleteContext(supabaseAdmin, user.id, intakeAnswers, intervalsContext)
+      : null;
 
-    // Build context block
-    let context = "";
-    if (profileRes?.data) {
-      const p = profileRes.data;
-      context += `\n\n## Athlete Profile\nName: ${p.name}\nVDOT: ${p.vdot ?? "unknown"}\nMax HR: ${p.max_hr ?? "unknown"}\nResting HR: ${p.resting_hr ?? "unknown"}\nPhilosophy: ${p.training_philosophy ?? p.philosophy ?? "jack_daniels"}\nGoal Race: ${p.goal_race_name ?? p.goal_race ?? "none"}\nGoal Date: ${p.goal_race_date ?? "none"}\nGoal Time: ${p.goal_time ?? "none"}\nDays/week: ${p.days_per_week ?? "?"}\nNarrative: ${p.narrative ?? "none"}\nPreferred Long Run Day: ${p.preferred_longrun_day ?? "Saturday"}`;
-      if (p.onboarding_answers && typeof p.onboarding_answers === "object") {
-        context += `\n\n## PaceIQ Onboarding (goals, fitness, injuries, history)\n${JSON.stringify(p.onboarding_answers, null, 2)}`;
-      }
-    }
-
-    if (planRes?.data) {
-      const plan = planRes.data;
-      context += `\n\n## Current Training Plan\nName: ${plan.plan_name ?? "Training Plan"}\nPhilosophy: ${plan.philosophy ?? "?"}\nStart: ${plan.start_date ?? "?"}\nEnd: ${plan.end_date ?? "?"}\nTotal weeks: ${plan.total_weeks ?? "?"}\nPeak km/week: ${plan.peak_weekly_km ?? "?"}`;
-    }
-
-    if (workoutsRes?.data && workoutsRes.data.length > 0 && planRes?.data) {
-      const planId = planRes.data.id;
-      const planWorkouts = workoutsRes.data.filter((w) => w.plan_id === planId);
-      if (planWorkouts.length > 0) {
-        const today = new Date().toISOString().slice(0, 10);
-
-        // Full plan structure — the coach needs to understand the whole periodization
-        const byWeek = new Map<number, typeof planWorkouts>();
-        for (const w of planWorkouts) {
-          const wn = w.week_number ?? 0;
-          if (!byWeek.has(wn)) byWeek.set(wn, []);
-          byWeek.get(wn)!.push(w);
-        }
-        const sortedWeeks = [...byWeek.keys()].sort((a, b) => a - b);
-        context += `\n\n## Full Training Plan Structure (YOU created these sessions — explain their purpose when asked)\n`;
-        for (const wn of sortedWeeks) {
-          const weekWorkouts = byWeek.get(wn)!;
-          const weekFocus = weekWorkouts[0]?.week_focus ?? "";
-          const weekKm = weekWorkouts.reduce((s, w) => s + (w.distance_km ?? 0), 0);
-          const isPast = weekWorkouts.every((w) => String(w.date ?? "").slice(0, 10) < today);
-          const isCurrent = weekWorkouts.some((w) => {
-            const d = String(w.date ?? "").slice(0, 10);
-            const weekEnd = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
-            return d >= today && d <= weekEnd;
-          });
-          const marker = isCurrent ? " ← CURRENT WEEK" : isPast ? " (done)" : "";
-          context += `\n### Week ${wn}${weekFocus ? ` — ${weekFocus}` : ""} (~${Math.round(weekKm)}km)${marker}\n`;
-          for (const w of weekWorkouts) {
-            const d = w.date ? String(w.date).slice(0, 10) : "?";
-            const done = w.completed ? " ✓" : "";
-            context += `- ${d}: ${w.name ?? w.type ?? "workout"} ${w.distance_km ? `${w.distance_km}km` : ""} ${w.duration_minutes ? `${w.duration_minutes}min` : ""} ${w.target_pace ? `@${w.target_pace}` : ""} (${w.type ?? "easy"})${done}\n`;
-          }
-        }
-        context += `\nFor injury/recovery adjust_plan, output ONLY the week(s) you are modifying.\n`;
-      }
-    }
-
-    if (readinessRes?.data && readinessRes.data.length > 0) {
-      const latest = readinessRes.data[0] as { date: string; score?: number | null; hrv?: number | null; hrv_baseline?: number | null; sleep_hours?: number | null; sleep_quality?: number | null; resting_hr?: number | null; ctl?: number | null; atl?: number | null; tsb?: number | null; icu_ctl?: number | null; icu_atl?: number | null; icu_tsb?: number | null; ai_summary?: string | null };
-      const ctl = latest.ctl ?? latest.icu_ctl ?? null;
-      const atl = latest.atl ?? latest.icu_atl ?? null;
-      const tsb = latest.tsb ?? latest.icu_tsb ?? (ctl != null && atl != null ? ctl - atl : null);
-      context += `\n\n## Latest Readiness (${latest.date})\nScore: ${latest.score}\nHRV: ${latest.hrv} (baseline: ${latest.hrv_baseline})\nSleep: ${latest.sleep_hours}h (quality: ${latest.sleep_quality}/10)\nResting HR: ${latest.resting_hr}\nCTL: ${ctl} | ATL: ${atl} | TSB: ${tsb}\nSummary: ${latest.ai_summary ?? "none"}`;
-    }
-
-    if (activitiesRes?.data && activitiesRes.data.length > 0) {
-      context += `\n\n## Recent Activities (last ${activitiesRes.data.length})`;
-      for (const a of activitiesRes.data) {
-        const dur = a.duration_seconds ? `${Math.floor(a.duration_seconds / 60)}min` : "?";
-        context += `\n- ${a.date}: ${a.type ?? "run"} ${a.distance_km ?? "?"}km in ${dur}, pace ${a.avg_pace ?? "?"}, HR ${a.avg_hr ?? "?"}/${a.max_hr ?? "?"}`;
-      }
-    }
-
-    if (pbsRes?.data && pbsRes.data.length > 0) {
-      context += `\n\n## Personal Bests (celebrate these when relevant)`;
-      const marathonPbs = (pbsRes.data as { distance?: string; date_achieved?: string }[]).filter((p) => /marathon|42/i.test(String(p.distance ?? "")));
-      if (marathonPbs.length > 0) {
-        context += `\nMarathon PB(s): ${marathonPbs.map((p) => `${p.date_achieved ?? "?"} — ${p.distance ?? "?"}`).join("; ")}. When the athlete mentions a marathon or marathon PB, acknowledge it as a major milestone.`;
-      }
-      for (const p of (pbsRes.data as { distance?: string; date_achieved?: string; best_time_seconds?: number }[]).slice(0, 10)) {
-        const timeStr = p.best_time_seconds ? `${Math.floor(p.best_time_seconds / 60)}:${String(p.best_time_seconds % 60).padStart(2, "0")}` : "?";
-        context += `\n- ${p.distance ?? "?"}: ${timeStr} (${p.date_achieved ?? "?"})`;
-      }
-    }
-
-    if (intakeAnswers && Object.keys(intakeAnswers).length > 0) {
-      context += `\n\n## Previously captured intake (from earlier session)\n${JSON.stringify(intakeAnswers, null, 2)}`;
-    }
-
-    // intervals.icu data (wellness = CTL/ATL/TSB, HRV, sleep; activities = recent runs)
-    if (intervalsContext) {
-      const w = intervalsContext.wellness;
-      const a = intervalsContext.activities;
-      if (Array.isArray(w) && w.length > 0) {
-        context += `\n\n## intervals.icu Wellness (last 30 days — use for fatigue, readiness, adaptation)\n`;
-        const recent = w.slice(-14); // last 2 weeks most relevant
-        for (const d of recent) {
-          const id = d.id ?? d.date;
-          const ctl = d.ctl ?? d.icu_ctl ?? "?";
-          const atl = d.atl ?? d.icu_atl ?? "?";
-          const tsb = d.tsb ?? d.icu_tsb ?? "?";
-          const hrv = d.hrv ?? "?";
-          const sleep = d.sleepHours ?? (d.sleepSecs ? (d.sleepSecs / 3600).toFixed(1) : "?");
-          const rhr = d.restingHR ?? "?";
-          context += `${id}: CTL ${ctl} | ATL ${atl} | TSB ${tsb} | HRV ${hrv}ms | sleep ${sleep}h | RHR ${rhr}\n`;
-        }
-      }
-      if (Array.isArray(a) && a.length > 0) {
-        context += `\n\n## intervals.icu Activities (last 16 weeks)\n`;
-        const recent = a.slice(0, 20);
-        for (const act of recent) {
-          const date = act.start_date_local ?? act.date ?? "?";
-          const dist = act.distance != null ? (act.distance / 1000).toFixed(1) : "?";
-          const dur = act.moving_time ? `${Math.round(act.moving_time / 60)}min` : "?";
-          const name = act.name ?? "run";
-          context += `- ${date}: ${name} ${dist}km, ${dur}\n`;
-        }
-      }
-    }
-
-    const systemMessage = SYSTEM_PROMPT + (context ? `\n\n---\nATHLETE DATA:${context}` : "");
+    const systemPrompt = athleteContext
+      ? buildKipcoacheeSystemPrompt(athleteContext)
+      : buildKipcoacheeSystemPrompt({
+          name: "there",
+          ctl: null, atl: null, tsb: null,
+          hrv_today: null, hrv_7d_avg: null, hrv_trend: "unknown",
+          resting_hr: null, philosophy: null,
+          goal: null, goal_time: null, race_date: null, weeks_to_race: null,
+          injuries: null, recent_activities: [], this_week_km: 0, planned_week_km: 0,
+          four_week_avg_km: 0, prs: [], plan: null, plan_workouts_text: "",
+          onboarding_answers: null, readiness_history_text: "",
+        });
 
     const chatMessages = [
-      { role: "system" as const, content: systemMessage },
+      { role: "system" as const, content: systemPrompt },
       ...messages.map((m) => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
     ];
 
+    // Streaming: try Groq first (faster), fall back to Gemini
     let streamBody: ReadableStream<Uint8Array>;
 
     async function tryGemini(): Promise<ReadableStream<Uint8Array> | null> {
@@ -318,7 +549,7 @@ serve(async (req) => {
       const contents = chatMessages
         .filter((m) => m.role !== "system")
         .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
-      const systemInstruction = chatMessages.find((m) => m.role === "system")?.content ?? SYSTEM_PROMPT;
+      const systemInstruction = chatMessages.find((m) => m.role === "system")?.content ?? systemPrompt;
 
       const geminiFetch = () =>
         fetch(
@@ -329,7 +560,7 @@ serve(async (req) => {
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: systemInstruction }] },
               contents,
-              generationConfig: { temperature: 0.7, maxOutputTokens: 8192 },
+              generationConfig: { temperature: 0.6, maxOutputTokens: 8192 },
             }),
           },
         );
@@ -366,16 +597,14 @@ serve(async (req) => {
                 try {
                   const json = JSON.parse(raw);
                   const parts = json.candidates?.[0]?.content?.parts ?? [];
-                  for (const p of parts) {
-                    const t = p?.text;
+                  for (const pt of parts) {
+                    const t = pt?.text;
                     if (typeof t === "string" && t) {
                       chunkCount++;
                       controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: t } }] })}\n\n`));
                     }
                   }
-                } catch {
-                  /* skip malformed line */
-                }
+                } catch { /* skip malformed */ }
               }
             }
             if (chunkCount === 0) console.warn("Gemini stream: 0 text chunks received");
@@ -396,11 +625,11 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "llama-3.1-8b-instant",
+          model: "llama-3.3-70b-versatile",
           messages: chatMessages,
           stream: true,
-          temperature: 0.7,
-          max_tokens: 8192,
+          temperature: 0.6,
+          max_tokens: 4096,
         }),
       });
       if (!res.ok) {
@@ -413,14 +642,13 @@ serve(async (req) => {
     const stream = (await tryGroq()) ?? (await tryGemini());
     if (!stream) {
       return new Response(
-        JSON.stringify({
-          error: "AI unavailable. Gemini and Groq both failed. Check keys and logs. Set GEMINI_API_KEY (aistudio.google.com) or GROQ_API_KEY (console.groq.com).",
-        }),
+        JSON.stringify({ error: "AI unavailable. Gemini and Groq both failed." }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
     streamBody = stream;
 
+    // Log user message asynchronously
     if (user) {
       const lastUserMsg = messages[messages.length - 1];
       if (lastUserMsg?.role === "user") {
@@ -439,8 +667,7 @@ serve(async (req) => {
   } catch (e) {
     console.error("coach-chat error:", e);
     return new Response(JSON.stringify({ error: e instanceof Error ? e.message : "Unknown error" }), {
-      status: 500,
-      headers: { ...corsHeaders, "Content-Type": "application/json" },
+      status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   }
 });

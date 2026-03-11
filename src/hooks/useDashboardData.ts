@@ -223,31 +223,14 @@ export function useDashboardData() {
 
   const weekPlan = useMemo(() => {
     const mon = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const monStr = format(mon, "yyyy-MM-dd");
+    const sunStr = format(addDays(mon, 6), "yyyy-MM-dd");
     const planSessionsByDate = new Map<string, { type: string; description: string; distance_km?: number; pace_target?: string }[]>();
     if (planData?.weeks?.length) {
-      const today = new Date();
-      const thisMon = startOfWeek(today, { weekStartsOn: 1 });
-      let thisWeekData = planData.weeks.find((w: { start_date?: string }) => {
-        const start = w.start_date ? parseISO(w.start_date) : null;
-        if (!start) return false;
-        const end = addDays(start, 6);
-        return isWithinInterval(today, { start, end });
-      }) ?? planData.weeks.find((w: { start_date?: string }) => {
-        const start = w.start_date ? parseISO(w.start_date) : null;
-        if (!start) return false;
-        return format(start, "yyyy-MM-dd") === format(thisMon, "yyyy-MM-dd");
-      });
-      if (!thisWeekData) {
-        const planStart = planData.plan?.start_date ? parseISO(planData.plan.start_date) : mon;
-        const weekStart = startOfWeek(planStart, { weekStartsOn: 1 });
-        const currentWeekNum = Math.floor((today.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
-        thisWeekData = planData.weeks.find((w: { week_number: number }) => w.week_number === currentWeekNum)
-          ?? planData.weeks[planData.weeks.length - 1];
-      }
-      if (thisWeekData?.sessions) {
-        for (const s of thisWeekData.sessions as { scheduled_date?: string; session_type?: string; description?: string; distance_km?: number; pace_target?: string }[]) {
+      for (const week of planData.weeks as { sessions?: { scheduled_date?: string; session_type?: string; description?: string; distance_km?: number; pace_target?: string }[]; start_date?: string }[]) {
+        for (const s of week.sessions ?? []) {
           const d = s.scheduled_date ? String(s.scheduled_date).slice(0, 10) : null;
-          if (d) {
+          if (d && d >= monStr && d <= sunStr) {
             const arr = planSessionsByDate.get(d) ?? [];
             arr.push({
               type: (s.session_type ?? "easy").toLowerCase(),
