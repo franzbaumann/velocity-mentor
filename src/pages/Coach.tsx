@@ -5,6 +5,10 @@ import { Send, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ReactMarkdown from "react-markdown";
 import { OnboardingFlow } from "@/components/OnboardingFlow";
+import { lazy, Suspense } from "react";
+
+const OnboardingV2 = lazy(() => import("@/components/onboarding-v2/OnboardingV2"));
+const USE_NEW_ONBOARDING = import.meta.env.VITE_NEW_ONBOARDING === "true";
 import type { Components } from "react-markdown";
 import { toast } from "sonner";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
@@ -16,6 +20,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { format, addDays, isToday, startOfWeek } from "date-fns";
 import { isRunningActivity } from "@/lib/analytics";
 import { formatDistance } from "@/lib/format";
+import { ChatStatCharts } from "@/components/ChatStatChart";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -809,8 +814,17 @@ export default function Coach() {
       action?: "view_plan" | "chat"
     ) => {
       setOnboardingAnswers(finalAnswers);
-      updateProfile({ onboarding_complete: true, onboarding_answers: finalAnswers });
       setOnboardingPhase("done");
+
+      // V2 saves the full profile itself; old flow needs this fallback
+      const isV2 = "goal" in finalAnswers && !("mainGoal" in finalAnswers);
+      if (!isV2) {
+        updateProfile({ onboarding_complete: true, onboarding_answers: finalAnswers });
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["athlete_profile"] });
+      queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+
       if (action === "view_plan" && planResult?.plan_id) {
         toast.success("Your plan is ready!");
         window.location.href = "/plan";
@@ -818,7 +832,7 @@ export default function Coach() {
         toast.success("Welcome! Chat with Kipcoachee whenever you're ready.");
       }
     },
-    [updateProfile]
+    [updateProfile, queryClient]
   );
 
   const handleGeneratePlan = useCallback(async () => {
@@ -865,6 +879,17 @@ export default function Coach() {
     onboardingPhase !== "done";
 
   if (showOnboarding) {
+    if (USE_NEW_ONBOARDING) {
+      return (
+        <Suspense fallback={
+          <div className="min-h-screen bg-background flex items-center justify-center">
+            <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+          </div>
+        }>
+          <OnboardingV2 onComplete={handleOnboardingComplete} />
+        </Suspense>
+      );
+    }
     return (
       <OnboardingFlow
         answers={onboardingAnswers as import("@/hooks/useAthleteProfile").OnboardingAnswers}
@@ -980,6 +1005,15 @@ export default function Coach() {
                       )}
                     </div>
                   </div>
+                  {msg.role === "assistant" && !(isLoading && i === messages.length - 1) && (
+                    <div className="ml-11">
+                      <ChatStatCharts
+                        content={msg.content}
+                        readiness={Array.isArray(wellnessData) ? wellnessData : []}
+                        activities={Array.isArray(activitiesData) ? activitiesData : []}
+                      />
+                    </div>
+                  )}
                   {msg.role === "assistant" && extractedPlan && (
                     <div className="ml-11">
                       <PlanAdjustmentCard

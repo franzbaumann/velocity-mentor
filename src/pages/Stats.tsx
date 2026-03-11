@@ -12,7 +12,7 @@ import {
   findBestForDistance,
 } from "@/lib/analytics";
 import { formatDuration, formatPaceFromMinPerKm } from "@/lib/format";
-import { Link2, ArrowRight, TrendingUp, BarChart3, Activity, Trophy, Heart, Moon, Zap, Wind } from "lucide-react";
+import { Link2, ArrowRight, TrendingUp, BarChart3, Activity, Trophy, Heart, Moon, Zap, Wind, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { format, subDays, subWeeks, startOfWeek } from "date-fns";
 import { useMemo, useState, useEffect } from "react";
@@ -21,7 +21,6 @@ import {
   Line,
   BarChart,
   Bar,
-  AreaChart,
   XAxis,
   YAxis,
   CartesianGrid,
@@ -39,14 +38,108 @@ const oldest120d = fmt(subDays(now, 120));
 
 const THRESHOLD_HR = 170; // TODO: from settings
 
-function ChartCard({ icon: Icon, title, children }: { icon: React.ComponentType<{ className?: string }>; title: string; children: React.ReactNode }) {
+const STAT_INFO: Record<string, React.ReactNode> = {
+  fitness: (
+    <>
+      <p className="font-semibold text-foreground mb-1">CTL / ATL / TSB</p>
+      <p className="text-muted-foreground text-xs mb-1"><strong>CTL</strong> — 42-day fitness. <strong>ATL</strong> — 7-day fatigue. <strong>TSB</strong> = CTL − ATL. Positive = fresh, negative = fatigued.</p>
+      <p className="text-muted-foreground text-xs">Peak &gt;5 · Fatigued &lt;−10.</p>
+    </>
+  ),
+  mileage: (
+    <>
+      <p className="font-semibold text-foreground mb-1">Weekly Mileage</p>
+      <p className="text-muted-foreground text-xs">Total km per week (Mon–Sun). Tracks volume trends.</p>
+    </>
+  ),
+  pace: (
+    <>
+      <p className="font-semibold text-foreground mb-1">Pace Progression</p>
+      <p className="text-muted-foreground text-xs">Pace per run. Dashed line = 4-week average; filter by run type.</p>
+    </>
+  ),
+  prs: (
+    <>
+      <p className="font-semibold text-foreground mb-1">Personal Records</p>
+      <p className="text-muted-foreground text-xs">Best times at 5K, 10K, Half, Marathon. Tap a row to open the activity.</p>
+    </>
+  ),
+  hrEfficiency: (
+    <>
+      <p className="font-semibold text-foreground mb-1">HR Efficiency</p>
+      <p className="text-muted-foreground text-xs">Pace at 140–150 bpm. Faster over time = better aerobic fitness.</p>
+    </>
+  ),
+  readiness: (
+    <>
+      <p className="font-semibold text-foreground mb-1">Readiness Score</p>
+      <p className="text-muted-foreground text-xs">0–100 from TSB/CTL or intervals.icu. Higher = ready to train hard.</p>
+    </>
+  ),
+  sleep: (
+    <>
+      <p className="font-semibold text-foreground mb-1">Sleep Score</p>
+      <p className="text-muted-foreground text-xs">0–100 from intervals.icu. Tracks recovery.</p>
+    </>
+  ),
+  hrv: (
+    <>
+      <p className="font-semibold text-foreground mb-1">HRV Trend</p>
+      <p className="text-muted-foreground text-xs">Heart rate variability (ms). Low = fatigue or illness.</p>
+    </>
+  ),
+  sleepResting: (
+    <>
+      <p className="font-semibold text-foreground mb-1">Sleep & Resting HR</p>
+      <p className="text-muted-foreground text-xs">Sleep hours + resting HR. Rising RHR = fatigue.</p>
+    </>
+  ),
+  vo2max: (
+    <>
+      <p className="font-semibold text-foreground mb-1">VO2max</p>
+      <p className="text-muted-foreground text-xs">Estimated aerobic capacity from intervals.icu or wearable.</p>
+    </>
+  ),
+  rampRate: (
+    <>
+      <p className="font-semibold text-foreground mb-1">Ramp Rate</p>
+      <p className="text-muted-foreground text-xs">CTL change per week. &gt;5 pts/week = injury risk.</p>
+    </>
+  ),
+};
+
+function ChartCard({
+  icon: Icon,
+  title,
+  children,
+  info,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  children: React.ReactNode;
+  info?: string;
+}) {
   return (
     <div className="glass-card overflow-hidden">
-      <div className="px-5 py-3 border-b border-border bg-card/60 backdrop-blur-sm">
-        <div className="flex items-center gap-2">
-          <Icon className="w-4 h-4 text-primary" />
-          <span className="text-sm font-semibold text-foreground">{title}</span>
+      <div className="px-5 py-3 border-b border-border bg-card/60 backdrop-blur-sm flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <Icon className="w-4 h-4 text-primary flex-shrink-0" />
+          <span className="text-sm font-semibold text-foreground truncate">{title}</span>
         </div>
+        {info && STAT_INFO[info] && (
+          <div className="relative group flex-shrink-0">
+            <button
+              type="button"
+              className="w-7 h-7 rounded-full flex items-center justify-center bg-muted text-foreground/70 hover:text-foreground hover:bg-muted/80 transition-colors border border-border"
+              aria-label="Info"
+            >
+              <Info className="w-4 h-4" />
+            </button>
+            <div className="absolute right-0 top-full mt-1 z-50 rounded-lg border border-border bg-popover px-3 py-2.5 shadow-lg text-left opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-opacity w-64 pointer-events-none">
+              {STAT_INFO[info]}
+            </div>
+          </div>
+        )}
       </div>
       <div className="p-4">{children}</div>
     </div>
@@ -78,22 +171,44 @@ function formatPaceTick(val: number): string {
   return `${min}:${String(sec).padStart(2, "0")}/km`;
 }
 
+/** Deduplicate readiness by date — keep row with most complete CTL/ATL/TSB */
+function deduplicateReadiness<T extends { date: string } & Record<string, unknown>>(
+  rows: T[],
+  resolve: (r: T) => { ctl: number | null; atl: number | null; tsb: number | null }
+): T[] {
+  const byDate = new Map<string, T>();
+  for (const r of rows) {
+    const existing = byDate.get(r.date);
+    if (!existing) {
+      byDate.set(r.date, r);
+      continue;
+    }
+    const curr = resolve(r);
+    const prev = resolve(existing);
+    const currScore = [curr.ctl, curr.atl, curr.tsb].filter((v) => v != null).length;
+    const prevScore = [prev.ctl, prev.atl, prev.tsb].filter((v) => v != null).length;
+    if (currScore >= prevScore) byDate.set(r.date, r);
+  }
+  return Array.from(byDate.values());
+}
+
 // ── 1. CTL/ATL/TSB Fitness Chart ──
 function FitnessChart({
   activities,
   readiness,
 }: {
   activities: { date: string; type: string | null; distance_km: number | null; duration_seconds: number | null; avg_hr: number | null }[];
-  readiness: { date: string; ctl: number | null; atl: number | null; tsb: number | null }[];
+  readiness: { date: string; ctl?: number | null; atl?: number | null; tsb?: number | null; icu_ctl?: number | null; icu_atl?: number | null; icu_tsb?: number | null }[];
 }) {
   const chartData = useMemo(() => {
-    const fromReadiness = readiness
-      .filter((r) => {
-        const { ctl, atl, tsb } = resolveCtlAtlTsb(r);
-        return (ctl != null || atl != null || tsb != null) && r.date <= fmt(now);
-      })
+    const filtered = readiness.filter((r) => {
+      const { ctl, atl, tsb } = resolveCtlAtlTsb(r);
+      return (ctl != null || atl != null || tsb != null) && r.date <= fmt(now);
+    });
+    const deduped = deduplicateReadiness(filtered, (r) => resolveCtlAtlTsb(r));
+    const fromReadiness = deduped
       .sort((a, b) => a.date.localeCompare(b.date))
-      .slice(-120)
+      .slice(-112)
       .map((r) => {
         const { ctl, atl, tsb } = resolveCtlAtlTsb(r);
         return { date: r.date, CTL: ctl ?? 0, ATL: atl ?? 0, TSB: tsb ?? 0 };
@@ -135,9 +250,9 @@ function FitnessChart({
   return (
     <div className="h-[300px]">
       <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 40 }}>
+        <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 40 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => format(new Date(v), "MMM d")} interval="preserveStartEnd" />
+          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => format(new Date(v), "MMM d")} interval={chartData.length > 60 ? Math.floor(chartData.length / 8) : "preserveStartEnd" } />
           <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => Math.round(v).toString()} domain={yDomain} />
           <Tooltip content={<CustomTooltip />} />
           <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" />
@@ -147,7 +262,7 @@ function FitnessChart({
           <Line type="monotone" dataKey="CTL" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} connectNulls name="CTL (fitness)" />
           <Line type="monotone" dataKey="ATL" stroke="hsl(36 100% 52%)" strokeWidth={2} dot={false} connectNulls name="ATL (fatigue)" />
           <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="bottom" height={28} />
-        </AreaChart>
+        </LineChart>
       </ResponsiveContainer>
       <div className="flex gap-4 mt-3 flex-wrap text-xs text-muted-foreground">
         <span><span className="inline-block w-2 h-2 rounded-full bg-[hsl(141_72%_50%)] mr-1" />Peak (TSB &gt; 5)</span>
@@ -528,19 +643,19 @@ function RunningStatsSection({
   );
   return (
     <>
-      <ChartCard icon={TrendingUp} title="Fitness & Fatigue (CTL / ATL / TSB) — 16 weeks">
+      <ChartCard icon={TrendingUp} title="Fitness & Fatigue (CTL / ATL / TSB) — 16 weeks" info="fitness">
         <FitnessChart activities={runningActivities} readiness={readiness} />
       </ChartCard>
-      <ChartCard icon={BarChart3} title="Weekly Mileage — 16 weeks (runs only)">
+      <ChartCard icon={BarChart3} title="Weekly Mileage — 16 weeks (runs only)" info="mileage">
         <WeeklyMileageChartSimple activities={runningActivities} />
       </ChartCard>
-      <ChartCard icon={Activity} title="Pace Progression (runs only)">
+      <ChartCard icon={Activity} title="Pace Progression (runs only)" info="pace">
         <PaceProgressionChart activities={runningActivities} />
       </ChartCard>
-      <ChartCard icon={Trophy} title="Personal Records (runs only)">
+      <ChartCard icon={Trophy} title="Personal Records (runs only)" info="prs">
         <PersonalRecordsTable activities={runningActivities} />
       </ChartCard>
-      <ChartCard icon={Heart} title="HR Efficiency Trend — aerobic pace (140–150 bpm)">
+      <ChartCard icon={Heart} title="HR Efficiency Trend — aerobic pace (140–150 bpm)" info="hrEfficiency">
         <HREfficiencyChart activities={runningActivities} />
       </ChartCard>
     </>
@@ -629,17 +744,17 @@ export default function Stats() {
           <div className="space-y-4">
             <div className="space-y-3">
               <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Fitness & fatigue</h2>
-              <ChartCard icon={TrendingUp} title="CTL / ATL / TSB">
+              <ChartCard icon={TrendingUp} title="CTL / ATL / TSB" info="fitness">
                 <FitnessChart activities={activities.filter((a) => isRunningActivity(a.type))} readiness={readiness} />
               </ChartCard>
             </div>
             <div className="space-y-3">
               <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Wellness scores</h2>
               <div className="grid gap-3 sm:grid-cols-2">
-                <ChartCard icon={Activity} title="Readiness Score">
+                <ChartCard icon={Activity} title="Readiness Score" info="readiness">
                   <ReadinessScoreChart readiness={readiness} />
                 </ChartCard>
-                <ChartCard icon={Moon} title="Sleep Score">
+                <ChartCard icon={Moon} title="Sleep Score" info="sleep">
                   <SleepScoreChart readiness={readiness} />
                 </ChartCard>
               </div>
@@ -647,10 +762,10 @@ export default function Stats() {
             <div className="space-y-3">
               <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">HR & recovery</h2>
               <div className="grid gap-3 sm:grid-cols-2">
-                <ChartCard icon={Zap} title="HRV Trend">
+                <ChartCard icon={Zap} title="HRV Trend" info="hrv">
                   <HRVChart readiness={readiness} />
                 </ChartCard>
-                <ChartCard icon={Heart} title="Sleep & Resting HR">
+                <ChartCard icon={Heart} title="Sleep & Resting HR" info="sleepResting">
                   <SleepRestingChart readiness={readiness} />
                 </ChartCard>
               </div>
@@ -658,10 +773,10 @@ export default function Stats() {
             <div className="space-y-3">
               <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Fitness metrics</h2>
               <div className="grid gap-3 sm:grid-cols-2">
-                <ChartCard icon={Wind} title="VO2max">
+                <ChartCard icon={Wind} title="VO2max" info="vo2max">
                   <VO2maxChart readiness={readiness} />
                 </ChartCard>
-                <ChartCard icon={BarChart3} title="Ramp Rate">
+                <ChartCard icon={BarChart3} title="Ramp Rate" info="rampRate">
                   <RampRateChart readiness={readiness} />
                 </ChartCard>
               </div>
