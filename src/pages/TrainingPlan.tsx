@@ -1,22 +1,26 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useTrainingPlan } from "@/hooks/use-training-plan";
-import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, GripVertical, Check, MessageCircle } from "lucide-react";
-import { useState, useMemo } from "react";
+import { supabase } from "@/integrations/supabase/client";
+import { FunctionsHttpError } from "@supabase/supabase-js";
+import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, GripVertical, Check, MessageCircle, Sparkles } from "lucide-react";
+import { useState, useMemo, useEffect } from "react";
 import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, isWithinInterval } from "date-fns";
 import { useNavigate } from "react-router-dom";
+import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** Match app theme for session badges */
 const SESSION_COLORS: Record<string, string> = {
-  easy: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
-  tempo: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  interval: "bg-rose-500/15 text-rose-700 dark:text-rose-400",
-  intervals: "bg-rose-500/15 text-rose-700 dark:text-rose-400",
-  long: "bg-blue-500/15 text-blue-700 dark:text-blue-400",
-  recovery: "bg-slate-500/15 text-slate-600 dark:text-slate-400",
+  easy: "bg-accent/15 text-accent",
+  tempo: "bg-primary/15 text-primary",
+  interval: "bg-destructive/15 text-destructive",
+  intervals: "bg-destructive/15 text-destructive",
+  long: "bg-warning/15 text-warning",
+  recovery: "bg-muted text-muted-foreground",
   rest: "bg-muted text-muted-foreground",
-  strides: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+  strides: "bg-accent/15 text-accent",
 };
 
 function SessionCard({
@@ -24,11 +28,13 @@ function SessionCard({
   onReschedule,
   onMarkDone,
   onAskKipcoachee,
+  onSessionClick,
 }: {
   session: SessionLike;
   onReschedule: (args: { sessionId: string; newDate: string }) => void;
   onMarkDone: (args: { sessionId: string; done: boolean }) => void;
   onAskKipcoachee?: (session: SessionLike) => void;
+  onSessionClick?: (session: SessionLike) => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [newDate, setNewDate] = useState(session.scheduled_date || "");
@@ -37,10 +43,16 @@ function SessionCard({
   const isDone = !!session.completed_at;
 
   return (
-    <div className={`flex items-start gap-3 p-3 rounded-xl bg-card/60 border border-border hover:border-primary/20 transition-colors group ${isDone ? "opacity-75" : ""}`}>
+    <div
+      className={`flex items-start gap-3 p-3 rounded-xl bg-card/60 border border-border hover:border-primary/20 transition-colors group cursor-pointer ${isDone ? "opacity-75" : ""}`}
+      onClick={() => onSessionClick?.(session)}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => e.key === "Enter" && onSessionClick?.(session)}
+    >
       <button
         type="button"
-        onClick={() => onMarkDone({ sessionId: session.id, done: !isDone })}
+        onClick={(e) => { e.stopPropagation(); onMarkDone({ sessionId: session.id, done: !isDone }); }}
         className={`shrink-0 mt-0.5 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors ${isDone ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40 hover:border-primary/50"}`}
         title={isDone ? "Mark not done" : "Mark done"}
       >
@@ -65,7 +77,7 @@ function SessionCard({
           {session.pace_target && <span>@{session.pace_target}</span>}
         </div>
         {editing ? (
-          <div className="flex gap-2 mt-3">
+          <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
             <Input
               type="date"
               value={newDate}
@@ -80,14 +92,14 @@ function SessionCard({
         ) : (
           <div className="flex gap-2 mt-2">
             <button
-              onClick={() => setEditing(true)}
+              onClick={(e) => { e.stopPropagation(); setEditing(true); }}
               className="text-xs text-primary hover:underline"
             >
               Move session
             </button>
             {onAskKipcoachee && (
               <button
-                onClick={() => onAskKipcoachee(session)}
+                onClick={(e) => { e.stopPropagation(); onAskKipcoachee(session); }}
                 className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
               >
                 <MessageCircle className="w-3 h-3" />
@@ -112,31 +124,159 @@ type SessionLike = {
   completed_at: string | null;
   key_focus?: string | null;
   target_hr_zone?: number | null;
+  coach_note?: string | null;
+  supportsCoachNote?: boolean;
 };
 
+/** Match app theme: accent=green, primary=blue, warning=orange, destructive=red */
 const PILL_COLORS: Record<string, string> = {
-  easy: "bg-emerald-500 text-white",
-  tempo: "bg-amber-500 text-white",
-  interval: "bg-rose-500 text-white",
-  intervals: "bg-rose-500 text-white",
-  long: "bg-blue-500 text-white",
+  easy: "bg-accent text-accent-foreground",
+  tempo: "bg-primary text-primary-foreground",
+  interval: "bg-destructive text-destructive-foreground",
+  intervals: "bg-destructive text-destructive-foreground",
+  long: "bg-warning text-warning-foreground",
   rest: "bg-muted text-muted-foreground",
-  race: "bg-purple-500 text-white",
-  recovery: "bg-slate-400 text-white",
-  strides: "bg-emerald-500 text-white",
+  race: "bg-primary text-primary-foreground",
+  recovery: "bg-muted text-muted-foreground",
+  strides: "bg-accent text-accent-foreground",
 };
+
+function SessionDetailModal({
+  session,
+  onClose,
+  onMarkDone,
+  onAskKipcoachee,
+  onCoachNoteFetched,
+}: {
+  session: SessionLike;
+  onClose: () => void;
+  onMarkDone: (args: { sessionId: string; done: boolean }) => void;
+  onAskKipcoachee?: (session: SessionLike) => void;
+  onCoachNoteFetched?: () => void;
+}) {
+  const [coachNote, setCoachNote] = useState<string | null>(session.coach_note ?? null);
+  const [coachNoteLoading, setCoachNoteLoading] = useState(false);
+  const [coachNoteError, setCoachNoteError] = useState<string | null>(null);
+  const queryClient = useQueryClient();
+
+  const fetchCoachNote = async (regenerate = false) => {
+    setCoachNoteLoading(true);
+    setCoachNoteError(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("intervals-proxy", {
+        body: { action: "workout_coach_note", workoutId: session.id, regenerate },
+      });
+      if (error) throw error;
+      const res = data as { note?: string; error?: string };
+      if (res?.error) {
+        setCoachNoteError(res.error);
+        return;
+      }
+      const note = res?.note;
+      if (note) {
+        setCoachNote(note);
+        onCoachNoteFetched?.();
+        queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+      }
+    } catch (e) {
+      let msg = (e as Error).message ?? "Failed to generate";
+      if (e instanceof FunctionsHttpError && e.context) {
+        const ctx = e.context as { error?: string };
+        if (ctx.error) msg = ctx.error;
+      }
+      setCoachNoteError(msg);
+    } finally {
+      setCoachNoteLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    setCoachNote(session.coach_note ?? null);
+    setCoachNoteError(null);
+    if (session.supportsCoachNote !== false && !session.coach_note) {
+      fetchCoachNote();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session.id]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
+      <div className="glass-card p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center gap-2 mb-3">
+          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${SESSION_COLORS[session.session_type] ?? "bg-primary/10 text-primary"}`}>
+            {session.session_type}
+          </span>
+          {session.scheduled_date && (
+            <span className="text-xs text-muted-foreground">{format(parseISO(session.scheduled_date), "EEEE, MMM d")}</span>
+          )}
+        </div>
+        <p className="text-sm font-medium text-foreground mb-2">{session.description}</p>
+        <div className="flex gap-3 text-xs text-muted-foreground mb-2">
+          {session.distance_km != null && <span>{session.distance_km} km</span>}
+          {session.duration_min != null && <span>{session.duration_min} min</span>}
+          {session.pace_target && <span>@{session.pace_target}</span>}
+          {session.target_hr_zone != null && <span>HR zone {session.target_hr_zone}</span>}
+        </div>
+        <p className="text-xs text-muted-foreground mb-4">
+          {session.key_focus ?? "—"}
+        </p>
+        {session.supportsCoachNote !== false && (
+          <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 mb-4">
+            <p className="text-xs font-medium text-primary flex items-center gap-1.5 mb-1.5">
+              <Sparkles className="w-3.5 h-3.5" />
+              Why this session for you
+            </p>
+            {coachNoteLoading ? (
+              <p className="text-xs text-muted-foreground">Generating personalized description...</p>
+            ) : coachNoteError ? (
+              <div>
+                <p className="text-xs text-destructive mb-1">{coachNoteError}</p>
+                <Button size="sm" variant="outline" onClick={() => fetchCoachNote(true)}>Retry</Button>
+              </div>
+            ) : coachNote ? (
+              <p className="text-sm text-foreground/90">{coachNote}</p>
+            ) : (
+              <p className="text-xs text-muted-foreground">—</p>
+            )}
+          </div>
+        )}
+        <div className="flex flex-wrap gap-2">
+          <Button
+            size="sm"
+            onClick={() => {
+              onMarkDone({ sessionId: session.id, done: !session.completed_at });
+              onClose();
+            }}
+          >
+            {session.completed_at ? "Mark Incomplete" : "Mark Complete"}
+          </Button>
+          {onAskKipcoachee && (
+            <Button size="sm" variant="outline" onClick={() => onAskKipcoachee(session)}>
+              <MessageCircle className="w-3.5 h-3.5 mr-1" />
+              Ask Kipcoachee about this
+            </Button>
+          )}
+          <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
+        </div>
+      </div>
+    </div>
+  );
+}
 
 function CalendarView({
   sessions,
+  selectedSession,
+  onSessionSelect,
   onMarkDone,
   onAskKipcoachee,
 }: {
   sessions: SessionLike[];
+  selectedSession: SessionLike | null;
+  onSessionSelect: (s: SessionLike | null) => void;
   onMarkDone: (args: { sessionId: string; done: boolean }) => void;
   onAskKipcoachee?: (session: SessionLike) => void;
 }) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
-  const [selectedSession, setSelectedSession] = useState<SessionLike | null>(null);
 
   const sessionsByDate = useMemo(() => {
     const map = new Map<string, SessionLike[]>();
@@ -157,19 +297,19 @@ function CalendarView({
   const days = eachDayOfInterval({ start: calStart, end: calEnd });
 
   return (
-    <div>
-      <div className="flex items-center justify-between mb-4">
-        <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="text-sm text-muted-foreground hover:text-foreground px-2 py-1">
+    <div className="w-full">
+      <div className="flex items-center justify-between mb-5">
+        <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="text-sm text-muted-foreground hover:text-foreground px-3 py-2 rounded-lg hover:bg-secondary/50">
           &larr; Prev
         </button>
-        <h3 className="text-sm font-semibold text-foreground">{format(currentMonth, "MMMM yyyy")}</h3>
-        <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="text-sm text-muted-foreground hover:text-foreground px-2 py-1">
+        <h3 className="text-base font-semibold text-foreground tabular-nums">{format(currentMonth, "MMMM yyyy")}</h3>
+        <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="text-sm text-muted-foreground hover:text-foreground px-3 py-2 rounded-lg hover:bg-secondary/50">
           Next &rarr;
         </button>
       </div>
-      <div className="grid grid-cols-7 gap-px bg-border rounded-xl overflow-hidden">
+      <div className="grid grid-cols-7 gap-2">
         {DAY_NAMES.map((d) => (
-          <div key={d} className="bg-secondary px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">
+          <div key={d} className="text-center text-xs font-medium text-muted-foreground uppercase tracking-wider py-2">
             {d}
           </div>
         ))}
@@ -180,22 +320,22 @@ function CalendarView({
           return (
             <div
               key={key}
-              className={`bg-card min-h-[80px] p-1.5 ${!inMonth ? "opacity-40" : ""}`}
+              className={`bg-card rounded-xl border border-border min-h-[100px] sm:min-h-[120px] p-2.5 ${!inMonth ? "opacity-40" : ""}`}
             >
-              <p className={`text-xs mb-1 ${isSameDay(day, new Date()) ? "font-bold text-primary" : "text-muted-foreground"}`}>
+              <p className={`text-sm mb-2 font-medium ${isSameDay(day, new Date()) ? "font-bold text-primary" : "text-muted-foreground"}`}>
                 {format(day, "d")}
               </p>
-              <div className="space-y-0.5">
+              <div className="space-y-1">
                 {daySessions.map((s) => {
                   const pill = PILL_COLORS[s.session_type] ?? "bg-primary/20 text-primary";
                   return (
                     <button
                       key={s.id}
-                      onClick={() => setSelectedSession(s)}
-                      className={`w-full text-left text-[10px] px-1.5 py-0.5 rounded-md truncate ${pill} ${s.completed_at ? "ring-2 ring-emerald-400" : ""}`}
+                      onClick={() => onSessionSelect(s)}
+                      className={`w-full text-left text-xs px-2 py-1 rounded-lg truncate ${pill} ${s.completed_at ? "ring-2 ring-emerald-400" : ""}`}
                     >
-                      {s.completed_at && <Check className="w-2.5 h-2.5 inline mr-0.5" />}
-                      {s.description.slice(0, 20)}
+                      {s.completed_at && <Check className="w-3 h-3 inline mr-1 shrink-0" />}
+                      {s.description.slice(0, 28)}
                     </button>
                   );
                 })}
@@ -204,49 +344,6 @@ function CalendarView({
           );
         })}
       </div>
-
-      {selectedSession && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setSelectedSession(null)}>
-          <div className="glass-card p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-            <div className="flex items-center gap-2 mb-3">
-              <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${SESSION_COLORS[selectedSession.session_type] ?? "bg-primary/10 text-primary"}`}>
-                {selectedSession.session_type}
-              </span>
-              {selectedSession.scheduled_date && (
-                <span className="text-xs text-muted-foreground">{format(parseISO(selectedSession.scheduled_date), "EEEE, MMM d")}</span>
-              )}
-            </div>
-            <p className="text-sm font-medium text-foreground mb-2">{selectedSession.description}</p>
-            <div className="flex gap-3 text-xs text-muted-foreground mb-2">
-              {selectedSession.distance_km != null && <span>{selectedSession.distance_km} km</span>}
-              {selectedSession.duration_min != null && <span>{selectedSession.duration_min} min</span>}
-              {selectedSession.pace_target && <span>@{selectedSession.pace_target}</span>}
-              {selectedSession.target_hr_zone != null && <span>HR zone {selectedSession.target_hr_zone}</span>}
-            </div>
-            <p className="text-xs text-muted-foreground mb-4">
-              {selectedSession.key_focus ?? "—"}
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                size="sm"
-                onClick={() => {
-                  onMarkDone({ sessionId: selectedSession.id, done: !selectedSession.completed_at });
-                  setSelectedSession(null);
-                }}
-              >
-                {selectedSession.completed_at ? "Mark Incomplete" : "Mark Complete"}
-              </Button>
-              {onAskKipcoachee && (
-                <Button size="sm" variant="outline" onClick={() => onAskKipcoachee(selectedSession)}>
-                  <MessageCircle className="w-3.5 h-3.5 mr-1" />
-                  Ask Kipcoachee about this
-                </Button>
-              )}
-              <Button size="sm" variant="ghost" onClick={() => setSelectedSession(null)}>Close</Button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
@@ -255,13 +352,36 @@ export default function TrainingPlan() {
   const { plan, isLoading, rescheduleSession, markSessionDone } = useTrainingPlan();
   const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set([1]));
   const [view, setView] = useState<"list" | "calendar">("list");
+  const [selectedSession, setSelectedSession] = useState<SessionLike | null>(null);
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const handleAskKipcoachee = (session: SessionLike) => {
-    const ctx = [session.description, session.distance_km && `${session.distance_km}km`, session.pace_target && `@${session.pace_target}`]
-      .filter(Boolean)
-      .join(" · ");
-    navigate(`/coach?context=${encodeURIComponent(ctx)}`);
+    const weeks = plan?.weeks ?? [];
+    const sessionWeek = weeks.find((w) => w.sessions.some((s: SessionLike) => s.id === session.id));
+    const weekNum = sessionWeek?.week_number ?? "?";
+    const planName = plan?.plan?.plan_name ?? plan?.plan?.philosophy ?? "training plan";
+
+    const details = [
+      session.distance_km && `${session.distance_km}km`,
+      session.duration_min && `${session.duration_min}min`,
+      session.pace_target && `@${session.pace_target}`,
+    ].filter(Boolean).join(" · ");
+
+    const visibleMsg = `${session.description}${details ? ` (${details})` : ""}`;
+    const hiddenMeta = JSON.stringify({
+      fromPlan: true,
+      planName,
+      weekNumber: weekNum,
+      sessionType: session.session_type,
+      description: session.description,
+      distanceKm: session.distance_km,
+      durationMin: session.duration_min,
+      paceTarget: session.pace_target,
+      hrZone: session.target_hr_zone,
+    });
+
+    navigate(`/coach?session=${encodeURIComponent(visibleMsg)}&planMeta=${encodeURIComponent(hiddenMeta)}`);
   };
 
   const toggleWeek = (n: number) => {
@@ -343,11 +463,15 @@ export default function TrainingPlan() {
         </div>
 
         {view === "calendar" ? (
-          <CalendarView
-            sessions={weeks.flatMap((w) => w.sessions)}
-            onMarkDone={markSessionDone}
-            onAskKipcoachee={handleAskKipcoachee}
-          />
+          <div className="glass-card p-6">
+            <CalendarView
+              sessions={weeks.flatMap((w) => w.sessions)}
+              selectedSession={selectedSession}
+              onSessionSelect={setSelectedSession}
+              onMarkDone={markSessionDone}
+              onAskKipcoachee={handleAskKipcoachee}
+            />
+          </div>
         ) : (
         <div className="space-y-3">
           {(() => {
@@ -419,6 +543,7 @@ export default function TrainingPlan() {
                         onReschedule={rescheduleSession}
                         onMarkDone={markSessionDone}
                         onAskKipcoachee={handleAskKipcoachee}
+                        onSessionClick={setSelectedSession}
                       />
                     ))}
                   </div>
@@ -427,6 +552,15 @@ export default function TrainingPlan() {
             );
           })}
         </div>
+        )}
+        {selectedSession && (
+          <SessionDetailModal
+            session={selectedSession}
+            onClose={() => setSelectedSession(null)}
+            onMarkDone={markSessionDone}
+            onAskKipcoachee={handleAskKipcoachee}
+            onCoachNoteFetched={() => queryClient.invalidateQueries({ queryKey: ["training-plan"] })}
+          />
         )}
       </div>
     </AppLayout>

@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { ReadinessRing } from "@/components/ReadinessRing";
 import { WorkoutBadge } from "@/components/WorkoutBadge";
 import { Sparkline } from "@/components/Sparkline";
@@ -6,10 +7,44 @@ import { useGreeting } from "@/hooks/useGreeting";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { useGarminImportStatus } from "@/hooks/useGarminImportStatus";
 import { predictRaceTime, formatRaceTime, calculateZonePaces, findBestEffort } from "@/lib/race-prediction";
-import { TrendingDown, Moon, Heart, ChevronRight } from "lucide-react";
+import { TrendingDown, Moon, Heart, ChevronRight, MessageCircle } from "lucide-react";
 import { formatSleepHours } from "@/lib/format";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+
+const RACE_DISTANCES: { km: number; label: string }[] = [
+  { km: 5, label: "5K" },
+  { km: 10, label: "10K" },
+  { km: 21.0975, label: "Half Marathon" },
+  { km: 42.195, label: "Marathon" },
+];
+
+function goalRaceToKm(goalRace: string): number {
+  const t = String(goalRace || "").toLowerCase();
+  if (t.includes("marathon") && !t.includes("half")) return 42.195;
+  if (t.includes("half")) return 21.0975;
+  if (t.includes("10")) return 10;
+  if (t.includes("5")) return 5;
+  return 21.0975;
+}
+
+function goalRaceToLabel(goalRace: string): string {
+  const t = String(goalRace || "").toLowerCase();
+  if (t.includes("marathon") && !t.includes("half")) return "Marathon";
+  if (t.includes("half")) return "Half Marathon";
+  if (t.includes("10")) return "10K";
+  if (t.includes("5")) return "5K";
+  return "Half Marathon";
+}
+
+/** Light mode: theme colors. Dark mode: match ActivityDetail bar (hex) */
+const HR_ZONE_LIGHT = ["bg-secondary", "bg-accent/60", "bg-primary/60", "bg-warning/80", "bg-destructive/70"] as const;
 
 const fadeIn = {
   initial: { opacity: 0, y: 12 },
@@ -17,39 +52,89 @@ const fadeIn = {
   transition: { duration: 0.3 },
 };
 
-function RacePredictionCard({ activities, ctl }: { activities: Array<{ distance_km: number | null; duration_seconds: number | null; date: string }>; ctl: number | null }) {
+function RacePredictionCard({
+  activities,
+  ctl,
+  goalRaceType,
+}: {
+  activities: Array<{ distance_km: number | null; duration_seconds: number | null; date: string }>;
+  ctl: number | null;
+  goalRaceType: string;
+}) {
+  const [open, setOpen] = useState(false);
   const best = findBestEffort(activities);
   if (!best || !ctl) return null;
 
-  const goalKm = 21.1;
+  const goalKm = goalRaceToKm(goalRaceType);
+  const goalLabel = goalRaceToLabel(goalRaceType);
   const baselineCTL = Math.max(ctl * 0.7, 20);
   const predicted = predictRaceTime(best.timeSeconds, best.distanceKm, goalKm, ctl, baselineCTL);
   const paces = calculateZonePaces(predicted, goalKm);
 
+  const allPredictions = RACE_DISTANCES.map(({ km, label }) => ({
+    label,
+    km,
+    time: predictRaceTime(best.timeSeconds, best.distanceKm, km, ctl, baselineCTL),
+  }));
+
   return (
-    <Link to="/stats" className="block h-full">
-    <div className="glass-card p-5 h-full hover:opacity-95 transition-opacity cursor-pointer">
-      <div className="flex items-center gap-2 mb-3">
-        <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
-          <span className="text-sm">🏁</span>
+    <>
+      <div
+        role="button"
+        tabIndex={0}
+        onClick={() => setOpen(true)}
+        onKeyDown={(e) => e.key === "Enter" && setOpen(true)}
+        className="glass-card p-5 h-full hover:opacity-95 transition-opacity cursor-pointer"
+      >
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+            <span className="text-sm">🏁</span>
+          </div>
+          <div>
+            <p className="text-sm font-medium text-foreground">Race Prediction</p>
+            <p className="text-xs text-muted-foreground">{goalLabel}</p>
+          </div>
         </div>
-        <div>
-          <p className="text-sm font-medium text-foreground">Race Prediction</p>
-          <p className="text-xs text-muted-foreground">Half Marathon</p>
+        <p className="text-3xl font-bold tabular-nums text-foreground mb-2">{formatRaceTime(predicted)}</p>
+        <div className="space-y-1 text-xs text-muted-foreground">
+          <p>Z2 pace: {paces.zone2}</p>
+          <p>Threshold: {paces.threshold}</p>
+          <p>VO2max: {paces.vo2max}</p>
+        </div>
+        <p className="text-[10px] text-muted-foreground mt-2">Based on best effort · CTL {Math.round(ctl)}</p>
+        <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
+          View all distances <ChevronRight className="w-3.5 h-3.5" />
         </div>
       </div>
-      <p className="text-3xl font-bold tabular-nums text-foreground mb-2">{formatRaceTime(predicted)}</p>
-      <div className="space-y-1 text-xs text-muted-foreground">
-        <p>Z2 pace: {paces.zone2}</p>
-        <p>Threshold: {paces.threshold}</p>
-        <p>VO2max: {paces.vo2max}</p>
-      </div>
-      <p className="text-[10px] text-muted-foreground mt-2">Based on best effort · CTL {Math.round(ctl)}</p>
-      <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
-        View stats <ChevronRight className="w-3.5 h-3.5" />
-      </div>
-    </div>
-    </Link>
+      <Dialog open={open} onOpenChange={setOpen}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Race Predictions</DialogTitle>
+          </DialogHeader>
+          <p className="text-sm text-muted-foreground mb-4">
+            Based on your best effort ({best.distanceKm.toFixed(1)} km) · CTL {Math.round(ctl)}
+          </p>
+          <div className="space-y-3">
+            {allPredictions.map(({ label, km, time }) => (
+              <div
+                key={km}
+                className="flex items-center justify-between rounded-lg border px-4 py-3 bg-muted/30"
+              >
+                <span className="font-medium text-foreground">{label}</span>
+                <span className="tabular-nums font-semibold text-foreground">{formatRaceTime(time)}</span>
+              </div>
+            ))}
+          </div>
+          <Link
+            to="/stats"
+            className="block mt-4 text-center text-sm text-primary font-medium hover:underline"
+            onClick={() => setOpen(false)}
+          >
+            View stats
+          </Link>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 }
 
@@ -195,14 +280,21 @@ export default function Dashboard() {
                 <div>
                   <p className="text-xs text-muted-foreground mb-1.5">HR Zones</p>
                   <div className="flex h-3 rounded-full overflow-hidden">
-                    <div className="bg-secondary" style={{ width: `${lastActivity.hrZones.z1}%` }} />
-                    <div className="bg-accent/60" style={{ width: `${lastActivity.hrZones.z2}%` }} />
-                    <div className="bg-primary/60" style={{ width: `${lastActivity.hrZones.z3}%` }} />
-                    <div className="bg-warning/80" style={{ width: `${lastActivity.hrZones.z4}%` }} />
-                    <div className="bg-destructive/70" style={{ width: `${lastActivity.hrZones.z5}%` }} />
+                    <div className={`${HR_ZONE_LIGHT[0]} dark:bg-[#94a3b8]`} style={{ width: `${lastActivity.hrZones.z1}%` }} />
+                    <div className={`${HR_ZONE_LIGHT[1]} dark:bg-[#3b82f6]`} style={{ width: `${lastActivity.hrZones.z2}%` }} />
+                    <div className={`${HR_ZONE_LIGHT[2]} dark:bg-[#22c55e]`} style={{ width: `${lastActivity.hrZones.z3}%` }} />
+                    <div className={`${HR_ZONE_LIGHT[3]} dark:bg-[#f97316]`} style={{ width: `${lastActivity.hrZones.z4}%` }} />
+                    <div className={`${HR_ZONE_LIGHT[4]} dark:bg-[#ef4444]`} style={{ width: `${lastActivity.hrZones.z5}%` }} />
                   </div>
-                  <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                    <span>Z1</span><span>Z2</span><span>Z3</span><span>Z4</span><span>Z5</span>
+                  <div className="flex mt-1 text-[10px] text-muted-foreground">
+                    {([1, 2, 3, 4, 5] as const).map((i) => {
+                      const pct = lastActivity.hrZones[`z${i}` as keyof typeof lastActivity.hrZones] ?? 0;
+                      return (
+                        <span key={i} className="text-center shrink-0" style={{ width: `${pct}%`, minWidth: pct > 0 ? "1ch" : 0 }}>
+                          {pct >= 5 ? `Z${i}` : pct > 0 ? "+" : ""}
+                        </span>
+                      );
+                    })}
                   </div>
                 </div>
                 <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
@@ -238,14 +330,21 @@ export default function Dashboard() {
               <div>
                 <p className="text-xs text-muted-foreground mb-1.5">HR Zones</p>
                 <div className="flex h-3 rounded-full overflow-hidden">
-                  <div className="bg-secondary" style={{ width: `${lastActivity.hrZones.z1}%` }} />
-                  <div className="bg-accent/60" style={{ width: `${lastActivity.hrZones.z2}%` }} />
-                  <div className="bg-primary/60" style={{ width: `${lastActivity.hrZones.z3}%` }} />
-                  <div className="bg-warning/80" style={{ width: `${lastActivity.hrZones.z4}%` }} />
-                  <div className="bg-destructive/70" style={{ width: `${lastActivity.hrZones.z5}%` }} />
+                  <div className={`${HR_ZONE_LIGHT[0]} dark:bg-[#94a3b8]`} style={{ width: `${lastActivity.hrZones.z1}%` }} />
+                  <div className={`${HR_ZONE_LIGHT[1]} dark:bg-[#3b82f6]`} style={{ width: `${lastActivity.hrZones.z2}%` }} />
+                  <div className={`${HR_ZONE_LIGHT[2]} dark:bg-[#22c55e]`} style={{ width: `${lastActivity.hrZones.z3}%` }} />
+                  <div className={`${HR_ZONE_LIGHT[3]} dark:bg-[#f97316]`} style={{ width: `${lastActivity.hrZones.z4}%` }} />
+                  <div className={`${HR_ZONE_LIGHT[4]} dark:bg-[#ef4444]`} style={{ width: `${lastActivity.hrZones.z5}%` }} />
                 </div>
-                <div className="flex justify-between text-[10px] text-muted-foreground mt-1">
-                  <span>Z1</span><span>Z2</span><span>Z3</span><span>Z4</span><span>Z5</span>
+                <div className="flex mt-1 text-[10px] text-muted-foreground">
+                  {([1, 2, 3, 4, 5] as const).map((i) => {
+                    const pct = lastActivity.hrZones[`z${i}` as keyof typeof lastActivity.hrZones] ?? 0;
+                    return (
+                      <span key={i} className="text-center shrink-0" style={{ width: `${pct}%`, minWidth: pct > 0 ? "1ch" : 0 }}>
+                        {pct >= 5 ? `Z${i}` : pct > 0 ? "+" : ""}
+                      </span>
+                    );
+                  })}
                 </div>
               </div>
             </div>
@@ -298,8 +397,26 @@ export default function Dashboard() {
             </div>
           </Link>
 
-          {/* Card 4 — Race Prediction — clickable to Stats */}
-          <RacePredictionCard activities={activities} ctl={readiness.ctl} />
+          {/* Card 4 — Race Prediction — clickable to show all distances */}
+          <RacePredictionCard
+            activities={activities}
+            ctl={readiness.ctl}
+            goalRaceType={athlete.goalRace.type}
+          />
+
+          {/* Ask Kipcoachee — prominent CTA in open space */}
+          <Link to="/coach" className="block md:col-span-2">
+            <div className="glass-card p-5 h-full min-h-[140px] flex flex-col justify-center items-center gap-3 hover:opacity-95 transition-opacity cursor-pointer border-2 border-dashed border-primary/30 hover:border-primary/50">
+              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                <MessageCircle className="w-6 h-6 text-primary" />
+              </div>
+              <p className="text-base font-semibold text-foreground">Ask Kipcoachee</p>
+              <p className="text-xs text-muted-foreground text-center">Get training advice, adjust your plan, or chat about your goals</p>
+              <div className="flex items-center gap-1 text-xs text-primary font-medium">
+                Open chat <ChevronRight className="w-3.5 h-3.5" />
+              </div>
+            </div>
+          </Link>
         </div>
 
         {/* Upcoming 7 days */}

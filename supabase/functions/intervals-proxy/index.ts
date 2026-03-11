@@ -147,28 +147,34 @@ Deno.serve(async (req: Request) => {
 
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    const { data: integration } = await supabaseAdmin
-      .from("integrations")
-      .select("athlete_id, api_key")
-      .eq("user_id", user.id)
-      .eq("provider", "intervals_icu")
-      .maybeSingle();
-
-    if (!integration?.api_key) {
-      return jsonErr("intervals.icu not connected", 404);
-    }
-
-    const athleteId = String(integration.athlete_id ?? "0").trim() || "0";
-    const headers = { Authorization: buildAuth(integration.api_key) };
-
     let body: Record<string, unknown> = {};
     try {
-      body = await req.json();
+      const raw = await req.json();
+      body = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
     } catch {
-      return jsonErr("Invalid request body", 400);
+      return jsonErr("Invalid request body — send JSON with action field", 400);
     }
 
-    const action = String(body.action ?? "");
+    const action = String(body.action ?? "").trim();
+
+    // Actions that don't require Intervals.icu (use Supabase only)
+    const noIntervalsActions = ["workout_coach_note", "activity_coach_note"];
+    let athleteId = "0";
+    let headers: Record<string, string> = {};
+    if (!noIntervalsActions.includes(action)) {
+      const { data: integration } = await supabaseAdmin
+        .from("integrations")
+        .select("athlete_id, api_key")
+        .eq("user_id", user.id)
+        .eq("provider", "intervals_icu")
+        .maybeSingle();
+
+      if (!integration?.api_key) {
+        return jsonErr("intervals.icu not connected", 404);
+      }
+      athleteId = String(integration.athlete_id ?? "0").trim() || "0";
+      headers = { Authorization: buildAuth(integration.api_key) };
+    }
 
     // ─── ACTION: single activity detail ───
     if (action === "activity" && body.activityId) {
@@ -524,15 +530,19 @@ ${trkpts}
       for (let i = 0; i < wArr.length; i += 100) {
         const batch = wArr.slice(i, i + 100).map((w: Record<string, unknown>) => {
           const dateStr = String(w.id ?? w.date ?? w.calendarDate ?? "").slice(0, 10);
+          const ctlVal = w.ctl ?? w.ctLoad ?? null;
+          const atlVal = w.atl ?? w.atlLoad ?? null;
+          const tsbRaw = w.tsb ?? w.form ?? null;
+          const tsb = tsbRaw != null ? Number(tsbRaw) : (ctlVal != null && atlVal != null ? Number(ctlVal) - Number(atlVal) : null);
           return {
             user_id: user.id,
             date: dateStr,
-            ctl: w.ctl ?? w.ctLoad ?? null,
-            atl: w.atl ?? w.atlLoad ?? null,
-            tsb: w.tsb ?? w.form ?? null,
-            icu_ctl: w.ctl ?? w.ctLoad ?? null,
-            icu_atl: w.atl ?? w.atlLoad ?? null,
-            icu_tsb: w.tsb ?? w.form ?? null,
+            ctl: ctlVal != null ? Number(ctlVal) : null,
+            atl: atlVal != null ? Number(atlVal) : null,
+            tsb,
+            icu_ctl: ctlVal != null ? Number(ctlVal) : null,
+            icu_atl: atlVal != null ? Number(atlVal) : null,
+            icu_tsb: tsb,
             icu_ramp_rate: w.rampRate ?? w.ramp_rate != null ? Number(w.rampRate ?? w.ramp_rate) : null,
             icu_long_term_power: w.longTermPower ?? w.long_term_power != null ? Number(w.longTermPower ?? w.long_term_power) : null,
             hrv: w.hrv ?? w.hrvSDNN ?? null,
@@ -599,14 +609,19 @@ ${trkpts}
 
     // ─── ACTION: start_sync (fire-and-forget full_sync, returns immediately) ───
     if (action === "start_sync") {
-      await supabaseAdmin.from("sync_progress").upsert({
-        user_id: user.id,
-        stage: "starting",
-        detail: "Starting full sync...",
-        done: false,
-        error: null,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: "user_id" });
+      try {
+        await supabaseAdmin.from("sync_progress").upsert({
+          user_id: user.id,
+          stage: "starting",
+          detail: "Starting full sync...",
+          done: false,
+          error: null,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: "user_id" });
+      } catch (e) {
+        console.error("sync_progress upsert failed (run migration 20260312000000_sync_progress.sql):", e);
+        return jsonErr("sync_progress table missing — run Supabase migrations", 500);
+      }
 
       const fnUrl = `${SUPABASE_URL.replace(/\/$/, "")}/functions/v1/intervals-proxy`;
       fetch(fnUrl, {
@@ -1039,15 +1054,19 @@ ${trkpts}
           for (let i = 0; i < wArr.length; i += 100) {
             const batch = wArr.slice(i, i + 100).map((w: Record<string, unknown>) => {
               const dateStr = String(w.id ?? w.date ?? w.calendarDate ?? "").slice(0, 10);
+              const ctlVal = w.ctl ?? w.ctLoad ?? null;
+              const atlVal = w.atl ?? w.atlLoad ?? null;
+              const tsbRaw = w.tsb ?? w.form ?? null;
+              const tsb = tsbRaw != null ? Number(tsbRaw) : (ctlVal != null && atlVal != null ? Number(ctlVal) - Number(atlVal) : null);
               return {
                 user_id: user.id,
                 date: dateStr,
-                ctl: w.ctl ?? w.ctLoad ?? null,
-                atl: w.atl ?? w.atlLoad ?? null,
-                tsb: w.tsb ?? w.form ?? null,
-                icu_ctl: w.ctl ?? w.ctLoad ?? null,
-                icu_atl: w.atl ?? w.atlLoad ?? null,
-                icu_tsb: w.tsb ?? w.form ?? null,
+                ctl: ctlVal != null ? Number(ctlVal) : null,
+                atl: atlVal != null ? Number(atlVal) : null,
+                tsb,
+                icu_ctl: ctlVal != null ? Number(ctlVal) : null,
+                icu_atl: atlVal != null ? Number(atlVal) : null,
+                icu_tsb: tsb,
                 icu_ramp_rate: w.rampRate ?? w.ramp_rate != null ? Number(w.rampRate ?? w.ramp_rate) : null,
                 icu_long_term_power: w.longTermPower ?? w.long_term_power != null ? Number(w.longTermPower ?? w.long_term_power) : null,
                 hrv: w.hrv ?? w.hrvSDNN ?? null,
@@ -1219,6 +1238,20 @@ ${trkpts}
         return jsonErr("Activity not found", 404);
       }
 
+      // Check if this activity is a PB (from personal_records - synced from intervals.icu)
+      const extId = (existing as { external_id?: string }).external_id;
+      const idsToCheck = [extId, existing.id].filter(Boolean) as string[];
+      let pbDistances: string[] = [];
+      if (idsToCheck.length > 0) {
+        const { data: pbRows } = await supabaseAdmin
+          .from("personal_records")
+          .select("distance")
+          .eq("user_id", user.id)
+          .in("activity_id", idsToCheck);
+        pbDistances = (pbRows ?? []).map((r: Record<string, unknown>) => String(r.distance ?? "")).filter(Boolean);
+      }
+      const isMarathonPb = pbDistances.some((d) => /marathon|42\.195|42\s/i.test(d));
+
       const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
       const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
       if (!GEMINI_API_KEY && !GROQ_API_KEY) {
@@ -1307,7 +1340,14 @@ ${trkpts}
         ? "This is a RUN. Give running-specific feedback (pacing, form, training load for running)."
         : `This is NOT a run — it's "${activityType}". Give feedback appropriate for this activity type. Acknowledge it's great for general fitness but NOT equivalent to running: e.g. 40 km ski ≠ 40 km run in terms of running-specific load. Be encouraging about cross-training while being clear about the difference.`;
 
+      const pbContext = pbDistances.length > 0
+        ? (isMarathonPb
+          ? `CRITICAL: This activity is a MARATHON PERSONAL BEST! Celebrate this major milestone. Lead with that. Make it memorable.`
+          : `This activity is a PERSONAL BEST for: ${pbDistances.join(", ")}. Acknowledge and celebrate it in your feedback.`)
+        : "";
+
       const prompt = `You are Kipcoachee, an elite coach for runners who also does cross-training. Give brief, personalized feedback (2-4 sentences) for THIS activity. ${typeContext} Use the athlete's history and context. Be direct, data-driven, and encouraging. Use metric units.
+${pbContext ? `\n${pbContext}\n` : ""}
 
 === ACTIVITY BEING ANALYZED ===
 Type: ${activityType} ${a.name ? `"${a.name}"` : ""}
@@ -1410,7 +1450,174 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
       }
     }
 
-    return jsonErr("Unknown action", 400);
+    // ─── ACTION: generate coach note for a training plan workout ───
+    if (action === "workout_coach_note") {
+      const workoutId = String(body.workoutId ?? "").trim();
+      if (!workoutId) return jsonErr("Missing workoutId", 400);
+
+      const { data: workout, error: workoutErr } = await supabaseAdmin
+        .from("training_plan_workout")
+        .select("id, date, coach_note, type, name, description, key_focus, distance_km, duration_minutes, target_pace, target_hr_zone, week_number, phase, plan_id")
+        .eq("user_id", user.id)
+        .eq("id", workoutId)
+        .maybeSingle();
+
+      if (workoutErr || !workout) {
+        return jsonErr("Workout not found", 404);
+      }
+
+      const regenerate = body.regenerate === true;
+      if (workout.coach_note && !regenerate) {
+        return jsonOk({ note: workout.coach_note, cached: true });
+      }
+
+      const { data: planRow } = await supabaseAdmin
+        .from("training_plan")
+        .select("plan_name, philosophy, goal_race, goal_date, goal_time")
+        .eq("id", workout.plan_id)
+        .maybeSingle();
+
+      const { data: athleteProfile } = await supabaseAdmin
+        .from("athlete_profile")
+        .select("max_hr, resting_hr, lactate_threshold_hr, vo2max, vdot, training_philosophy, days_per_week, narrative")
+        .eq("user_id", user.id)
+        .maybeSingle();
+
+      const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+      const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
+      if (!GEMINI_API_KEY && !GROQ_API_KEY) {
+        return jsonErr("Set GEMINI_API_KEY or GROQ_API_KEY in Supabase secrets", 500);
+      }
+
+      // Fetch the week's other workouts for full context
+      const { data: weekWorkouts } = await supabaseAdmin
+        .from("training_plan_workout")
+        .select("type, name, description, distance_km, duration_minutes, date")
+        .eq("plan_id", workout.plan_id)
+        .eq("week_number", workout.week_number ?? 0);
+
+      // Fetch latest readiness for current state
+      const { data: readinessRows } = await supabaseAdmin
+        .from("daily_readiness")
+        .select("date, ctl, atl, tsb, icu_ctl, icu_atl, icu_tsb, hrv, hrv_baseline, sleep_hours, resting_hr")
+        .eq("user_id", user.id)
+        .order("date", { ascending: false })
+        .limit(3);
+
+      const ap = athleteProfile as Record<string, unknown> | null;
+      const profileLines: string[] = [];
+      if (ap?.max_hr != null) profileLines.push(`Max HR: ${ap.max_hr} bpm`);
+      if (ap?.resting_hr != null) profileLines.push(`Resting HR: ${ap.resting_hr} bpm`);
+      if (ap?.vdot != null) profileLines.push(`VDOT: ${ap.vdot}`);
+      if (ap?.training_philosophy != null) profileLines.push(`Philosophy: ${ap.training_philosophy}`);
+      if (ap?.days_per_week != null) profileLines.push(`Days/week: ${ap.days_per_week}`);
+      if (ap?.narrative != null) profileLines.push(`Context: ${ap.narrative}`);
+
+      const plan = planRow as Record<string, unknown> | null;
+      const planContext = plan
+        ? `Plan: ${plan.plan_name ?? "?"} | Goal: ${plan.goal_race ?? "?"} | Race date: ${plan.goal_date ?? "?"} | Target: ${plan.goal_time ?? "?"}`
+        : "No plan context";
+
+      const weekSummary = (weekWorkouts ?? []).map((w: Record<string, unknown>) =>
+        `${w.date}: ${w.type ?? "easy"} — ${w.name ?? w.description ?? "?"} ${w.distance_km ? `${w.distance_km}km` : ""}`
+      ).join("\n");
+
+      const readinessContext = (readinessRows ?? []).map((r: Record<string, unknown>) => {
+        const ctl = r.ctl ?? r.icu_ctl ?? "?";
+        const atl = r.atl ?? r.icu_atl ?? "?";
+        const rawTsb = r.tsb ?? r.icu_tsb;
+        const tsb = rawTsb != null ? rawTsb : (typeof ctl === "number" && typeof atl === "number" ? ctl - atl : "?");
+        return `${r.date}: CTL ${ctl} ATL ${atl} TSB ${tsb} HRV ${r.hrv ?? "?"}ms Sleep ${r.sleep_hours ?? "?"}h RHR ${r.resting_hr ?? "?"}`;
+      }).join("\n");
+
+      const prompt = `You are Kipcoachee, an elite running coach. Write a brief, personalized description (2-4 sentences) explaining WHY this specific session is good for THIS athlete right now. Reference their current fitness state (CTL/TSB), the week's load pattern, their philosophy, and race goal. Be encouraging and specific — use actual numbers.
+
+=== SESSION ===
+Type: ${workout.type ?? "?"} | Week ${workout.week_number ?? "?"} | Phase: ${workout.phase ?? "?"}
+Name: ${workout.name ?? workout.description ?? "?"}
+${workout.description ? `Description: ${workout.description}` : ""}
+${workout.key_focus ? `Key focus: ${workout.key_focus}` : ""}
+Distance: ${workout.distance_km != null ? `${workout.distance_km} km` : "?"} | Duration: ${workout.duration_minutes != null ? `${workout.duration_minutes} min` : "?"}
+Target pace: ${workout.target_pace ?? "?"} | HR zone: ${workout.target_hr_zone ?? "?"}
+
+=== THIS WEEK'S FULL SCHEDULE ===
+${weekSummary || "No other sessions"}
+
+=== ATHLETE ===
+${profileLines.length ? profileLines.join(" | ") : "Limited profile"}
+${planContext}
+
+=== CURRENT FITNESS STATE ===
+${readinessContext || "No readiness data"}
+
+Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, personalized sentences.`;
+
+      async function tryGemini(): Promise<string | null> {
+        if (!GEMINI_API_KEY) return null;
+        try {
+          const res = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { maxOutputTokens: 300, temperature: 0.7 },
+              }),
+            }
+          );
+          if (!res.ok) return null;
+          const data = (await res.json()) as Record<string, unknown>;
+          const candidates = (data.candidates ?? []) as Array<Record<string, unknown>>;
+          const parts = ((candidates[0]?.content as Record<string, unknown>)?.parts ?? []) as Array<Record<string, unknown>>;
+          return String(parts[0]?.text ?? "").trim() || null;
+        } catch {
+          return null;
+        }
+      }
+
+      async function tryGroq(): Promise<string | null> {
+        if (!GROQ_API_KEY) return null;
+        try {
+          const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${GROQ_API_KEY}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "llama-3.1-8b-instant",
+              messages: [{ role: "user", content: prompt }],
+              stream: false,
+              temperature: 0.7,
+              max_tokens: 300,
+            }),
+          });
+          if (!res.ok) return null;
+          const data = (await res.json()) as Record<string, unknown>;
+          const choices = (data.choices ?? []) as Array<Record<string, unknown>>;
+          const text = (choices[0]?.message as Record<string, unknown>)?.content;
+          return (text ? String(text).trim() : null) || null;
+        } catch {
+          return null;
+        }
+      }
+
+      const note = (await tryGroq()) ?? (await tryGemini());
+      if (!note) {
+        return jsonErr("AI generation failed. Check GEMINI_API_KEY or GROQ_API_KEY in Supabase secrets.", 500);
+      }
+
+      await supabaseAdmin
+        .from("training_plan_workout")
+        .update({ coach_note: note })
+        .eq("user_id", user.id)
+        .eq("id", workoutId);
+
+      return jsonOk({ note, cached: false });
+    }
+
+    return jsonErr(`Unknown action: ${action || "(empty)"}`.slice(0, 80), 400);
   } catch (e) {
     console.error("intervals-proxy error:", e);
     return jsonErr((e as Error).message ?? "Unknown error", 500);

@@ -1,5 +1,6 @@
 import { useState, useCallback, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 
 const POLL_INTERVAL_MS = 2000;
@@ -90,9 +91,19 @@ export function useIntervalsSync() {
       const { data: startData, error: startError } = await invoke({ action: "start_sync" });
 
       if (startError) {
-        const msg = startError.message ?? "Sync failed";
+        let msg = startError.message ?? "Sync failed";
+        if (startError instanceof FunctionsHttpError && startError.context) {
+          try {
+            const body = (await startError.context.json()) as { error?: string };
+            if (body?.error) msg = String(body.error);
+          } catch {
+            // keep default msg
+          }
+        }
         const hint = msg.includes("Refresh Token") || msg.includes("401") || msg.includes("403")
           ? " Sign out and sign back in, then try again."
+          : msg.includes("sync_progress") || msg.includes("migration")
+          ? " Run Supabase migrations: supabase db push or apply migrations in Dashboard."
           : "";
         setProgress({ stage: "error", detail: msg + hint, done: true, runsCount: 0, wellnessDays: 0 });
         setSyncing(false);

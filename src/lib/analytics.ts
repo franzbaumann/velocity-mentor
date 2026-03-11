@@ -131,8 +131,8 @@ export function findBestForDistance(
   activities: ActivityRow[],
   targetKm: number,
   tolerance = 0.05
-): { timeSec: number; paceMinPerKm: number; date: string; activityId: string } | null {
-  let best: { timeSec: number; paceMinPerKm: number; date: string; activityId: string } | null = null;
+): { timeSec: number; paceMinPerKm: number; date: string; activityId: string; externalId?: string | null } | null {
+  let best: { timeSec: number; paceMinPerKm: number; date: string; activityId: string; externalId?: string | null } | null = null;
   for (const a of activities) {
     if (!isRunningActivity(a.type)) continue;
     const dist = a.distance_km ?? 0;
@@ -145,7 +145,7 @@ export function findBestForDistance(
       if (pace < 2 || pace > 15) continue;
       const minTimeSec = targetKm * 120;
       if (equivTime < minTimeSec) continue;
-      if (!best || pace < best.paceMinPerKm) best = { timeSec: equivTime, paceMinPerKm: pace, date: a.date, activityId: a.id };
+      if (!best || pace < best.paceMinPerKm) best = { timeSec: equivTime, paceMinPerKm: pace, date: a.date, activityId: a.id, externalId: (a as { external_id?: string | null }).external_id };
     }
     // Splits: find best segment
     const splits = a.splits as Array<{ distance?: number; elapsed_time?: number }> | null;
@@ -165,7 +165,7 @@ export function findBestForDistance(
           if (pace < 2 || pace > 15) break;
           const minTimeSec = targetKm * 120;
           if (equivTime < minTimeSec) break;
-          if (!best || pace < best.paceMinPerKm) best = { timeSec: equivTime, paceMinPerKm: pace, date: a.date, activityId: a.id };
+          if (!best || pace < best.paceMinPerKm) best = { timeSec: equivTime, paceMinPerKm: pace, date: a.date, activityId: a.id, externalId: (a as { external_id?: string | null }).external_id };
           break;
         }
       }

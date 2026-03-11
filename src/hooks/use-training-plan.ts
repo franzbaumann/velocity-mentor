@@ -97,7 +97,20 @@ export function useTrainingPlan() {
               .select("*")
               .eq("week_id", w.id)
               .order("order_index", { ascending: true });
-            const sess = sessions ?? [];
+            const raw = sessions ?? [];
+            const sess = raw.map((s) => ({
+              id: s.id,
+              scheduled_date: s.scheduled_date,
+              session_type: s.session_type ?? "easy",
+              description: s.description ?? "",
+              distance_km: s.distance_km,
+              duration_min: s.duration_min,
+              pace_target: s.pace_target,
+              key_focus: s.notes ?? null,
+              target_hr_zone: (s as { target_hr_zone?: number }).target_hr_zone ?? null,
+              completed_at: (s as { completed_at?: string }).completed_at ?? null,
+              supportsCoachNote: false, // from training_session, no coach_note support
+            }));
             const total_km = sess.reduce((s, x) => s + (x.distance_km ?? 0), 0);
             return { ...w, sessions: sess, total_km, phase: w.notes ?? undefined };
           })
@@ -140,6 +153,8 @@ export function useTrainingPlan() {
           target_hr_zone: w.target_hr_zone ?? null,
           tss_estimate: w.tss_estimate ?? null,
           completed_at: w.completed ? (w.date ? `${w.date}T12:00:00Z` : new Date().toISOString()) : null,
+          coach_note: (w as { coach_note?: string | null }).coach_note ?? null,
+          supportsCoachNote: true, // from training_plan_workout
         });
       }
       for (const rec of weekMap.values()) {

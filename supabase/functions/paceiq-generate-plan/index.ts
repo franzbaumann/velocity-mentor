@@ -40,10 +40,32 @@ Rules:
 - Use metric (km, /km pace)
 - Include rest days. Progress: base → build → peak → taper.`;
 
-async function callGroq(answers: Record<string, unknown>, philosophy: string): Promise<unknown> {
+function buildPlanUserPrompt(
+  answers: Record<string, unknown>,
+  philosophy: string,
+  raceDate: string | null,
+  requiredWeeks: number | null
+): string {
+  let prompt = `Athlete onboarding: ${JSON.stringify(answers)}.\n\n`;
+  prompt += `CRITICAL: The athlete chose philosophy "${philosophy}". Build the plan STRICTLY using this philosophy — every workout type, volume, and progression must align with it.\n\n`;
+  if (raceDate && requiredWeeks != null && requiredWeeks > 0) {
+    prompt += `RACE DATE: ${raceDate}. You MUST generate exactly ${requiredWeeks} weeks of training. The last week must be taper ending on race day. Do not stop early — the plan must cover every week from start to race day.`;
+  } else {
+    prompt += `Use philosophy: ${philosophy}.`;
+  }
+  return prompt;
+}
+
+async function callGroq(
+  answers: Record<string, unknown>,
+  philosophy: string,
+  raceDate: string | null,
+  requiredWeeks: number | null
+): Promise<unknown> {
   const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
   if (!GROQ_API_KEY) return null;
   console.log("paceiq-generate-plan: trying Groq...");
+  const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks);
   const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
     method: "POST",
     headers: {
@@ -54,7 +76,7 @@ async function callGroq(answers: Record<string, unknown>, philosophy: string): P
       model: "llama-3.3-70b-versatile",
       messages: [
         { role: "system", content: PLAN_PROMPT },
-        { role: "user", content: `Athlete onboarding: ${JSON.stringify(answers)}. Use philosophy: ${philosophy}.` },
+        { role: "user", content: userContent },
       ],
       temperature: 0.7,
       max_tokens: 4000,
@@ -72,10 +94,16 @@ async function callGroq(answers: Record<string, unknown>, philosophy: string): P
   return parsed;
 }
 
-async function callGemini(answers: Record<string, unknown>, philosophy: string): Promise<unknown> {
+async function callGemini(
+  answers: Record<string, unknown>,
+  philosophy: string,
+  raceDate: string | null,
+  requiredWeeks: number | null
+): Promise<unknown> {
   const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
   if (!GEMINI_API_KEY) return null;
-  const prompt = `${PLAN_PROMPT}\n\nAthlete onboarding: ${JSON.stringify(answers)}. Use philosophy: ${philosophy}.`;
+  const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks);
+  const prompt = `${PLAN_PROMPT}\n\n${userContent}`;
   const res = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
     {
@@ -149,9 +177,15 @@ serve(async (req) => {
     const answers = body?.answers ?? body?.onboardingAnswers ?? {};
     const philosophy = body?.philosophy ?? "80_20_polarized";
 
+    const raceDate = (answers as { raceDate?: string }).raceDate ?? null;
+    const startDate = getNextMonday();
+    const requiredWeeks = raceDate
+      ? Math.max(8, Math.ceil((new Date(raceDate).getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000)))
+      : null;
+
     const hasGroq = !!Deno.env.get("GROQ_API_KEY");
     const hasGemini = !!Deno.env.get("GEMINI_API_KEY");
-    const planRaw = (await callGroq(answers, philosophy)) ?? (await callGemini(answers, philosophy));
+    const planRaw = (await callGroq(answers, philosophy, raceDate, requiredWeeks)) ?? (await callGemini(answers, philosophy, raceDate, requiredWeeks));
     if (!planRaw || typeof planRaw !== "object") {
       const reason = !hasGroq && !hasGemini
         ? "No API keys in env"
@@ -201,12 +235,11 @@ serve(async (req) => {
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
     );
 
-    const raceDate = (answers as { raceDate?: string }).raceDate ?? null;
     const goalTime = (answers as { goalTime?: string }).goalTime ?? null;
     const goalDistance = (answers as { goalDistance?: string }).goalDistance ?? null;
-    const startDate = getNextMonday();
+    const totalWeeks = requiredWeeks ?? plan.total_weeks ?? weeks.length;
     const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + (plan.total_weeks ?? weeks.length) * 7 - 1);
+    endDate.setDate(endDate.getDate() + totalWeeks * 7 - 1);
 
     const { data: planRow, error: planErr } = await supabase
       .from("training_plan")
@@ -219,7 +252,7 @@ serve(async (req) => {
         goal_race: goalDistance ?? null,
         goal_date: raceDate,
         goal_time: goalTime,
-        total_weeks: plan.total_weeks ?? weeks.length,
+        total_weeks: totalWeeks,
         peak_weekly_km: plan.peak_weekly_km ?? null,
         is_active: true,
       })
@@ -268,7 +301,7 @@ serve(async (req) => {
         plan_id: planRow.id,
         plan_name: plan.plan_name ?? "Training Plan",
         philosophy: plan.philosophy ?? philosophy,
-        total_weeks: plan.total_weeks ?? weeks.length,
+        total_weeks: totalWeeks,
         peak_weekly_km: plan.peak_weekly_km ?? null,
         start_date: startDate.toISOString().slice(0, 10),
         first_workout: (() => {

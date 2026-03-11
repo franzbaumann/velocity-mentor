@@ -371,11 +371,43 @@ export function OnboardingFlow({
 
   // Step 3 — Race / Target (conditional)
   if (step === 3) {
+    const suggestedGoalTime = (() => {
+      if (!bestPace || !answers.goalDistance) return null;
+      const paceSecPerKm = parsePace(bestPace);
+      if (paceSecPerKm <= 0 || paceSecPerKm >= 999) return null;
+      const dist = String(answers.goalDistance).toLowerCase();
+      let factor = 1.15;
+      if (dist.includes("marathon")) factor = 1.2;
+      else if (dist.includes("half")) factor = 1.08;
+      else if (dist.includes("10")) factor = 1.05;
+      else if (dist.includes("5")) factor = 1.02;
+      const estPaceSecPerKm = paceSecPerKm * factor;
+      const distKm = dist.includes("marathon") ? 42.195 : dist.includes("half") ? 21.1 : dist.includes("10") ? 10 : 5;
+      const totalSec = distKm * estPaceSecPerKm;
+      const h = Math.floor(totalSec / 3600);
+      const m = Math.floor((totalSec % 3600) / 60);
+      const s = Math.round(totalSec % 60);
+      return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+    })();
+
     return (
       <div className="min-h-screen flex flex-col px-6 py-8 bg-background">
         <ProgressDots current={3} />
         <div className="max-w-lg mx-auto flex-1 flex flex-col">
           <p className="text-lg text-foreground mb-6">Which race are you targeting?</p>
+          {suggestedGoalTime && (
+            <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 mb-4">
+              <p className="text-xs font-medium text-primary mb-1">Suggested goal (from your recent pace)</p>
+              <p className="text-sm text-foreground">Based on {bestPace}/km recent effort → ~{suggestedGoalTime} for {answers.goalDistance}</p>
+              <button
+                type="button"
+                onClick={() => onAnswersChange({ ...answers, goalTime: suggestedGoalTime })}
+                className="text-xs text-primary hover:underline mt-1"
+              >
+                Use this as my goal
+              </button>
+            </div>
+          )}
           <div className="flex gap-4 mb-4">
             <div className="flex-1">
               <label className="text-xs text-muted-foreground block mb-1">Race date</label>

@@ -1,6 +1,7 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useMergedActivities } from "@/hooks/useMergedIntervalsData";
 import { useMergedReadiness } from "@/hooks/useMergedIntervalsData";
+import { resolveCtlAtlTsb } from "@/hooks/useReadiness";
 import { useStravaConnection } from "@/hooks/use-strava-connection";
 import {
   computeFitnessCurves,
@@ -87,17 +88,19 @@ function FitnessChart({
 }) {
   const chartData = useMemo(() => {
     const fromReadiness = readiness
-      .filter((r) => (r.ctl != null || r.atl != null || r.tsb != null) && r.date <= fmt(now))
+      .filter((r) => {
+        const { ctl, atl, tsb } = resolveCtlAtlTsb(r);
+        return (ctl != null || atl != null || tsb != null) && r.date <= fmt(now);
+      })
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(-120)
-      .map((r) => ({ date: r.date, CTL: r.ctl ?? 0, ATL: r.atl ?? 0, TSB: r.tsb ?? 0 }));
+      .map((r) => {
+        const { ctl, atl, tsb } = resolveCtlAtlTsb(r);
+        return { date: r.date, CTL: ctl ?? 0, ATL: atl ?? 0, TSB: tsb ?? 0 };
+      });
     const computed = computeFitnessCurves(activities, oldest16w, fmt(now), THRESHOLD_HR);
     if (fromReadiness.length > 0) {
-      const byDate = new Map(fromReadiness.map((r) => [r.date, r]));
-      return computed.map((c) => {
-        const r = byDate.get(c.date);
-        return r ? { ...c, CTL: r.CTL, ATL: r.ATL, TSB: r.TSB } : c;
-      });
+      return fromReadiness;
     }
     return computed;
   }, [activities, readiness]);
@@ -126,6 +129,9 @@ function FitnessChart({
   const yPadding = Math.max(5, (yMax - yMin) * 0.1 || 5);
   const yDomain: [number, number] = [Math.floor(yMin - yPadding), Math.ceil(yMax + yPadding)];
 
+  const hasMeaningfulData = chartData.some((d) => d.CTL > 0 || d.ATL > 0 || Math.abs(d.TSB) > 0.1);
+  if (!hasMeaningfulData) return <EmptyState message="No fitness data yet" sub="Sync intervals.icu or import Garmin/Strava with HR to see CTL/ATL/TSB" />;
+
   return (
     <div className="h-[300px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -137,9 +143,9 @@ function FitnessChart({
           <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" />
           <ReferenceLine y={5} stroke="hsl(141 72% 50% / 0.5)" strokeDasharray="2 2" />
           <ReferenceLine y={-10} stroke="hsl(0 84% 60% / 0.5)" strokeDasharray="2 2" />
-          <Line type="monotone" dataKey="TSB" stroke="hsl(141 72% 50%)" strokeWidth={1.5} dot={false} name="TSB (form)" />
-          <Line type="monotone" dataKey="CTL" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} name="CTL (fitness)" />
-          <Line type="monotone" dataKey="ATL" stroke="hsl(36 100% 52%)" strokeWidth={2} dot={false} name="ATL (fatigue)" />
+          <Line type="monotone" dataKey="TSB" stroke="hsl(141 72% 50%)" strokeWidth={1.5} dot={false} connectNulls name="TSB (form)" />
+          <Line type="monotone" dataKey="CTL" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} connectNulls name="CTL (fitness)" />
+          <Line type="monotone" dataKey="ATL" stroke="hsl(36 100% 52%)" strokeWidth={2} dot={false} connectNulls name="ATL (fatigue)" />
           <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="bottom" height={28} />
         </AreaChart>
       </ResponsiveContainer>
@@ -255,6 +261,7 @@ function PersonalRecordsTable({ activities }: { activities: { id: string; date: 
     return PR_DISTANCES.map(({ key, km, label }) => {
       const best = findBestForDistance(runningOnly, km);
       if (!best) return { key, label, km, best: null };
+      const activityLinkId = best.externalId ? `icu_${best.externalId}` : best.activityId;
       return {
         key,
         label,
@@ -263,6 +270,7 @@ function PersonalRecordsTable({ activities }: { activities: { id: string; date: 
           timeSec: best.timeSec,
           pace: best.paceMinPerKm,
           date: best.date,
+          activityLinkId,
         },
       };
     });
@@ -290,7 +298,14 @@ function PersonalRecordsTable({ activities }: { activities: { id: string; date: 
             const paceStr = formatPaceFromMinPerKm(p.best.pace);
             const isLatest = p.best.date === latestDate;
             return (
-              <tr key={p.key} className="border-b border-border/50">
+              <tr
+                key={p.key}
+                className="border-b border-border/50 hover:bg-secondary/30 transition-colors cursor-pointer"
+                onClick={() => navigate(`/activities/${p.best!.activityLinkId}`)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && navigate(`/activities/${p.best!.activityLinkId}`)}
+              >
                 <td className="py-2 font-medium text-foreground">{p.label}</td>
                 <td className="py-2 text-foreground">{timeStr}</td>
                 <td className="py-2 text-muted-foreground">{paceStr}</td>
@@ -365,14 +380,22 @@ function HRVChart({ readiness }: { readiness: { date: string; hrv: number | null
   );
 }
 
-// ── 7. Readiness Score (when no HRV/sleep) ──
-function ReadinessScoreChart({ readiness }: { readiness: { date: string; score: number | null }[] }) {
+// ── 7. Readiness Score (from score, or derived from TSB/CTL when available) ──
+function ReadinessScoreChart({ readiness }: { readiness: { date: string; score?: number | null; tsb?: number | null; ctl?: number | null; atl?: number | null; icu_ctl?: number | null; icu_atl?: number | null; icu_tsb?: number | null }[] }) {
   const chartData = readiness
-    .filter((r) => r.score != null)
-    .map((r) => ({ date: r.date, score: r.score }))
+    .filter((r) => {
+      const { ctl, tsb } = resolveCtlAtlTsb(r);
+      return r.score != null || tsb != null || ctl != null;
+    })
+    .map((r) => {
+      const { ctl, tsb } = resolveCtlAtlTsb(r);
+      const score = r.score ?? (tsb != null ? Math.round(Math.min(100, Math.max(0, 50 + tsb * 2.5))) : (ctl != null ? Math.round(Math.min(100, Math.max(0, ctl))) : null));
+      return { date: r.date, score: score ?? 0 };
+    })
+    .filter((r) => r.score > 0)
     .slice(-120)
     .sort((a, b) => a.date.localeCompare(b.date));
-  if (!chartData.length) return <EmptyState message="No readiness score data" sub="Import Garmin Wellness CSV + Metrics JSON (DI-Connect)" />;
+  if (!chartData.length) return <EmptyState message="No readiness score data" sub="Connect intervals.icu or import Garmin Wellness for CTL/TSB/score" />;
   return (
     <div className="h-[240px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -434,7 +457,30 @@ function RampRateChart({ readiness }: { readiness: { date: string; ramp_rate?: n
   );
 }
 
-// ── 10. Sleep & Resting HR (from daily_readiness) ──
+// ── 10. Sleep Score (from intervals.icu / Garmin wellness) ──
+function SleepScoreChart({ readiness }: { readiness: { date: string; sleep_score?: number | null }[] }) {
+  const chartData = readiness
+    .filter((r) => r.sleep_score != null)
+    .map((r) => ({ date: r.date, score: r.sleep_score }))
+    .slice(-120)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!chartData.length) return <EmptyState message="No sleep score data yet" sub="Connect intervals.icu or import Garmin wellness for sleep score (0–100)" />;
+  return (
+    <div className="h-[240px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
+          <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} unit="" />
+          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [`${Math.round(val)}`, "Sleep score"]} />
+          <Line type="monotone" dataKey="score" stroke="hsl(220 70% 55%)" strokeWidth={2} dot={{ r: 2 }} name="Sleep score" />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── 11. Sleep & Resting HR (from daily_readiness) ──
 function SleepRestingChart({ readiness }: { readiness: { date: string; sleep_hours: number | null; resting_hr: number | null }[] }) {
   const chartData = readiness
     .filter((r) => r.sleep_hours != null || r.resting_hr != null)
@@ -580,30 +626,46 @@ export default function Stats() {
         )}
 
         {tab === "wellness" && (
-          <div className="space-y-5">
-            <ChartCard icon={TrendingUp} title="Fitness & Fatigue (CTL / ATL / TSB)">
-              <FitnessChart activities={activities.filter((a) => isRunningActivity(a.type))} readiness={readiness} />
-            </ChartCard>
-
-            <ChartCard icon={Activity} title="Readiness Score">
-              <ReadinessScoreChart readiness={readiness} />
-            </ChartCard>
-
-            <ChartCard icon={Zap} title="HRV Trend">
-              <HRVChart readiness={readiness} />
-            </ChartCard>
-
-            <ChartCard icon={Wind} title="VO2max">
-              <VO2maxChart readiness={readiness} />
-            </ChartCard>
-
-            <ChartCard icon={BarChart3} title="Ramp Rate">
-              <RampRateChart readiness={readiness} />
-            </ChartCard>
-
-            <ChartCard icon={Moon} title="Sleep & Resting HR">
-              <SleepRestingChart readiness={readiness} />
-            </ChartCard>
+          <div className="space-y-4">
+            <div className="space-y-3">
+              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Fitness & fatigue</h2>
+              <ChartCard icon={TrendingUp} title="CTL / ATL / TSB">
+                <FitnessChart activities={activities.filter((a) => isRunningActivity(a.type))} readiness={readiness} />
+              </ChartCard>
+            </div>
+            <div className="space-y-3">
+              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Wellness scores</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ChartCard icon={Activity} title="Readiness Score">
+                  <ReadinessScoreChart readiness={readiness} />
+                </ChartCard>
+                <ChartCard icon={Moon} title="Sleep Score">
+                  <SleepScoreChart readiness={readiness} />
+                </ChartCard>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">HR & recovery</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ChartCard icon={Zap} title="HRV Trend">
+                  <HRVChart readiness={readiness} />
+                </ChartCard>
+                <ChartCard icon={Heart} title="Sleep & Resting HR">
+                  <SleepRestingChart readiness={readiness} />
+                </ChartCard>
+              </div>
+            </div>
+            <div className="space-y-3">
+              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Fitness metrics</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <ChartCard icon={Wind} title="VO2max">
+                  <VO2maxChart readiness={readiness} />
+                </ChartCard>
+                <ChartCard icon={BarChart3} title="Ramp Rate">
+                  <RampRateChart readiness={readiness} />
+                </ChartCard>
+              </div>
+            </div>
           </div>
         )}
       </div>
