@@ -1,18 +1,78 @@
-import { FC } from "react";
+import { FC, useMemo } from "react";
 import { RefreshControl, SectionList, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
+import { useTheme } from "../context/ThemeContext";
 import { useActivitiesList, type ActivityListItem, type ActivitiesSection } from "../hooks/useActivities";
-import { colors } from "../theme/theme";
 import type { ActivitiesStackParamList } from "../navigation/RootNavigator";
 
 type ActivitiesNav = NativeStackNavigationProp<ActivitiesStackParamList, "ActivitiesList">;
 
 export const ActivitiesScreen: FC = () => {
+  const { colors } = useTheme();
   const { sections, isLoading, isEmpty, isRefetching, refetch } = useActivitiesList();
   const navigation = useNavigation<ActivitiesNav>();
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        loadingContent: { paddingHorizontal: 20, paddingTop: 56, paddingBottom: 32, gap: 16 },
+        listContent: { paddingHorizontal: 0, paddingTop: 56, paddingBottom: 0 },
+        title: {
+          fontSize: 22,
+          fontWeight: "600",
+          color: colors.foreground,
+          paddingHorizontal: 20,
+          marginBottom: 12,
+        },
+        listCard: {
+          flex: 1,
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+          backgroundColor: colors.glassBg,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          overflow: "hidden",
+        },
+        body: { fontSize: 14, color: colors.mutedForeground, lineHeight: 20 },
+        sectionHeader: {
+          paddingHorizontal: 20,
+          paddingVertical: 8,
+          backgroundColor: colors.background,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+        },
+        sectionHeaderText: { fontSize: 13, fontWeight: "500", color: colors.foreground },
+        row: {
+          paddingHorizontal: 20,
+          paddingVertical: 12,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+        },
+        rowMain: { flex: 1, marginRight: 12 },
+        rowTitle: { fontSize: 15, fontWeight: "500", color: colors.foreground },
+        rowMeta: { flexDirection: "row", flexWrap: "wrap", marginTop: 2 },
+        rowMetaText: { fontSize: 12, color: colors.mutedForeground },
+        rowRight: { alignItems: "flex-end", gap: 4 },
+        rowDistance: { fontSize: 14, fontWeight: "600", color: colors.foreground },
+        rowTag: {
+          fontSize: 11,
+          color: colors.mutedForeground,
+          paddingHorizontal: 8,
+          paddingVertical: 2,
+          borderRadius: 999,
+          backgroundColor: colors.muted,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+        },
+      }),
+    [colors]
+  );
 
   if (isLoading) {
     return (
@@ -83,76 +143,4 @@ export const ActivitiesScreen: FC = () => {
     </ScreenContainer>
   );
 };
-
-const styles = StyleSheet.create({
-  loadingContent: {
-    paddingHorizontal: 20,
-    paddingTop: 56,
-    paddingBottom: 32,
-    gap: 16,
-  },
-  listContent: {
-    paddingHorizontal: 0,
-    paddingTop: 56,
-    paddingBottom: 0,
-  },
-  title: {
-    fontSize: 22,
-    fontWeight: "600",
-    color: colors.foreground,
-    paddingHorizontal: 20,
-    marginBottom: 12,
-  },
-  listCard: {
-    flex: 1,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    backgroundColor: colors.glassBg,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    overflow: "hidden",
-  },
-  body: {
-    fontSize: 14,
-    color: colors.mutedForeground,
-    lineHeight: 20,
-  },
-  sectionHeader: {
-    paddingHorizontal: 20,
-    paddingVertical: 8,
-    backgroundColor: colors.background,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  sectionHeaderText: {
-    fontSize: 13,
-    fontWeight: "500",
-    color: colors.foreground,
-  },
-  row: {
-    paddingHorizontal: 20,
-    paddingVertical: 12,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  rowMain: { flex: 1, marginRight: 12 },
-  rowTitle: { fontSize: 15, fontWeight: "500", color: colors.foreground },
-  rowMeta: { flexDirection: "row", flexWrap: "wrap", marginTop: 2 },
-  rowMetaText: { fontSize: 12, color: colors.mutedForeground },
-  rowRight: { alignItems: "flex-end", gap: 4 },
-  rowDistance: { fontSize: 14, fontWeight: "600", color: colors.foreground },
-  rowTag: {
-    fontSize: 11,
-    color: colors.mutedForeground,
-    paddingHorizontal: 8,
-    paddingVertical: 2,
-    borderRadius: 999,
-    backgroundColor: colors.muted,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-});
 

@@ -1,9 +1,10 @@
-import { FC } from "react";
+import { FC, useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
 import { WorkoutBadge } from "../components/WorkoutBadge";
-import { colors, typography } from "../theme/theme";
+import { useTheme } from "../context/ThemeContext";
+import { typography } from "../theme/theme";
 
 const MOCK_SESSIONS = [
   { id: "1", date: "Mon 16 Feb", type: "easy" as const, description: "Easy Run", distance: 10, duration: 50, pace: "5:10–5:30/km" },
@@ -13,6 +14,30 @@ const MOCK_SESSIONS = [
 ];
 
 export const TrainingPlanScreen: FC = () => {
+  const { colors } = useTheme();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        content: { gap: 16 },
+        title: { fontSize: 22, fontWeight: "600", color: colors.foreground },
+        sectionHeader: {},
+        sessionCard: {
+          padding: 12,
+          borderRadius: 12,
+          backgroundColor: colors.card,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          marginBottom: 8,
+        },
+        sessionLeft: { flex: 1 },
+        sessionRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
+        sessionDate: { fontSize: 12, color: colors.mutedForeground },
+        sessionDesc: { fontSize: 14, fontWeight: "500", color: colors.foreground },
+        sessionMeta: { fontSize: 12, color: colors.mutedForeground, marginTop: 4 },
+        body: { fontSize: 14, color: colors.mutedForeground, lineHeight: 20 },
+      }),
+    [colors]
+  );
   return (
     <ScreenContainer contentContainerStyle={styles.content}>
       <Text style={styles.title}>Training plan</Text>
@@ -44,23 +69,3 @@ export const TrainingPlanScreen: FC = () => {
     </ScreenContainer>
   );
 };
-
-const styles = StyleSheet.create({
-  content: { gap: 16 },
-  title: { fontSize: 22, fontWeight: "600", color: colors.foreground },
-  sectionHeader: {},
-  sessionCard: {
-    padding: 12,
-    borderRadius: 12,
-    backgroundColor: "rgba(0,0,0,0.2)",
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    marginBottom: 8,
-  },
-  sessionLeft: { flex: 1 },
-  sessionRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
-  sessionDate: { fontSize: 12, color: colors.mutedForeground },
-  sessionDesc: { fontSize: 14, fontWeight: "500", color: colors.foreground },
-  sessionMeta: { fontSize: 12, color: colors.mutedForeground, marginTop: 4 },
-  body: { fontSize: 14, color: colors.mutedForeground, lineHeight: 20 },
-});

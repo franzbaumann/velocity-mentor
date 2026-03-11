@@ -16,6 +16,7 @@ import Philosophy from "./pages/Philosophy";
 import AuthPage from "./pages/AuthPage";
 import StravaCallback from "./pages/StravaCallback";
 import NotFound from "./pages/NotFound";
+import PricingDemo from "./pages/PricingDemo";
 
 const queryClient = new QueryClient();
 
@@ -47,6 +48,7 @@ const App = () => (
         <Routes>
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/auth/strava/callback" element={<StravaCallback />} />
+          <Route path="/pricing" element={<PricingDemo />} />
           <Route
             path="/"
             element={

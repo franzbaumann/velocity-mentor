@@ -1,4 +1,4 @@
-import { FC, useRef, useState } from "react";
+import { FC, useMemo, useRef, useState } from "react";
 import {
   KeyboardAvoidingView,
   Platform,
@@ -10,20 +10,103 @@ import {
   Switch,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { useNavigation } from "@react-navigation/native";
+import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { useTheme } from "../context/ThemeContext";
 import { useSupabaseAuth } from "../SupabaseProvider";
 import { GlassCard } from "../components/GlassCard";
-import { colors } from "../theme/theme";
 import * as SecureStore from "expo-secure-store";
 import { AUTH_STORAGE_KEY } from "../shared/supabase";
+import type { AuthStackParamList } from "../navigation/RootNavigator";
 
 export const AuthScreen: FC = () => {
+  const { colors } = useTheme();
+  const navigation =
+    useNavigation<NativeStackNavigationProp<AuthStackParamList, "Auth">>();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signup");
-  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
+    "idle",
+  );
   const [error, setError] = useState<string | null>(null);
   const [rememberMe, setRememberMe] = useState(true);
-  const { signInWithPassword, signUpWithPassword, bypassLogin } = useSupabaseAuth();
+  const { signInWithPassword, signUpWithPassword } = useSupabaseAuth();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        container: { flex: 1, backgroundColor: colors.background },
+        inner: { flex: 1, paddingHorizontal: 24, paddingTop: 80, paddingBottom: 32, justifyContent: "flex-start" },
+        logoRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 32 },
+        logoIcon: {
+          width: 36,
+          height: 36,
+          borderRadius: 12,
+          backgroundColor: colors.primary,
+          alignItems: "center",
+          justifyContent: "center",
+        },
+        logoTitle: { fontSize: 20, fontWeight: "600", color: colors.foreground, letterSpacing: -0.5 },
+        cardTitle: { fontSize: 18, fontWeight: "600", color: colors.foreground, marginBottom: 4 },
+        cardSubtitle: { fontSize: 14, color: colors.mutedForeground, marginBottom: 20 },
+        label: {
+          fontSize: 12,
+          fontWeight: "500",
+          color: colors.mutedForeground,
+          textTransform: "uppercase",
+          letterSpacing: 0.5,
+          marginBottom: 6,
+        },
+        input: {
+          height: 44,
+          borderRadius: 12,
+          paddingHorizontal: 14,
+          backgroundColor: colors.muted,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          color: colors.foreground,
+          fontSize: 14,
+          marginBottom: 14,
+        },
+        primaryButton: {
+          height: 44,
+          borderRadius: 999,
+          backgroundColor: colors.primary,
+          alignItems: "center",
+          justifyContent: "center",
+          marginTop: 4,
+          marginBottom: 8,
+        },
+        primaryButtonDisabled: { opacity: 0.6 },
+        primaryButtonText: { color: colors.primaryForeground, fontSize: 15, fontWeight: "600" },
+        secondaryPrimaryButton: { marginTop: 8, backgroundColor: colors.foreground },
+        linkButton: { paddingVertical: 4, alignItems: "center", justifyContent: "center" },
+        linkButtonText: {
+          color: colors.mutedForeground,
+          fontSize: 13,
+          fontWeight: "500",
+          textDecorationLine: "underline",
+        },
+        secondaryButton: {
+          height: 40,
+          borderRadius: 999,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          alignItems: "center",
+          justifyContent: "center",
+          marginTop: 4,
+          marginBottom: 4,
+        },
+        secondaryButtonText: { color: colors.mutedForeground, fontSize: 13, fontWeight: "500" },
+        helperText: { fontSize: 12, color: colors.mutedForeground },
+        rememberRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+        rememberLabel: { fontSize: 13, color: colors.mutedForeground },
+        successText: { marginTop: 8, fontSize: 12, color: colors.accent },
+        errorText: { marginTop: 8, fontSize: 12, color: colors.warning },
+        footerText: { fontSize: 11, color: colors.mutedForeground, marginTop: 16 },
+      }),
+    [colors]
+  );
   const emailInputRef = useRef<TextInput | null>(null);
   const passwordInputRef = useRef<TextInput | null>(null);
 
@@ -187,7 +270,7 @@ export const AuthScreen: FC = () => {
           <TouchableOpacity
             style={styles.secondaryButton}
             activeOpacity={0.85}
-            onPress={bypassLogin}
+            onPress={() => navigation.navigate("Pricing")}
           >
             <Text style={styles.secondaryButtonText}>Skip login for now</Text>
           </TouchableOpacity>
@@ -209,144 +292,4 @@ export const AuthScreen: FC = () => {
   );
 };
 
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
-  inner: {
-    flex: 1,
-    paddingHorizontal: 24,
-    paddingTop: 80,
-    paddingBottom: 32,
-    justifyContent: "flex-start",
-  },
-  logoRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    gap: 10,
-    marginBottom: 32,
-  },
-  logoIcon: {
-    width: 36,
-    height: 36,
-    borderRadius: 12,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  logoTitle: {
-    fontSize: 20,
-    fontWeight: "600",
-    color: colors.foreground,
-    letterSpacing: -0.5,
-  },
-  cardTitle: {
-    fontSize: 18,
-    fontWeight: "600",
-    color: colors.foreground,
-    marginBottom: 4,
-  },
-  cardSubtitle: {
-    fontSize: 14,
-    color: colors.mutedForeground,
-    marginBottom: 20,
-  },
-  label: {
-    fontSize: 12,
-    fontWeight: "500",
-    color: colors.mutedForeground,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginBottom: 6,
-  },
-  input: {
-    height: 44,
-    borderRadius: 12,
-    paddingHorizontal: 14,
-    backgroundColor: colors.muted,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    color: colors.foreground,
-    fontSize: 14,
-    marginBottom: 14,
-  },
-  primaryButton: {
-    height: 44,
-    borderRadius: 999,
-    backgroundColor: colors.primary,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 4,
-    marginBottom: 8,
-  },
-  primaryButtonDisabled: {
-    opacity: 0.6,
-  },
-  primaryButtonText: {
-    color: colors.primaryForeground,
-    fontSize: 15,
-    fontWeight: "600",
-  },
-  secondaryPrimaryButton: {
-    marginTop: 8,
-    backgroundColor: colors.foreground,
-  },
-  linkButton: {
-    paddingVertical: 4,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  linkButtonText: {
-    color: colors.mutedForeground,
-    fontSize: 13,
-    fontWeight: "500",
-    textDecorationLine: "underline",
-  },
-  secondaryButton: {
-    height: 40,
-    borderRadius: 999,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-    alignItems: "center",
-    justifyContent: "center",
-    marginTop: 4,
-    marginBottom: 4,
-  },
-  secondaryButtonText: {
-    color: colors.mutedForeground,
-    fontSize: 13,
-    fontWeight: "500",
-  },
-  helperText: {
-    fontSize: 12,
-    color: colors.mutedForeground,
-  },
-  rememberRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginBottom: 8,
-  },
-  rememberLabel: {
-    fontSize: 13,
-    color: colors.mutedForeground,
-  },
-  successText: {
-    marginTop: 8,
-    fontSize: 12,
-    color: colors.accent,
-  },
-  errorText: {
-    marginTop: 8,
-    fontSize: 12,
-    color: colors.warning,
-  },
-  footerText: {
-    fontSize: 11,
-    color: colors.mutedForeground,
-    marginTop: 16,
-  },
-});
 

@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { getLocalDateString } from "../lib/date";
 import { supabase } from "../shared/supabase";
 
 type ActivitySource = "garmin" | "strava" | "intervals_icu";
@@ -49,7 +50,7 @@ function formatDuration(sec: number | null): string {
 function buildSections(activities: ActivityListItem[]): ActivitiesSection[] {
   const byDate = new Map<string, ActivityListItem[]>();
   for (const a of activities) {
-    const key = a.date.toISOString().slice(0, 10);
+    const key = getLocalDateString(a.date);
     if (!byDate.has(key)) byDate.set(key, []);
     byDate.get(key)!.push(a);
   }

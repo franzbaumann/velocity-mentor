@@ -1,17 +1,31 @@
 import { View } from "react-native";
 import Svg, { Circle } from "react-native-svg";
 import { StyleSheet, Text } from "react-native";
-import { colors, typography } from "../theme/theme";
+import { useTheme } from "../context/ThemeContext";
+import type { ColorPalette } from "../theme/theme";
 
 type ReadinessRingProps = { score: number; size?: number };
 
-function getColor(score: number) {
-  if (score >= 75) return colors.accent;
-  if (score >= 50) return colors.warning;
-  return colors.destructive;
+function getColor(score: number, c: ColorPalette) {
+  if (score >= 75) return c.accent;
+  if (score >= 50) return c.warning;
+  return c.destructive;
 }
 
+const styles = StyleSheet.create({
+  wrapper: { position: "relative", alignItems: "center", justifyContent: "center" },
+  rotate: { transform: [{ rotate: "-90deg" }] },
+  center: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  score: { fontWeight: "700", fontVariant: ["tabular-nums"] },
+  label: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 },
+});
+
 export function ReadinessRing({ score, size = 100 }: ReadinessRingProps) {
+  const { colors } = useTheme();
   const strokeWidth = 6;
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
@@ -34,7 +48,7 @@ export function ReadinessRing({ score, size = 100 }: ReadinessRingProps) {
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke={getColor(score)}
+          stroke={getColor(score, colors)}
           strokeWidth={strokeWidth}
           strokeDasharray={circumference}
           strokeDashoffset={strokeDashoffset}
@@ -42,31 +56,9 @@ export function ReadinessRing({ score, size = 100 }: ReadinessRingProps) {
         />
       </Svg>
       <View style={styles.center} pointerEvents="none">
-        <Text style={[styles.score, { fontSize: size * 0.24 }]}>{score}</Text>
-        <Text style={styles.label}>Ready</Text>
+        <Text style={[styles.score, { fontSize: size * 0.24, color: colors.foreground }]}>{score}</Text>
+        <Text style={[styles.label, { color: colors.mutedForeground }]}>Ready</Text>
       </View>
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  wrapper: { position: "relative", alignItems: "center", justifyContent: "center" },
-  rotate: { transform: [{ rotate: "-90deg" }] },
-  center: {
-    ...StyleSheet.absoluteFillObject,
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  score: {
-    fontWeight: "700",
-    color: colors.foreground,
-    fontVariant: ["tabular-nums"],
-  },
-  label: {
-    fontSize: 10,
-    color: colors.mutedForeground,
-    textTransform: "uppercase",
-    letterSpacing: 0.5,
-    marginTop: 2,
-  },
-});

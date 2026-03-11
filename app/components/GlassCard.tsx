@@ -1,6 +1,7 @@
 import { PropsWithChildren } from "react";
 import { StyleSheet, View, ViewStyle } from "react-native";
-import { colors, spacing } from "../theme/theme";
+import { useTheme } from "../context/ThemeContext";
+import { spacing } from "../theme/theme";
 
 type GlassCardProps = PropsWithChildren<{
   style?: ViewStyle;
@@ -8,15 +9,24 @@ type GlassCardProps = PropsWithChildren<{
 }>;
 
 export function GlassCard({ children, style, padding = spacing.cardPadding }: GlassCardProps) {
-  return <View style={[styles.card, { padding }, style]}>{children}</View>;
+  const { colors } = useTheme();
+  return (
+    <View
+      style={[
+        styles.card,
+        { backgroundColor: colors.glassBg, borderColor: colors.border, padding },
+        style,
+      ]}
+    >
+      {children}
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
   card: {
     borderRadius: spacing.radiusLg,
-    backgroundColor: colors.glassBg,
     borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
     overflow: "hidden",
   },
 });

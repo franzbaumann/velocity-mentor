@@ -1,8 +1,9 @@
-import { FC } from "react";
+import { FC, useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
-import { colors, typography } from "../theme/theme";
+import { useTheme } from "../context/ThemeContext";
+import { typography } from "../theme/theme";
 
 const PHILOSOPHIES = [
   { name: "80/20 Polarized", founder: "Stephen Seiler", principle: "80% of training at low intensity, 20% at high intensity. Nothing in between.", easy: 80, moderate: 0, hard: 20 },
@@ -13,6 +14,25 @@ const PHILOSOPHIES = [
 ];
 
 export const PhilosophyScreen: FC = () => {
+  const { colors } = useTheme();
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        content: { gap: 16 },
+        title: { fontSize: 22, fontWeight: "600", color: colors.foreground },
+        subtitle: { fontSize: 14, color: colors.mutedForeground, marginBottom: 8 },
+        philoName: { fontSize: 16, fontWeight: "600", color: colors.foreground },
+        philoFounder: { fontSize: 12, color: colors.mutedForeground, marginTop: 2 },
+        philoPrinciple: { fontSize: 14, color: colors.foreground, lineHeight: 20, marginTop: 8 },
+        distRow: { flexDirection: "row", height: 8, borderRadius: 4, overflow: "hidden", marginTop: 12 },
+        distBar: { minWidth: 2 },
+        distEasy: { backgroundColor: colors.accent },
+        distMod: { backgroundColor: colors.warning },
+        distHard: { backgroundColor: colors.primary },
+        distLabel: { fontSize: 11, color: colors.mutedForeground, marginTop: 6 },
+      }),
+    [colors]
+  );
   return (
     <ScreenContainer contentContainerStyle={styles.content}>
       <Text style={styles.title}>Philosophy</Text>
@@ -38,18 +58,3 @@ export const PhilosophyScreen: FC = () => {
     </ScreenContainer>
   );
 };
-
-const styles = StyleSheet.create({
-  content: { gap: 16 },
-  title: { fontSize: 22, fontWeight: "600", color: colors.foreground },
-  subtitle: { fontSize: 14, color: colors.mutedForeground, marginBottom: 8 },
-  philoName: { fontSize: 16, fontWeight: "600", color: colors.foreground },
-  philoFounder: { fontSize: 12, color: colors.mutedForeground, marginTop: 2 },
-  philoPrinciple: { fontSize: 14, color: colors.foreground, lineHeight: 20, marginTop: 8 },
-  distRow: { flexDirection: "row", height: 8, borderRadius: 4, overflow: "hidden", marginTop: 12 },
-  distBar: { minWidth: 2 },
-  distEasy: { backgroundColor: colors.accent },
-  distMod: { backgroundColor: colors.warning },
-  distHard: { backgroundColor: colors.primary },
-  distLabel: { fontSize: 11, color: colors.mutedForeground, marginTop: 6 },
-});

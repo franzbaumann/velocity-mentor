@@ -1,5 +1,6 @@
 import { useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { getLocalDateString } from "../lib/date";
 import { supabase } from "../shared/supabase";
 import {
   athlete as mockAthlete,
@@ -174,9 +175,9 @@ export function useDashboardData() {
         (a.distance_km ?? 0) <= 150,
     );
     const mon = startOfWeekMonday(new Date());
-    const monStr = mon.toISOString().slice(0, 10);
+    const monStr = getLocalDateString(mon);
     const sun = addDays(mon, 6);
-    const sunStr = sun.toISOString().slice(0, 10);
+    const sunStr = getLocalDateString(sun);
     const thisWeekKm = runningActivities
       .filter((a) => a.date >= monStr && a.date <= sunStr)
       .reduce((sum, a) => sum + (a.distance_km ?? 0), 0);
@@ -199,7 +200,8 @@ export function useDashboardData() {
   }, [activities]);
 
   const recoveryMetrics = useMemo(() => {
-    const latest = readinessRows[0];
+    const todayStr = getLocalDateString();
+    const latest = readinessRows.find((r) => r.date === todayStr) ?? readinessRows[0];
     if (!latest) return mockRecoveryMetrics;
     const hrvVals = readinessRows.map((r) => r.hrv ?? 0).filter(Boolean).reverse();
     const rhrVals = readinessRows.map((r) => r.resting_hr ?? 0).filter(Boolean).reverse();
@@ -221,7 +223,9 @@ export function useDashboardData() {
   }, [readinessRows]);
 
   const readiness = useMemo(() => {
-    const latest = readinessRows[0];
+    const todayStr = getLocalDateString();
+    const todayRow = readinessRows.find((r) => r.date === todayStr);
+    const latest = todayRow ?? readinessRows[0];
     if (!latest) return mockReadiness;
     const hasReal =
       latest.hrv != null ||
@@ -269,9 +273,10 @@ export function useDashboardData() {
 
   const weekPlan = useMemo(() => {
     const mon = startOfWeekMonday(new Date());
+    const todayStr = getLocalDateString();
     return [0, 1, 2, 3, 4, 5, 6].map((i) => {
       const d = addDays(mon, i);
-      const dateStr = d.toISOString().slice(0, 10);
+      const dateStr = getLocalDateString(d);
       const dayActs = activities.filter(
         (a) =>
           isRunningActivity(a.type) &&
@@ -280,7 +285,7 @@ export function useDashboardData() {
           (a.distance_km ?? 0) <= 150,
       );
       const act = dayActs[0];
-      const today = new Date().toISOString().slice(0, 10) === dateStr;
+      const today = todayStr === dateStr;
       const mock = mockWeekPlan[i] ?? mockWeekPlan[0];
       const hasReal = activities.length > 0;
       return {

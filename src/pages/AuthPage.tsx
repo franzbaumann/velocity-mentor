@@ -1,13 +1,15 @@
 import { useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Zap } from "lucide-react";
 import { useAuth } from "@/hooks/use-auth";
+import PricingSection6 from "@/components/ui/pricing-section-4";
 
 type Mode = "login" | "signup";
 
 export default function AuthPage() {
   const { user, loading } = useAuth();
+  const navigate = useNavigate();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -23,7 +25,7 @@ export default function AuthPage() {
       </div>
     );
   }
-  if (user) return <Navigate to="/" replace />;
+  if (user) return <Navigate to="/pricing" replace />;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -51,8 +53,9 @@ export default function AuthPage() {
   }
 
   return (
-    <div className="min-h-screen bg-background flex items-center justify-center px-4">
-      <div className="w-full max-w-sm animate-fade-in">
+    <>
+      <div className="min-h-screen bg-background flex items-center justify-center px-4">
+        <div className="w-full max-w-sm animate-fade-in">
         {/* Logo */}
         <div className="flex items-center justify-center gap-2.5 mb-8">
           <div className="w-9 h-9 rounded-xl bg-primary flex items-center justify-center">
@@ -145,18 +148,30 @@ export default function AuthPage() {
             </button>
           </form>
 
-          <div className="text-center">
+          <div className="text-center space-y-2">
             <button
-              onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(null); setSuccessMsg(null); }}
-              className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+              onClick={() => {
+                setMode(mode === "login" ? "signup" : "login");
+                setError(null);
+                setSuccessMsg(null);
+              }}
+              className="block w-full text-sm text-muted-foreground hover:text-foreground transition-colors"
             >
               {mode === "login"
                 ? "Don't have an account? Sign up"
                 : "Already have an account? Sign in"}
             </button>
+            <button
+              type="button"
+              onClick={() => navigate("/pricing")}
+              className="block w-full text-xs text-muted-foreground hover:text-foreground underline underline-offset-4 transition-colors"
+            >
+              Skip login – explore plans
+            </button>
           </div>
         </div>
       </div>
-    </div>
+      <PricingSection6 />
+    </>
   );
 }

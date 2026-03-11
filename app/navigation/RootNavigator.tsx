@@ -2,7 +2,9 @@ import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { useTheme } from "../context/ThemeContext";
 import { AuthScreen } from "../screens/AuthScreen";
+import { PricingScreen } from "../screens/PricingScreen";
 import { DashboardScreen } from "../screens/DashboardScreen";
 import { ActivitiesScreen } from "../screens/ActivitiesScreen";
 import { ActivityDetailScreen } from "../screens/ActivityDetailScreen";
@@ -17,6 +19,7 @@ import { useSupabaseAuth } from "../SupabaseProvider";
 export type AuthStackParamList = {
   Auth: undefined;
   StravaCallback: undefined;
+  Pricing: undefined;
 };
 
 export type ActivitiesStackParamList = {
@@ -52,11 +55,13 @@ function AuthStackNavigator() {
     >
       <AuthStack.Screen name="Auth" component={AuthScreen} />
       <AuthStack.Screen name="StravaCallback" component={StravaCallbackScreen} />
+      <AuthStack.Screen name="Pricing" component={PricingScreen} />
     </AuthStack.Navigator>
   );
 }
 
 function ActivitiesStackNavigator() {
+  const { colors } = useTheme();
   return (
     <ActivitiesStack.Navigator
       screenOptions={{
@@ -71,8 +76,8 @@ function ActivitiesStackNavigator() {
           headerShown: true,
           headerTitle: "Activity",
           headerBackTitle: "Activities",
-          headerStyle: { backgroundColor: "#0f172a" },
-          headerTintColor: "#f3f4f6",
+          headerStyle: { backgroundColor: colors.background },
+          headerTintColor: colors.foreground,
           headerShadowVisible: false,
         }}
       />
@@ -82,20 +87,33 @@ function ActivitiesStackNavigator() {
 
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { LiquidTabBar } from "../components/LiquidTabBar";
 
 const Tabs = createBottomTabNavigator<AppTabsParamList>();
+const TAB_BAR_HEIGHT = 56;
 
 function AppTabsNavigator() {
+  const { colors } = useTheme();
+  const insets = useSafeAreaInsets();
   return (
     <Tabs.Navigator
+      tabBar={(props) => <LiquidTabBar {...props} />}
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          backgroundColor: "#0f172a",
-          borderTopColor: "rgba(255,255,255,0.08)",
+          position: "absolute",
+          backgroundColor: "transparent",
+          borderTopWidth: 0,
+          elevation: 0,
+          shadowOpacity: 0,
         },
-        tabBarActiveTintColor: "#f3f4f6",
-        tabBarInactiveTintColor: "#6b7280",
+        sceneContainerStyle: {
+          paddingBottom: insets.bottom + TAB_BAR_HEIGHT,
+        },
+        tabBarActiveTintColor: colors.primary,
+        tabBarInactiveTintColor: colors.mutedForeground,
+        tabBarShowLabel: true,
       }}
     >
       <Tabs.Screen
@@ -162,21 +180,22 @@ function AppTabsNavigator() {
 
 export function RootNavigator() {
   const { user, loading, devBypass } = useSupabaseAuth();
+  const { colors, resolved } = useTheme();
   const isAuthenticated = !!user || devBypass;
 
   if (loading) {
     return (
-      <View style={styles.loadingRoot}>
-        <ActivityIndicator size="small" color="#3b82f6" />
-        <Text style={styles.loadingText}>Loading your session…</Text>
+      <View style={[styles.loadingRoot, { backgroundColor: colors.background }]}>
+        <ActivityIndicator size="small" color={colors.primary} />
+        <Text style={[styles.loadingText, { color: colors.mutedForeground }]}>Loading your session…</Text>
       </View>
     );
   }
 
   return (
-    <View style={styles.root}>
+    <View style={[styles.root, { backgroundColor: colors.background }]}>
       <NavigationContainer>
-        <StatusBar style="light" />
+        <StatusBar style={resolved === "dark" ? "light" : "dark"} />
         <RootStack.Navigator
           screenOptions={{
             headerShown: false,
@@ -194,20 +213,8 @@ export function RootNavigator() {
 }
 
 const styles = StyleSheet.create({
-  root: {
-    flex: 1,
-    backgroundColor: "#020617",
-  },
-  loadingRoot: {
-    flex: 1,
-    backgroundColor: "#020617",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  loadingText: {
-    marginTop: 8,
-    color: "#9ca3af",
-    fontSize: 13,
-  },
+  root: { flex: 1 },
+  loadingRoot: { flex: 1, alignItems: "center", justifyContent: "center" },
+  loadingText: { marginTop: 8, fontSize: 13 },
 });
 

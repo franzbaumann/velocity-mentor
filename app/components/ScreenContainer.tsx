@@ -1,6 +1,7 @@
 import { PropsWithChildren } from "react";
 import { ScrollView, StyleSheet, View, ViewStyle } from "react-native";
-import { colors, spacing } from "../theme/theme";
+import { useTheme } from "../context/ThemeContext";
+import { spacing } from "../theme/theme";
 
 type ScreenContainerProps = PropsWithChildren<{
   contentContainerStyle?: ViewStyle;
@@ -9,10 +10,12 @@ type ScreenContainerProps = PropsWithChildren<{
 }>;
 
 export function ScreenContainer({ children, contentContainerStyle, scroll = true, refreshControl }: ScreenContainerProps) {
+  const { colors } = useTheme();
+  const containerStyle = [styles.container, { backgroundColor: colors.background }];
   if (scroll) {
     return (
       <ScrollView
-        style={styles.container}
+        style={containerStyle}
         contentContainerStyle={[styles.content, contentContainerStyle]}
         refreshControl={refreshControl}
       >
@@ -20,15 +23,11 @@ export function ScreenContainer({ children, contentContainerStyle, scroll = true
       </ScrollView>
     );
   }
-
-  return <View style={[styles.container, styles.content, contentContainerStyle]}>{children}</View>;
+  return <View style={[containerStyle, styles.content, contentContainerStyle]}>{children}</View>;
 }
 
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: colors.background,
-  },
+  container: { flex: 1 },
   content: {
     paddingHorizontal: spacing.screenHorizontal,
     paddingTop: spacing.screenTop,

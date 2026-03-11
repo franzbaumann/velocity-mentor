@@ -1,4 +1,4 @@
-import { FC } from "react";
+import { FC, useMemo } from "react";
 import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { ScreenContainer } from "../components/ScreenContainer";
@@ -6,12 +6,15 @@ import { GlassCard } from "../components/GlassCard";
 import { ReadinessRing } from "../components/ReadinessRing";
 import { WorkoutBadge } from "../components/WorkoutBadge";
 import { Sparkline } from "../components/Sparkline";
+import { useTheme } from "../context/ThemeContext";
 import { useGreeting } from "../hooks/useGreeting";
 import { useDashboardData } from "../hooks/useDashboardData";
-import { formatSleepHours } from "../lib/format";
-import { colors, spacing, typography } from "../theme/theme";
+import { getLocalDateString } from "../lib/date";
+import { formatDuration, formatSleepHours } from "../lib/format";
+import { spacing, typography } from "../theme/theme";
 
 export const HomeScreen: FC = () => {
+  const { colors } = useTheme();
   const greeting = useGreeting();
   const navigation = useNavigation();
   const dashboard = useDashboardData();
@@ -23,9 +26,105 @@ export const HomeScreen: FC = () => {
     lastActivity,
     recoveryMetrics,
     weekPlan,
+    activities,
     isRefetching,
     refetch,
   } = dashboard;
+
+  const todayStr = getLocalDateString();
+  const todaysActual = activities?.filter((a) => a.date === todayStr)?.[0] ?? null;
+  const todaysPlan = weekPlan?.find((d) => d.isToday) ?? null;
+
+  const styles = useMemo(
+    () =>
+      StyleSheet.create({
+        content: { gap: spacing.gap },
+        garminBanner: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingVertical: 12,
+          paddingHorizontal: 16,
+          borderRadius: 12,
+          borderWidth: 1,
+          borderColor: "rgba(59,130,246,0.2)",
+          backgroundColor: "rgba(59,130,246,0.05)",
+        },
+        garminBannerText: { fontSize: 13, color: colors.mutedForeground, flex: 1 },
+        garminBannerLink: { fontSize: 13, fontWeight: "600", color: colors.primary, marginLeft: 12 },
+        header: { gap: 4 },
+        title: { fontSize: 22, fontWeight: "600", color: colors.foreground },
+        subtitle: { fontSize: 13, color: colors.mutedForeground },
+        sectionHeader: {},
+        readinessCard: { padding: 24 },
+        readinessRow: { flexDirection: "row", alignItems: "center", gap: 24 },
+        readinessBody: { flex: 1, minWidth: 0 },
+        readinessTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
+        readinessTitle: { fontSize: 16, fontWeight: "600", color: colors.foreground },
+        readinessSummary: { fontSize: 13, color: colors.mutedForeground, lineHeight: 20 },
+        readinessMeta: { flexDirection: "row", gap: 16, marginTop: 12 },
+        metaText: { fontSize: 11, color: colors.mutedForeground },
+        activityCard: { padding: 20 },
+        activityTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
+        activityLabel: { fontSize: 12, fontWeight: "600", color: colors.mutedForeground, textTransform: "uppercase", letterSpacing: 0.5 },
+        activityName: { fontSize: 16, fontWeight: "600", color: colors.foreground },
+        activityMeta: { fontSize: 13, color: colors.mutedForeground, marginTop: 4 },
+        activityMetrics: { flexDirection: "row", flexWrap: "wrap", gap: 16, marginTop: 12 },
+        activityMetric: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+        weekRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
+        weekKm: { fontSize: 14, fontWeight: "500", color: colors.foreground },
+        weekPct: { fontSize: 12, color: colors.mutedForeground },
+        progressTrack: { height: 8, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden", marginBottom: 16 },
+        progressFill: { height: "100%", borderRadius: 999, backgroundColor: colors.primary },
+        qualityRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
+        dotsRow: { flexDirection: "row", gap: 6 },
+        dot: { width: 10, height: 10, borderRadius: 999 },
+        dotDone: { backgroundColor: colors.primary },
+        dotPlanned: { backgroundColor: colors.muted },
+        sparklineBlock: { marginTop: 12 },
+        sparklineLabel: { fontSize: 11, color: colors.mutedForeground, marginBottom: 4 },
+        lastActivityHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 },
+        lastActivityType: { fontSize: 14, fontWeight: "500", color: colors.foreground },
+        metricsGrid: { flexDirection: "row", flexWrap: "wrap", marginBottom: 12 },
+        metricCell: { width: "50%", marginBottom: 12 },
+        metricLabel: { fontSize: 11, color: colors.mutedForeground, marginBottom: 2 },
+        metricValue: { fontSize: 14, fontWeight: "600", color: colors.foreground },
+        recoveryRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
+        recoveryValueRow: { flexDirection: "row", alignItems: "center", gap: 6 },
+        recoveryValue: { fontSize: 18, fontWeight: "600", color: colors.foreground },
+        hrZonesBlock: { marginTop: 8 },
+        hrZonesBar: { flexDirection: "row", height: 12, borderRadius: 999, overflow: "hidden" },
+        hrZone: { height: "100%" },
+        hrZonesLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
+        hrZoneLabel: { fontSize: 10, color: colors.mutedForeground },
+        raceHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+        raceIcon: { width: 32, height: 32, borderRadius: 8, backgroundColor: "rgba(59,130,246,0.15)", alignItems: "center", justifyContent: "center" },
+        raceEmoji: { fontSize: 14 },
+        raceTitle: { fontSize: 14, fontWeight: "500", color: colors.foreground },
+        raceSubtitle: { fontSize: 12, color: colors.mutedForeground },
+        raceTime: { fontSize: 28, fontWeight: "700", color: colors.foreground, marginBottom: 8 },
+        racePaces: { gap: 2 },
+        raceFootnote: { fontSize: 10, color: colors.mutedForeground, marginTop: 12 },
+        daysRow: { gap: 12, paddingBottom: 8 },
+        dayCard: {
+          width: 140,
+          padding: 16,
+          borderRadius: 16,
+          backgroundColor: colors.background,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+        },
+        dayCardToday: { borderColor: "rgba(59,130,246,0.5)", borderWidth: 2 },
+        dayCardHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
+        dayCardLabel: { fontSize: 11, fontWeight: "500", color: colors.mutedForeground },
+        dayCardLabelToday: { color: colors.primary },
+        dayCardDate: { fontSize: 10, color: colors.mutedForeground },
+        dayCardTitle: { fontSize: 14, fontWeight: "500", color: colors.foreground, marginTop: 8 },
+        dayCardDistance: { fontSize: 12, color: colors.mutedForeground, marginTop: 4 },
+        dayCardDetail: { fontSize: 11, color: colors.mutedForeground, marginTop: 4 },
+      }),
+    [colors]
+  );
 
   if (!readiness || !weekStats) {
     return (
@@ -81,6 +180,70 @@ export const HomeScreen: FC = () => {
             </View>
           </View>
         </View>
+      </GlassCard>
+
+      {/* Today's Activity – planned or completed */}
+      <GlassCard style={styles.activityCard}>
+        <View style={styles.activityTitleRow}>
+          <Text style={styles.activityLabel}>Today's Activity</Text>
+          {todaysActual && (
+            <View style={[styles.dot, styles.dotDone]} />
+          )}
+        </View>
+        {todaysActual ? (
+          <>
+            <View style={styles.readinessTitleRow}>
+              <Text style={styles.activityName} numberOfLines={1}>{todaysActual.name ?? todaysActual.type ?? "Run"}</Text>
+              <WorkoutBadge
+                type={
+                  (todaysActual.type?.toLowerCase().includes("interval")
+                    ? "interval"
+                    : todaysActual.type?.toLowerCase().includes("tempo")
+                    ? "tempo"
+                    : todaysActual.type?.toLowerCase().includes("long")
+                    ? "long"
+                    : todaysActual.type?.toLowerCase().includes("recovery")
+                    ? "recovery"
+                    : "easy") as "easy" | "tempo" | "interval" | "long" | "recovery"
+                }
+              />
+            </View>
+            <Text style={styles.activityMeta}>
+              {(todaysActual.distance_km ?? 0).toFixed(1)} km · {formatDuration(todaysActual.duration_seconds)}
+              {todaysActual.avg_pace ? ` @ ${todaysActual.avg_pace}` : ""}
+            </Text>
+            <View style={styles.activityMetrics}>
+              <View style={styles.activityMetric}>
+                <Text style={[styles.metricValue, typography.mono]}>{(todaysActual.distance_km ?? 0).toFixed(1)}</Text>
+                <Text style={styles.metricLabel}>km</Text>
+              </View>
+              <View style={styles.activityMetric}>
+                <Text style={[styles.metricValue, typography.mono]}>{formatDuration(todaysActual.duration_seconds)}</Text>
+                <Text style={styles.metricLabel}>duration</Text>
+              </View>
+              {todaysActual.avg_pace != null && (
+                <View style={styles.activityMetric}>
+                  <Text style={[styles.metricValue, typography.mono]}>{todaysActual.avg_pace}</Text>
+                  <Text style={styles.metricLabel}>pace</Text>
+                </View>
+              )}
+            </View>
+          </>
+        ) : todaysPlan ? (
+          <>
+            <View style={styles.readinessTitleRow}>
+              <WorkoutBadge type={todaysPlan.type} />
+              <Text style={styles.metaText}>{todaysPlan.day}</Text>
+            </View>
+            <Text style={styles.activityName}>{todaysPlan.title}</Text>
+            <Text style={styles.activityMeta}>
+              {todaysPlan.distance > 0 ? `${todaysPlan.distance} km` : ""}
+              {todaysPlan.detail ? (todaysPlan.distance > 0 ? ` · ${todaysPlan.detail}` : todaysPlan.detail) : ""}
+            </Text>
+          </>
+        ) : (
+          <Text style={styles.activityMeta}>No activity planned or logged for today.</Text>
+        )}
       </GlassCard>
 
       {/* This Week – matches web card */}
@@ -235,83 +398,3 @@ export const HomeScreen: FC = () => {
     </ScreenContainer>
   );
 };
-
-const styles = StyleSheet.create({
-  content: { gap: spacing.gap },
-  garminBanner: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    paddingVertical: 12,
-    paddingHorizontal: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: "rgba(59,130,246,0.2)",
-    backgroundColor: "rgba(59,130,246,0.05)",
-  },
-  garminBannerText: { fontSize: 13, color: colors.mutedForeground, flex: 1 },
-  garminBannerLink: { fontSize: 13, fontWeight: "600", color: colors.primary, marginLeft: 12 },
-  header: { gap: 4 },
-  title: { fontSize: 22, fontWeight: "600", color: colors.foreground },
-  subtitle: { fontSize: 13, color: colors.mutedForeground },
-  sectionHeader: {},
-  readinessCard: { padding: 24 },
-  readinessRow: { flexDirection: "row", alignItems: "center", gap: 24 },
-  readinessBody: { flex: 1, minWidth: 0 },
-  readinessTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
-  readinessTitle: { fontSize: 16, fontWeight: "600", color: colors.foreground },
-  readinessSummary: { fontSize: 13, color: colors.mutedForeground, lineHeight: 20 },
-  readinessMeta: { flexDirection: "row", gap: 16, marginTop: 12 },
-  metaText: { fontSize: 11, color: colors.mutedForeground },
-  weekRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
-  weekKm: { fontSize: 14, fontWeight: "500", color: colors.foreground },
-  weekPct: { fontSize: 12, color: colors.mutedForeground },
-  progressTrack: { height: 8, borderRadius: 999, backgroundColor: colors.muted, overflow: "hidden", marginBottom: 16 },
-  progressFill: { height: "100%", borderRadius: 999, backgroundColor: colors.primary },
-  qualityRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
-  dotsRow: { flexDirection: "row", gap: 6 },
-  dot: { width: 10, height: 10, borderRadius: 999 },
-  dotDone: { backgroundColor: colors.primary },
-  dotPlanned: { backgroundColor: colors.muted },
-  sparklineBlock: { marginTop: 12 },
-  sparklineLabel: { fontSize: 11, color: colors.mutedForeground, marginBottom: 4 },
-  lastActivityHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 },
-  lastActivityType: { fontSize: 14, fontWeight: "500", color: colors.foreground },
-  metricsGrid: { flexDirection: "row", flexWrap: "wrap", marginBottom: 12 },
-  metricCell: { width: "50%", marginBottom: 12 },
-  metricLabel: { fontSize: 11, color: colors.mutedForeground, marginBottom: 2 },
-  metricValue: { fontSize: 14, fontWeight: "600", color: colors.foreground },
-  recoveryRow: { flexDirection: "row", justifyContent: "space-between", marginBottom: 12 },
-  recoveryValueRow: { flexDirection: "row", alignItems: "center", gap: 6 },
-  recoveryValue: { fontSize: 18, fontWeight: "600", color: colors.foreground },
-  hrZonesBlock: { marginTop: 8 },
-  hrZonesBar: { flexDirection: "row", height: 12, borderRadius: 999, overflow: "hidden" },
-  hrZone: { height: "100%" },
-  hrZonesLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
-  hrZoneLabel: { fontSize: 10, color: colors.mutedForeground },
-  raceHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
-  raceIcon: { width: 32, height: 32, borderRadius: 8, backgroundColor: "rgba(59,130,246,0.15)", alignItems: "center", justifyContent: "center" },
-  raceEmoji: { fontSize: 14 },
-  raceTitle: { fontSize: 14, fontWeight: "500", color: colors.foreground },
-  raceSubtitle: { fontSize: 12, color: colors.mutedForeground },
-  raceTime: { fontSize: 28, fontWeight: "700", color: colors.foreground, marginBottom: 8 },
-  racePaces: { gap: 2 },
-  raceFootnote: { fontSize: 10, color: colors.mutedForeground, marginTop: 12 },
-  daysRow: { gap: 12, paddingBottom: 8 },
-  dayCard: {
-    width: 140,
-    padding: 16,
-    borderRadius: 16,
-    backgroundColor: colors.background,
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: colors.border,
-  },
-  dayCardToday: { borderColor: "rgba(59,130,246,0.5)", borderWidth: 2 },
-  dayCardHeader: { flexDirection: "row", justifyContent: "space-between", marginBottom: 8 },
-  dayCardLabel: { fontSize: 11, fontWeight: "500", color: colors.mutedForeground },
-  dayCardLabelToday: { color: colors.primary },
-  dayCardDate: { fontSize: 10, color: colors.mutedForeground },
-  dayCardTitle: { fontSize: 14, fontWeight: "500", color: colors.foreground, marginTop: 8 },
-  dayCardDistance: { fontSize: 12, color: colors.mutedForeground, marginTop: 4 },
-  dayCardDetail: { fontSize: 11, color: colors.mutedForeground, marginTop: 4 },
-});

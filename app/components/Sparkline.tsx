@@ -2,11 +2,13 @@ import { useMemo } from "react";
 import { View } from "react-native";
 import Svg, { Path } from "react-native-svg";
 import { StyleSheet } from "react-native";
-import { colors } from "../theme/theme";
+import { useTheme } from "../context/ThemeContext";
 
 type SparklineProps = { data: number[]; color?: string };
 
-export function Sparkline({ data, color = colors.primary }: SparklineProps) {
+export function Sparkline({ data, color: colorProp }: SparklineProps) {
+  const { colors } = useTheme();
+  const color = colorProp ?? colors.primary;
   const path = useMemo(() => {
     if (data.length < 2) return "";
     const min = Math.min(...data);
