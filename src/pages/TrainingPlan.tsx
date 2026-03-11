@@ -125,6 +125,7 @@ type SessionLike = {
   key_focus?: string | null;
   target_hr_zone?: number | null;
   coach_note?: string | null;
+  adjustment_notes?: string | null;
   supportsCoachNote?: boolean;
 };
 
@@ -379,9 +380,10 @@ export default function TrainingPlan() {
       durationMin: session.duration_min,
       paceTarget: session.pace_target,
       hrZone: session.target_hr_zone,
+      adjustmentNotes: session.adjustment_notes ?? null,
     });
 
-    navigate(`/coach?session=${encodeURIComponent(visibleMsg)}&planMeta=${encodeURIComponent(hiddenMeta)}`);
+    navigate(`/coach?from=plan&session=${encodeURIComponent(visibleMsg)}&planMeta=${encodeURIComponent(hiddenMeta)}`);
   };
 
   const toggleWeek = (n: number) => {
@@ -419,7 +421,7 @@ export default function TrainingPlan() {
               Complete the onboarding with Kipcoachee to get a personalized training plan, or chat to build one from conversation.
             </p>
             <button
-              onClick={() => navigate("/coach")}
+              onClick={() => navigate("/coach?from=plan")}
               className="pill-button bg-primary text-primary-foreground"
             >
               Get started with Kipcoachee

@@ -1457,7 +1457,7 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
 
       const { data: workout, error: workoutErr } = await supabaseAdmin
         .from("training_plan_workout")
-        .select("id, date, coach_note, type, name, description, key_focus, distance_km, duration_minutes, target_pace, target_hr_zone, week_number, phase, plan_id")
+        .select("id, date, coach_note, type, name, description, key_focus, distance_km, duration_minutes, target_pace, target_hr_zone, week_number, phase, plan_id, notes")
         .eq("user_id", user.id)
         .eq("id", workoutId)
         .maybeSingle();
@@ -1530,7 +1530,10 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
         return `${r.date}: CTL ${ctl} ATL ${atl} TSB ${tsb} HRV ${r.hrv ?? "?"}ms Sleep ${r.sleep_hours ?? "?"}h RHR ${r.resting_hr ?? "?"}`;
       }).join("\n");
 
-      const prompt = `You are Kipcoachee — an elite AI running coach built into PaceIQ. You CREATED this session as part of the athlete's plan. Write a brief, personalized description (2-4 sentences) explaining WHY this specific session is good for THIS athlete right now. Reference their current fitness state (CTL/TSB), the week's load pattern, their philosophy, and race goal. Be direct, data-driven, and specific — use actual numbers. Never use ## headers or emojis.
+      const adjustmentNotes = (workout as Record<string, unknown>).notes as string | null;
+      const hasAdjustment = adjustmentNotes && (adjustmentNotes.startsWith("[Adjustment]") || adjustmentNotes.startsWith("[Transition]"));
+
+      const prompt = `You are Kipcoachee — an elite AI running coach built into PaceIQ. You CREATED this session as part of the athlete's plan. Write a brief, personalized description (2-4 sentences) explaining WHY this specific session is good for THIS athlete right now. Reference their current fitness state (CTL/TSB), the week's load pattern, their philosophy, and race goal. Be direct, data-driven, and specific — use actual numbers. Never use ## headers or emojis.${hasAdjustment ? `\n\nIMPORTANT: This session was modified due to a plan adjustment. The athlete's context for the change: "${adjustmentNotes}". You MUST reference this reason in your explanation — explain how this session helps given that specific situation.` : ""}
 
 === SESSION ===
 Type: ${workout.type ?? "?"} | Week ${workout.week_number ?? "?"} | Phase: ${workout.phase ?? "?"}

@@ -144,7 +144,7 @@ export default function Activities() {
             <Activity className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
             <h2 className="text-lg font-medium text-foreground mb-2">Add your activities</h2>
             <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
-              Import your Garmin data in Settings, or connect intervals.icu to sync from Garmin, Strava, and more.
+              Connect intervals.icu in Settings to sync your activities.
             </p>
             <button
               onClick={() => navigate("/settings")}
@@ -181,7 +181,7 @@ export default function Activities() {
             <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
               {isConnected
                 ? "Connected to intervals.icu — if you have activities there, they should sync. Try refreshing the page or check Settings."
-                : "Import your Garmin export in Settings, or connect intervals.icu to sync."}
+                : "Connect intervals.icu in Settings to sync your activities."}
             </p>
             <div className="flex flex-wrap gap-2 justify-center mt-6">
               <button

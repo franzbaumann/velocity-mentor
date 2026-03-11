@@ -1,11 +1,9 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Send, Loader2, Upload } from "lucide-react";
+import { Send, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ReactMarkdown from "react-markdown";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { GarminImportBlock } from "@/components/GarminImportBlock";
 import { OnboardingFlow } from "@/components/OnboardingFlow";
 import type { Components } from "react-markdown";
 import { toast } from "sonner";
@@ -15,7 +13,9 @@ import { useReadiness } from "@/hooks/useReadiness";
 import { useAthleteProfile } from "@/hooks/useAthleteProfile";
 import { useTrainingPlan } from "@/hooks/use-training-plan";
 import { useQueryClient } from "@tanstack/react-query";
-import { format, addDays, isToday } from "date-fns";
+import { format, addDays, isToday, startOfWeek } from "date-fns";
+import { isRunningActivity } from "@/lib/analytics";
+import { formatDistance } from "@/lib/format";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -23,12 +23,9 @@ const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/coach-chat`;
 
 const KIPCOACH_WELCOME = `Hey — I'm **Kipcoachee**, your AI running coach.
 
-Before we build a plan, I need to understand you. We can do this two ways:
+Before we build a plan, I need to understand you. Tell me your running history, goals, weekly volume, and what you’re training for — and I’ll create a personalized plan from that.
 
-1. **Describe your story** — tell me your running history, goals, volume, and I’ll create a plan from that.
-2. **Import Garmin data first** — upload your Garmin export (button above) and I’ll use your real activities and wellness data to build a plan tailored to you.
-
-Which path do you want to take? Or tell me your story and we’ll figure it out together.`;
+Make sure you’ve connected **intervals.icu** in Settings so I can see your real activities and wellness data.`;
 
 const fmt = (d: Date) => format(d, "yyyy-MM-dd");
 const now = new Date();
@@ -143,15 +140,70 @@ function PlanAdjustmentCard({
   );
 }
 
-const quickPrompts = [
-  "I'd like to describe my history and get a plan",
-  "I'll import my Garmin data first",
-  "How am I recovering this week?",
-  "Build me an adaptive plan for this week",
-  "What are my current training zones?",
-  "Should I run hard today or take it easy?",
-  "Help me peak for my race",
-];
+function buildQuickPrompts({
+  from,
+  hasPlan,
+  isConnected,
+  lastRun,
+  hasUpcomingWorkout,
+  upcomingDesc,
+  hrvLow,
+}: {
+  from: string | null;
+  hasPlan: boolean;
+  isConnected: boolean;
+  lastRun: { km: number; date: string; type: string } | null;
+  hasUpcomingWorkout: boolean;
+  upcomingDesc: string;
+  hrvLow: boolean;
+}): string[] {
+  const prompts: string[] = [];
+
+  if (from === "plan" || from === "training") {
+    prompts.push("Am I on track with my plan this week?");
+    if (hasUpcomingWorkout) prompts.push(`What should I focus on for ${upcomingDesc || "my next session"}?`);
+    prompts.push("Can we adjust my plan for this week?");
+    prompts.push("What's the purpose of my current training phase?");
+    prompts.push("Should I skip or modify tomorrow's workout?");
+  } else if (from === "activities" || from === "activity") {
+    if (lastRun) prompts.push(`How was my ${lastRun.km}km ${lastRun.type?.toLowerCase() || "run"}?`);
+    prompts.push("Analyze my recent training load");
+    prompts.push("Am I running too much or too little?");
+    prompts.push("What do my pace trends say about my fitness?");
+    prompts.push("Compare my last few weeks of training");
+  } else if (from === "stats") {
+    prompts.push("What does my CTL/TSB trend mean?");
+    prompts.push("How is my fitness progressing?");
+    prompts.push("Am I recovering well between sessions?");
+    prompts.push("What do my HR zones tell you about my training?");
+    prompts.push("Is my weekly volume appropriate?");
+  } else if (from === "dashboard") {
+    if (hrvLow) prompts.push("My HRV is low — should I take it easy today?");
+    prompts.push("Should I run hard today or take it easy?");
+    if (hasUpcomingWorkout) prompts.push(`Tell me about ${upcomingDesc || "today's workout"}`);
+    prompts.push("How am I recovering this week?");
+    prompts.push("Give me a quick training summary");
+  } else {
+    if (!hasPlan) {
+      prompts.push("Build me a training plan");
+      prompts.push("I'd like to describe my history and goals");
+    }
+    if (!isConnected) {
+      prompts.push("How do I connect my data?");
+    }
+    if (hrvLow) prompts.push("My HRV is low — what should I do?");
+    if (lastRun) prompts.push(`How was my last run (${lastRun.km}km)?`);
+    if (hasPlan) {
+      prompts.push("Am I on track with my plan?");
+      prompts.push("Should I run hard today or take it easy?");
+    }
+    prompts.push("How is my fitness trending?");
+    prompts.push("What are my current training zones?");
+    prompts.push("Help me peak for my race");
+  }
+
+  return prompts.slice(0, 6);
+}
 
 const HAS_ALL_DATA_PATTERNS = [
   /i have all the data/i,
@@ -258,102 +310,36 @@ function getNextMonday(): Date {
   return d;
 }
 
-async function savePlanFromChat(plan: Record<string, unknown>, isAdjustment: boolean): Promise<boolean> {
+const INTENSE_TYPES = new Set(["interval", "intervals", "tempo", "long", "race"]);
+
+async function savePlanFromChat(plan: Record<string, unknown>, isAdjustment: boolean, adjustmentReason?: string): Promise<boolean> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return false;
 
   const aiWeeks = Array.isArray(plan.weeks) ? plan.weeks : [];
-  const startDate = getNextMonday();
 
-  let mergedWeeks: Array<{ week_number: number; phase?: string; workouts: Record<string, unknown>[] }> = [];
-  let planMeta = {
+  if (isAdjustment) {
+    return applyAdjustmentToExistingPlan(user.id, aiWeeks, plan, adjustmentReason);
+  }
+
+  const startDate = getNextMonday();
+  const mergedWeeks = aiWeeks.map((wk: Record<string, unknown>) => ({
+    week_number: (wk.week_number as number) ?? 1,
+    phase: wk.phase as string | undefined,
+    workouts: (wk.workouts as Record<string, unknown>[]) ?? [],
+  }));
+
+  const totalWeeks = (plan.total_weeks as number) ?? Math.max(...mergedWeeks.map((w) => w.week_number), 1);
+
+  await supabase.from("training_plan").update({ is_active: false }).eq("user_id", user.id);
+
+  const { data: planRow, error: planErr } = await supabase.from("training_plan").insert({
+    user_id: user.id,
     plan_name: plan.plan_name ?? plan.name ?? "Training Plan",
     philosophy: String(plan.philosophy ?? "80_20").split("|")[0],
     goal_race: plan.goal_race ?? null,
     goal_date: plan.goal_date ?? null,
     goal_time: plan.goal_time ?? null,
-    peak_weekly_km: plan.peak_weekly_km ?? null,
-  };
-
-  if (isAdjustment) {
-    // Fetch current plan and merge AI's modified weeks into it
-    const { data: currentPlan } = await supabase
-      .from("training_plan")
-      .select("id, plan_name, philosophy, goal_race, goal_date, goal_time, start_date, total_weeks, peak_weekly_km")
-      .eq("user_id", user.id)
-      .eq("is_active", true)
-      .order("created_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (currentPlan) {
-      planMeta = {
-        plan_name: currentPlan.plan_name ?? planMeta.plan_name,
-        philosophy: currentPlan.philosophy ?? planMeta.philosophy,
-        goal_race: currentPlan.goal_race ?? planMeta.goal_race,
-        goal_date: currentPlan.goal_date ?? planMeta.goal_date,
-        goal_time: currentPlan.goal_time ?? planMeta.goal_time,
-        peak_weekly_km: currentPlan.peak_weekly_km ?? planMeta.peak_weekly_km,
-      };
-
-      const { data: existingWorkouts } = await supabase
-        .from("training_plan_workout")
-        .select("week_number, phase, day_of_week, type, name, description, key_focus, distance_km, duration_minutes, target_pace, target_hr_zone, tss_estimate, completed")
-        .eq("plan_id", currentPlan.id)
-        .order("date", { ascending: true });
-
-      if (existingWorkouts?.length) {
-        const weekMap = new Map<number, { phase?: string; workouts: Record<string, unknown>[] }>();
-        for (const w of existingWorkouts) {
-          const wn = w.week_number ?? 1;
-          if (!weekMap.has(wn)) weekMap.set(wn, { phase: w.phase ?? undefined, workouts: [] });
-          weekMap.get(wn)!.workouts.push({
-            day_of_week: w.day_of_week ?? 1,
-            type: w.type ?? "easy",
-            name: w.name ?? "",
-            description: w.description ?? "",
-            key_focus: w.key_focus ?? null,
-            distance_km: w.distance_km ?? null,
-            duration_minutes: w.duration_minutes ?? null,
-            target_pace: w.target_pace ?? null,
-            target_hr_zone: w.target_hr_zone ?? null,
-            tss_estimate: w.tss_estimate ?? null,
-            completed: w.completed ?? false,
-          });
-        }
-        for (const wk of aiWeeks) {
-          const wn = wk.week_number ?? 1;
-          const workouts = wk.workouts ?? [];
-          weekMap.set(wn, { phase: wk.phase ?? weekMap.get(wn)?.phase, workouts });
-        }
-        mergedWeeks = Array.from(weekMap.entries())
-          .sort((a, b) => a[0] - b[0])
-          .map(([week_number, { phase, workouts }]) => ({ week_number, phase, workouts }));
-      }
-    }
-    if (mergedWeeks.length === 0) mergedWeeks = aiWeeks.map((wk: Record<string, unknown>) => ({
-      week_number: wk.week_number ?? 1,
-      phase: wk.phase as string | undefined,
-      workouts: (wk.workouts as Record<string, unknown>[]) ?? [],
-    }));
-    await supabase.from("training_plan").update({ is_active: false }).eq("user_id", user.id);
-  } else {
-    mergedWeeks = aiWeeks.map((wk: Record<string, unknown>) => ({
-      week_number: (wk.week_number as number) ?? 1,
-      phase: wk.phase as string | undefined,
-      workouts: (wk.workouts as Record<string, unknown>[]) ?? [],
-    }));
-  }
-
-  const totalWeeks = plan.total_weeks ?? Math.max(...mergedWeeks.map((w) => w.week_number), 1);
-
-  const { data: planRow, error: planErr } = await supabase.from("training_plan").insert({
-    user_id: user.id,
-    plan_name: planMeta.plan_name,
-    philosophy: planMeta.philosophy,
-    goal_race: planMeta.goal_race,
-    goal_date: planMeta.goal_date,
-    goal_time: planMeta.goal_time,
     start_date: startDate.toISOString().slice(0, 10),
     end_date: (() => {
       const end = new Date(startDate);
@@ -361,7 +347,7 @@ async function savePlanFromChat(plan: Record<string, unknown>, isAdjustment: boo
       return end.toISOString().slice(0, 10);
     })(),
     total_weeks: totalWeeks,
-    peak_weekly_km: planMeta.peak_weekly_km,
+    peak_weekly_km: plan.peak_weekly_km ?? null,
     is_active: true,
   }).select("id").single();
 
@@ -397,13 +383,152 @@ async function savePlanFromChat(plan: Record<string, unknown>, isAdjustment: boo
   return true;
 }
 
+async function applyAdjustmentToExistingPlan(
+  userId: string,
+  aiWeeks: Record<string, unknown>[],
+  _plan: Record<string, unknown>,
+  adjustmentReason?: string,
+): Promise<boolean> {
+  const { data: currentPlan } = await supabase
+    .from("training_plan")
+    .select("id, start_date")
+    .eq("user_id", userId)
+    .eq("is_active", true)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (!currentPlan) return false;
+
+  const planStart = currentPlan.start_date ? new Date(currentPlan.start_date) : getNextMonday();
+  const planStartMon = new Date(planStart);
+  planStartMon.setDate(planStartMon.getDate() - ((planStartMon.getDay() + 6) % 7));
+
+  const adjustedDates: string[] = [];
+  const newWorkouts: Array<{ date: string; week_number: number; phase: string; dow: number; w: Record<string, unknown> }> = [];
+
+  for (const wk of aiWeeks) {
+    const wn = (wk.week_number as number) ?? 1;
+    const weekStart = new Date(planStartMon);
+    weekStart.setDate(weekStart.getDate() + (wn - 1) * 7);
+    const workouts = (wk.workouts as Record<string, unknown>[]) ?? [];
+
+    for (const w of workouts) {
+      const dow = (w.day_of_week as number) ?? 1;
+      const workoutDate = new Date(weekStart);
+      workoutDate.setDate(workoutDate.getDate() + (dow - 1));
+      const dateStr = workoutDate.toISOString().slice(0, 10);
+      adjustedDates.push(dateStr);
+      newWorkouts.push({
+        date: dateStr,
+        week_number: wn,
+        phase: (wk.phase as string) ?? "recovery",
+        dow,
+        w,
+      });
+    }
+  }
+
+  if (adjustedDates.length === 0) return false;
+
+  adjustedDates.sort();
+  const lastAdjustedDate = adjustedDates[adjustedDates.length - 1];
+
+  for (const dateStr of adjustedDates) {
+    await supabase
+      .from("training_plan_workout")
+      .delete()
+      .eq("plan_id", currentPlan.id)
+      .eq("date", dateStr);
+  }
+
+  for (const { date, week_number, phase, dow, w } of newWorkouts) {
+    await supabase.from("training_plan_workout").insert({
+      user_id: userId,
+      plan_id: currentPlan.id,
+      date,
+      week_number,
+      phase,
+      day_of_week: dow,
+      type: (w.type as string) ?? "easy",
+      name: (w.name as string) ?? (w.description as string) ?? "",
+      description: (w.description as string) ?? "",
+      key_focus: (w.key_focus as string | null) ?? null,
+      distance_km: (w.distance_km as number | null) ?? null,
+      duration_minutes: (w.duration_minutes as number | null) ?? null,
+      target_pace: (w.target_pace as string | null) ?? null,
+      target_hr_zone: (w.target_hr_zone as number | null) ?? null,
+      tss_estimate: (w.tss_estimate as number | null) ?? null,
+      completed: false,
+      notes: adjustmentReason ? `[Adjustment] ${adjustmentReason}` : null,
+    });
+  }
+
+  const { data: nextWorkouts } = await supabase
+    .from("training_plan_workout")
+    .select("id, date, type, name, description, distance_km, duration_minutes")
+    .eq("plan_id", currentPlan.id)
+    .gt("date", lastAdjustedDate)
+    .order("date", { ascending: true })
+    .limit(3);
+
+  if (nextWorkouts?.length) {
+    const first = nextWorkouts[0];
+    const firstType = (first.type ?? "easy").toLowerCase();
+
+    if (INTENSE_TYPES.has(firstType)) {
+      const origDesc = first.description || first.name || firstType;
+      const bridgeNote = adjustmentReason
+        ? `[Transition] After adjustment: ${adjustmentReason}. Originally: ${origDesc}.`
+        : `[Transition] Originally: ${origDesc}. Easing back after plan adjustment.`;
+      await supabase
+        .from("training_plan_workout")
+        .update({
+          type: "easy",
+          name: "Return-to-training easy run",
+          description: `Easy bridge run — originally: ${origDesc}. Easing back before resuming full intensity.`,
+          distance_km: Math.min(first.distance_km ?? 6, 6),
+          duration_minutes: Math.min(first.duration_minutes ?? 35, 40),
+          target_pace: null,
+          target_hr_zone: 2,
+          tss_estimate: null,
+          notes: bridgeNote,
+        })
+        .eq("id", first.id);
+
+      if (nextWorkouts.length >= 2) {
+        const second = nextWorkouts[1];
+        const secondType = (second.type ?? "easy").toLowerCase();
+        if (INTENSE_TYPES.has(secondType)) {
+          const origDesc2 = second.description || second.name || secondType;
+          await supabase
+            .from("training_plan_workout")
+            .update({
+              type: "easy",
+              name: "Gradual return easy run",
+              description: `Building back — originally: ${origDesc2}. Second session back, keeping it easy.`,
+              distance_km: Math.min(second.distance_km ?? 7, 8),
+              duration_minutes: Math.min(second.duration_minutes ?? 40, 45),
+              target_pace: null,
+              target_hr_zone: 2,
+              tss_estimate: null,
+              notes: bridgeNote,
+            })
+            .eq("id", second.id);
+        }
+      }
+    }
+  }
+
+  return true;
+}
+
 export default function Coach() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [rateLimitUntil, setRateLimitUntil] = useState<number>(0);
-  const [importSheetOpen, setImportSheetOpen] = useState(false);
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [applyingPlan, setApplyingPlan] = useState(false);
   const [onboardingAnswers, setOnboardingAnswers] = useState<Record<string, unknown>>({});
@@ -420,7 +545,6 @@ export default function Coach() {
 
   useEffect(() => {
     if (searchParams.get("import") === "1") {
-      setImportSheetOpen(true);
       setSearchParams({}, { replace: true });
     }
   }, [searchParams, setSearchParams]);
@@ -438,12 +562,15 @@ export default function Coach() {
     if (autoSentRef.current || messages.length > 0) return;
     if (sessionParam) {
       autoSentRef.current = true;
-      let planMeta: { planName?: string; weekNumber?: number; sessionType?: string } | null = null;
+      let planMeta: { planName?: string; weekNumber?: number; sessionType?: string; adjustmentNotes?: string } | null = null;
       try { planMeta = planMetaParam ? JSON.parse(decodeURIComponent(planMetaParam)) : null; } catch { /* ignore */ }
       const prefix = planMeta
         ? `This is a ${planMeta.sessionType ?? ""} session from Week ${planMeta.weekNumber ?? "?"} of my plan "${planMeta.planName ?? ""}". `
         : "";
-      pendingAutoSend.current = `${prefix}Tell me about this workout: ${decodeURIComponent(sessionParam)} — why is it in my plan and what does it do for me?`;
+      const adjustCtx = planMeta?.adjustmentNotes
+        ? ` Context for this session: ${planMeta.adjustmentNotes}.`
+        : "";
+      pendingAutoSend.current = `${prefix}Tell me about this workout: ${decodeURIComponent(sessionParam)} — why is it in my plan and what does it do for me?${adjustCtx}`;
     } else if (workoutContext && !message) {
       setMessage(`Tell me about this workout: ${decodeURIComponent(workoutContext)}`);
     }
@@ -486,11 +613,88 @@ export default function Coach() {
     return `Here's your week. What's on your mind?`;
   }, [workoutContext, activitiesData, planData, wellnessData]);
 
+  const fromParam = searchParams.get("from");
+
+  const quickPrompts = useMemo(() => {
+    const activities = Array.isArray(activitiesData) ? activitiesData : [];
+    const runs = activities.filter((a) => (a.distance_km ?? 0) > 0 && (a.type?.toLowerCase().includes("run") || !a.type));
+    const lastRun = runs.length > 0 ? runs[runs.length - 1] : null;
+    const lastRunInfo = lastRun ? { km: Math.round((lastRun.distance_km ?? 0) * 10) / 10, date: lastRun.date, type: lastRun.type ?? "Run" } : null;
+
+    const hasPlan = (planData?.weeks?.length ?? 0) > 0;
+
+    const readiness = Array.isArray(wellnessData) ? wellnessData : [];
+    const latest = readiness[readiness.length - 1];
+    const hrvLow = latest?.hrv != null && latest?.hrv_baseline != null && latest.hrv < latest.hrv_baseline * 0.9;
+
+    const today = new Date();
+    const todayStr = format(today, "yyyy-MM-dd");
+    const tomorrowStr = format(addDays(today, 1), "yyyy-MM-dd");
+    let upcomingDesc = "";
+    let hasUpcomingWorkout = false;
+    for (const w of planData?.weeks ?? []) {
+      for (const s of w.sessions ?? []) {
+        const sd = s.scheduled_date ? String(s.scheduled_date).slice(0, 10) : "";
+        if (sd === todayStr || sd === tomorrowStr) {
+          hasUpcomingWorkout = true;
+          upcomingDesc = s.description ?? s.session_type ?? "my next session";
+          break;
+        }
+      }
+      if (hasUpcomingWorkout) break;
+    }
+
+    return buildQuickPrompts({ from: fromParam, hasPlan, isConnected, lastRun: lastRunInfo, hasUpcomingWorkout, upcomingDesc, hrvLow });
+  }, [fromParam, activitiesData, planData, wellnessData, isConnected]);
+
   const showGeneratePlan = messages.some((m) => m.role === "assistant" && assistantSaysHasAllData(m.content));
 
   const intervalsContext = isConnected
     ? { wellness: Array.isArray(wellnessData) ? wellnessData : undefined, activities: Array.isArray(activitiesData) ? activitiesData : undefined }
     : null;
+
+  const weekDays = useMemo(() => {
+    const mon = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const monStr = format(mon, "yyyy-MM-dd");
+    const sunStr = format(addDays(mon, 6), "yyyy-MM-dd");
+    const activities = Array.isArray(activitiesData) ? activitiesData : [];
+
+    const planByDate = new Map<string, { type: string; description: string; distance_km?: number; pace_target?: string }>();
+    for (const week of (planData?.weeks ?? []) as { sessions?: { scheduled_date?: string; session_type?: string; description?: string; distance_km?: number; pace_target?: string }[] }[]) {
+      for (const s of week.sessions ?? []) {
+        const d = s.scheduled_date ? String(s.scheduled_date).slice(0, 10) : null;
+        if (d && d >= monStr && d <= sunStr && !planByDate.has(d)) {
+          planByDate.set(d, {
+            type: (s.session_type ?? "easy").toLowerCase(),
+            description: s.description ?? "",
+            distance_km: s.distance_km,
+            pace_target: s.pace_target,
+          });
+        }
+      }
+    }
+
+    return [0, 1, 2, 3, 4, 5, 6].map((i) => {
+      const d = addDays(mon, i);
+      const dateStr = format(d, "yyyy-MM-dd");
+      const act = activities.find((a) => isRunningActivity(a.type) && a.date === dateStr && (a.distance_km ?? 0) >= 0.01);
+      const planned = planByDate.get(dateStr);
+      const today = isToday(d);
+      const done = !!act;
+
+      const type = (act ? (act.type ?? "run").toLowerCase() : planned?.type ?? "rest") as "easy" | "tempo" | "interval" | "long" | "recovery" | "rest";
+      const title = act
+        ? `${act.type ?? "Run"} ${formatDistance(act.distance_km ?? 0)} km`
+        : planned
+          ? (planned.description?.trim() || (planned.distance_km ? `Run ${formatDistance(planned.distance_km)} km` : planned.type || "Run"))
+          : "Rest";
+      const distance = act ? Math.round((act.distance_km ?? 0) * 10) / 10 : (planned?.distance_km ?? 0);
+
+      return { day: format(d, "EEE"), date: format(d, "d"), type, title, distance, today, done };
+    });
+  }, [activitiesData, planData]);
+
+  const hasWeekPlan = weekDays.some((d) => d.type !== "rest");
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -575,7 +779,12 @@ export default function Coach() {
     async (plan: Record<string, unknown>, isAdjustment: boolean) => {
       setApplyingPlan(true);
       try {
-        const ok = await savePlanFromChat(plan, isAdjustment);
+        let adjustmentReason: string | undefined;
+        if (isAdjustment && messages.length > 0) {
+          const recentUserMsgs = messages.filter((m) => m.role === "user").slice(-3);
+          adjustmentReason = recentUserMsgs.map((m) => m.content).join(" | ").slice(0, 300);
+        }
+        const ok = await savePlanFromChat(plan, isAdjustment, adjustmentReason);
         if (ok) {
           queryClient.invalidateQueries({ queryKey: ["training-plan"] });
           toast.success("Plan updated! View it on the Training Plan page.", {
@@ -672,14 +881,6 @@ export default function Coach() {
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-semibold text-foreground">Kipcoachee</h1>
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setImportSheetOpen(true)}
-              className="inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground hover:bg-secondary/80 transition-colors"
-              title="Import Garmin data"
-            >
-              <Upload className="h-3.5 w-3.5" />
-              Import Garmin
-            </button>
             {messages.length > 0 && (
               <button
                 onClick={handleStartFresh}
@@ -691,16 +892,48 @@ export default function Coach() {
           </div>
         </div>
 
-        <Sheet open={importSheetOpen} onOpenChange={setImportSheetOpen}>
-          <SheetContent side="right" className="w-full max-w-lg overflow-y-auto">
-            <SheetHeader>
-              <SheetTitle>Import Garmin Data</SheetTitle>
-            </SheetHeader>
-            <div className="mt-6">
-              <GarminImportBlock />
-            </div>
-          </SheetContent>
-        </Sheet>
+        {hasWeekPlan && (
+          <div className="grid grid-cols-7 gap-1.5 mb-3">
+            {weekDays.map((d) => {
+              const pillColor: Record<string, string> = {
+                easy: "bg-accent text-accent-foreground",
+                tempo: "bg-primary text-primary-foreground",
+                interval: "bg-destructive text-destructive-foreground",
+                intervals: "bg-destructive text-destructive-foreground",
+                long: "bg-warning text-warning-foreground",
+                recovery: "bg-muted text-muted-foreground",
+                rest: "",
+                strides: "bg-accent text-accent-foreground",
+              };
+              const pill = pillColor[d.type] ?? "";
+              const hasSession = d.type !== "rest";
+
+              return (
+                <div
+                  key={d.day}
+                  className={`rounded-xl border border-border p-2 min-h-[72px] ${
+                    d.today ? "bg-primary/5 border-primary/30" : "bg-card"
+                  }`}
+                >
+                  <p className={`text-[11px] font-medium mb-1 ${d.today ? "text-primary font-bold" : "text-muted-foreground"}`}>
+                    {d.today ? "Today" : d.day} <span className="font-normal">{d.date}</span>
+                  </p>
+                  {hasSession ? (
+                    <button
+                      onClick={() => send(`Tell me about ${d.today ? "today's" : d.day + "'s"} session: ${d.title}`)}
+                      className={`w-full text-left text-[11px] px-2 py-1 rounded-lg truncate ${pill} ${d.done ? "ring-2 ring-emerald-400" : ""} hover:opacity-80 transition-opacity`}
+                    >
+                      {d.done && <span className="inline-block mr-0.5">✓</span>}
+                      {d.title}
+                    </button>
+                  ) : (
+                    <p className="text-[10px] text-muted-foreground/50 mt-1">Rest</p>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
 
         <div className="flex-1 glass-card rounded-2xl flex flex-col overflow-hidden">
           {/* Messages */}

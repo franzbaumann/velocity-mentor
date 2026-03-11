@@ -2,7 +2,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { useMergedActivities } from "@/hooks/useMergedIntervalsData";
 import { useMergedReadiness } from "@/hooks/useMergedIntervalsData";
 import { resolveCtlAtlTsb } from "@/hooks/useReadiness";
-import { useStravaConnection } from "@/hooks/use-strava-connection";
+import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import {
   computeFitnessCurves,
   parsePaceToMinPerKm,
@@ -78,7 +78,7 @@ function formatPaceTick(val: number): string {
   return `${min}:${String(sec).padStart(2, "0")}/km`;
 }
 
-// ── 1. CTL/ATL/TSB Fitness Chart (from activities OR imported Garmin readiness) ──
+// ── 1. CTL/ATL/TSB Fitness Chart ──
 function FitnessChart({
   activities,
   readiness,
@@ -105,7 +105,7 @@ function FitnessChart({
     return computed;
   }, [activities, readiness]);
 
-  if (!chartData.length) return <EmptyState message="No fitness data yet" sub="Import Garmin or connect Strava with HR to see CTL/ATL/TSB" />;
+  if (!chartData.length) return <EmptyState message="No fitness data yet" sub="Connect intervals.icu in Settings to see CTL/ATL/TSB" />;
 
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string }[]; label?: string }) => {
     if (!active || !payload?.length || !label) return null;
@@ -130,7 +130,7 @@ function FitnessChart({
   const yDomain: [number, number] = [Math.floor(yMin - yPadding), Math.ceil(yMax + yPadding)];
 
   const hasMeaningfulData = chartData.some((d) => d.CTL > 0 || d.ATL > 0 || Math.abs(d.TSB) > 0.1);
-  if (!hasMeaningfulData) return <EmptyState message="No fitness data yet" sub="Sync intervals.icu or import Garmin/Strava with HR to see CTL/ATL/TSB" />;
+  if (!hasMeaningfulData) return <EmptyState message="No fitness data yet" sub="Sync intervals.icu in Settings to see CTL/ATL/TSB" />;
 
   return (
     <div className="h-[300px]">
@@ -174,7 +174,7 @@ function WeeklyMileageChartSimple({ activities }: { activities: { date: string; 
       .map(([week, km]) => ({ week: format(new Date(week), "MMM d"), km: Math.round(km * 10) / 10 }));
   }, [activities]);
 
-  if (!chartData.length) return <EmptyState message="No weekly mileage yet" sub="Import Garmin or sync runs from Strava" />;
+  if (!chartData.length) return <EmptyState message="No weekly mileage yet" sub="Connect intervals.icu in Settings to sync your runs" />;
 
   return (
     <div className="h-[260px]">
@@ -223,7 +223,7 @@ function PaceProgressionChart({ activities }: { activities: { date: string; type
     return { points: pts, trendline: trend };
   }, [runningOnly, filter]);
 
-  if (!points.length) return <EmptyState message="No pace data yet" sub="Runs need avg_pace (Garmin or Strava)" />;
+  if (!points.length) return <EmptyState message="No pace data yet" sub="Connect intervals.icu to sync runs with pace data" />;
 
   return (
     <div>
@@ -364,7 +364,7 @@ function HRVChart({ readiness }: { readiness: { date: string; hrv: number | null
     .map((r) => ({ date: r.date, hrv: r.hrv }))
     .slice(-120)
     .sort((a, b) => a.date.localeCompare(b.date));
-  if (!chartData.length) return <EmptyState message="No HRV data yet" sub="Import Garmin wellness to see HRV" />;
+  if (!chartData.length) return <EmptyState message="No HRV data yet" sub="Connect intervals.icu to sync wellness data" />;
   return (
     <div className="h-[240px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -395,7 +395,7 @@ function ReadinessScoreChart({ readiness }: { readiness: { date: string; score?:
     .filter((r) => r.score > 0)
     .slice(-120)
     .sort((a, b) => a.date.localeCompare(b.date));
-  if (!chartData.length) return <EmptyState message="No readiness score data" sub="Connect intervals.icu or import Garmin Wellness for CTL/TSB/score" />;
+  if (!chartData.length) return <EmptyState message="No readiness score data" sub="Connect intervals.icu in Settings to sync readiness scores" />;
   return (
     <div className="h-[240px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -411,14 +411,14 @@ function ReadinessScoreChart({ readiness }: { readiness: { date: string; score?:
   );
 }
 
-// ── 8. VO2max Trend (from intervals wellness / Garmin sync) ──
+// ── 8. VO2max Trend (from intervals.icu wellness) ──
 function VO2maxChart({ readiness }: { readiness: { date: string; vo2max?: number | null }[] }) {
   const chartData = readiness
     .filter((r) => r.vo2max != null)
     .map((r) => ({ date: r.date, vo2max: r.vo2max }))
     .slice(-120)
     .sort((a, b) => a.date.localeCompare(b.date));
-  if (!chartData.length) return <EmptyState message="No VO2max data yet" sub="Connect intervals.icu or import Garmin Metrics (DI-Connect-Metrics) for estimated VO2max" />;
+  if (!chartData.length) return <EmptyState message="No VO2max data yet" sub="Connect intervals.icu to sync estimated VO2max" />;
   return (
     <div className="h-[240px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -457,14 +457,14 @@ function RampRateChart({ readiness }: { readiness: { date: string; ramp_rate?: n
   );
 }
 
-// ── 10. Sleep Score (from intervals.icu / Garmin wellness) ──
+// ── 10. Sleep Score (from intervals.icu) ──
 function SleepScoreChart({ readiness }: { readiness: { date: string; sleep_score?: number | null }[] }) {
   const chartData = readiness
     .filter((r) => r.sleep_score != null)
     .map((r) => ({ date: r.date, score: r.sleep_score }))
     .slice(-120)
     .sort((a, b) => a.date.localeCompare(b.date));
-  if (!chartData.length) return <EmptyState message="No sleep score data yet" sub="Connect intervals.icu or import Garmin wellness for sleep score (0–100)" />;
+  if (!chartData.length) return <EmptyState message="No sleep score data yet" sub="Connect intervals.icu to sync sleep score data" />;
   return (
     <div className="h-[240px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -487,7 +487,7 @@ function SleepRestingChart({ readiness }: { readiness: { date: string; sleep_hou
     .map((r) => ({ date: r.date, sleep: r.sleep_hours, restingHr: r.resting_hr }))
     .slice(-120)
     .sort((a, b) => a.date.localeCompare(b.date));
-  if (!chartData.length) return <EmptyState message="No sleep/HR data yet" sub="Import Garmin wellness" />;
+  if (!chartData.length) return <EmptyState message="No sleep/HR data yet" sub="Connect intervals.icu to sync wellness data" />;
   return (
     <div className="h-[240px]">
       <ResponsiveContainer width="100%" height="100%">
@@ -551,14 +551,14 @@ function RunningStatsSection({
 export default function Stats() {
   const navigate = useNavigate();
   const [tab, setTab] = useState<StatsTab>("runs");
-  const { connected: stravaConnected, loading: stravaLoading } = useStravaConnection();
+  const { isConnected: intervalsConnected, isLoading: intervalsLoading } = useIntervalsIntegration();
   const { data: activities = [], isLoading: activitiesLoading } = useMergedActivities(730);
   const { data: readiness = [], isLoading: readinessLoading } = useMergedReadiness(730);
   useEffect(() => {
     if (readiness.length > 0 && activities.length === 0) setTab("wellness");
   }, [readiness.length, activities.length]);
 
-  const isLoading = stravaLoading || activitiesLoading || readinessLoading;
+  const isLoading = intervalsLoading || activitiesLoading || readinessLoading;
   const hasData = activities.length > 0 || readiness.length > 0;
 
   if (isLoading && !hasData) {
@@ -584,12 +584,12 @@ export default function Stats() {
             <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-5">
               <Link2 className="w-7 h-7 text-primary" />
             </div>
-            <h2 className="text-lg font-medium text-foreground mb-2">Import your data to see stats</h2>
+            <h2 className="text-lg font-medium text-foreground mb-2">Connect intervals.icu to see stats</h2>
             <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
-              Drop your Garmin export (DI_CONNECT folder or ZIP) in Settings to see CTL/ATL/TSB, weekly mileage, pace trends, PRs, HRV, and sleep.
+              Connect intervals.icu in Settings to sync your activities and wellness data — CTL/ATL/TSB, weekly mileage, pace trends, PRs, HRV, and sleep.
             </p>
             <button onClick={() => navigate("/settings")} className="pill-button bg-primary text-primary-foreground gap-2">
-              Import Garmin data
+              Go to Settings
               <ArrowRight className="w-4 h-4" />
             </button>
           </div>

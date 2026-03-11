@@ -606,7 +606,7 @@ export default function SettingsPage() {
           <div className="glass-card p-5">
             <p className="section-header">Connected Accounts</p>
             <p className="text-sm text-muted-foreground mb-4">
-              Connect your accounts to sync activities and see fitness charts.
+              Connect intervals.icu to sync activities, wellness, and fitness data.
             </p>
             <div className="space-y-3">
               {/* intervals.icu */}
@@ -686,34 +686,20 @@ export default function SettingsPage() {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center">
-                    <span className="text-xs font-semibold text-muted-foreground">G</span>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Garmin import</p>
-                    <p className="text-xs text-muted-foreground">
-                      Drop DI-Connect-Fitness, Wellness, and Metrics (extract from your Garmin export). Supports runs, wellness, and training metrics.
-                      {activityCount > 0 && ` · ${activityCount} activities in database`}
-                      {" · "}
-                      <Link to="/coach?import=1" className="text-primary hover:underline">Quick import on Coach</Link>
-                    </p>
-                  </div>
-                </div>
-                <GarminImportBlock />
-                {activityCount > 0 && (
+              {/* Garmin + Strava hidden — intervals.icu is the primary data source */}
+              {activityCount > 0 && (
+                <div className="pl-11 ml-4 flex items-center gap-4 text-xs text-muted-foreground">
+                  <span>{activityCount} activities synced</span>
                   <button
                     type="button"
                     onClick={handleClearAllData}
                     disabled={clearing}
-                    className="text-xs text-muted-foreground hover:text-destructive"
+                    className="text-muted-foreground hover:text-destructive"
                   >
-                    {clearing ? "Clearing…" : "Clear all imported data"}
+                    {clearing ? "Clearing…" : "Clear all data"}
                   </button>
-                )}
-              </div>
-              <StravaConnectionBlock queryClient={queryClient} />
+                </div>
+              )}
             </div>
           </div>
 
@@ -721,7 +707,7 @@ export default function SettingsPage() {
           <div className="glass-card p-5">
             <p className="section-header">Heart Rate</p>
             <p className="text-sm text-muted-foreground mb-4">
-              Max HR is used for smart activity names (Easy vs Tempo) when importing Garmin FIT files. Set if your device doesn&apos;t provide it.
+              Max HR is used for smart activity names (Easy vs Tempo) and zone calculations. Set if your device doesn&apos;t provide it.
             </p>
             <div className="flex flex-wrap items-end gap-4">
               <div className="space-y-1">

@@ -154,7 +154,8 @@ export function useTrainingPlan() {
           tss_estimate: w.tss_estimate ?? null,
           completed_at: w.completed ? (w.date ? `${w.date}T12:00:00Z` : new Date().toISOString()) : null,
           coach_note: (w as { coach_note?: string | null }).coach_note ?? null,
-          supportsCoachNote: true, // from training_plan_workout
+          adjustment_notes: (w as { notes?: string | null }).notes ?? null,
+          supportsCoachNote: true,
         });
       }
       for (const rec of weekMap.values()) {

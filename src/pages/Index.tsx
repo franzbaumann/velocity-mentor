@@ -5,7 +5,7 @@ import { Sparkline } from "@/components/Sparkline";
 import { AppLayout } from "@/components/AppLayout";
 import { useGreeting } from "@/hooks/useGreeting";
 import { useDashboardData } from "@/hooks/useDashboardData";
-import { useGarminImportStatus } from "@/hooks/useGarminImportStatus";
+import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { predictRaceTime, formatRaceTime, calculateZonePaces, findBestEffort } from "@/lib/race-prediction";
 import { TrendingDown, Moon, Heart, ChevronRight, MessageCircle } from "lucide-react";
 import { formatSleepHours } from "@/lib/format";
@@ -141,27 +141,21 @@ function RacePredictionCard({
 export default function Dashboard() {
   const greeting = useGreeting();
   const { weekStats, lastActivity, recoveryMetrics, readiness, weekPlan, todaysWorkout, athlete, isSampleData, activities } = useDashboardData();
-  const garminBanner = useGarminImportStatus();
+  const { isConnected: intervalsConnected } = useIntervalsIntegration();
   const progressPct = Math.round((weekStats.actualKm / weekStats.plannedKm) * 100);
 
   return (
     <AppLayout>
       <motion.div {...fadeIn} className="space-y-6">
-        {/* Garmin import banners - hide when intervals.icu is connected and has real data */}
-        {garminBanner === "never" && !isSampleData && (
+        {!intervalsConnected && !isSampleData && (
           <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground flex items-center justify-between gap-3">
-            <span>Import your Garmin data to unlock real stats</span>
+            <span>Connect intervals.icu to sync your activities and wellness data</span>
             <Link
               to="/settings"
               className="shrink-0 text-sm font-medium text-primary hover:underline"
             >
               Settings
             </Link>
-          </div>
-        )}
-        {garminBanner && garminBanner !== "never" && (
-          <div className="rounded-xl border border-warning/30 bg-warning/5 px-4 py-3 text-sm text-muted-foreground">
-            {garminBanner}
           </div>
         )}
         {/* Page header */}
@@ -405,7 +399,7 @@ export default function Dashboard() {
           />
 
           {/* Ask Kipcoachee — prominent CTA in open space */}
-          <Link to="/coach" className="block md:col-span-2">
+          <Link to="/coach?from=dashboard" className="block md:col-span-2">
             <div className="glass-card p-5 h-full min-h-[140px] flex flex-col justify-center items-center gap-3 hover:opacity-95 transition-opacity cursor-pointer border-2 border-dashed border-primary/30 hover:border-primary/50">
               <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
                 <MessageCircle className="w-6 h-6 text-primary" />
