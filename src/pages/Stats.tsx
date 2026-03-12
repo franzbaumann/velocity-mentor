@@ -8,10 +8,12 @@ import { useTrainingPlan } from "@/hooks/use-training-plan";
 import {
   computeFitnessCurves,
   parsePaceToMinPerKm,
-  inferRunType,
   isRunningActivity,
   PR_DISTANCES,
   findBestForDistance,
+  classifyRunByHr,
+  computeLongRunThresholdKm,
+  type PaceProgressionFilter,
 } from "@/lib/analytics";
 import { formatDuration, formatPaceFromMinPerKm } from "@/lib/format";
 import { Link2, ArrowRight, TrendingUp, BarChart3, Activity, Trophy, Heart, Moon, Zap, Wind, Info } from "lucide-react";
@@ -57,7 +59,7 @@ const STAT_INFO: Record<string, React.ReactNode> = {
   pace: (
     <>
       <p className="font-semibold text-foreground mb-1">Pace Progression</p>
-      <p className="text-muted-foreground text-xs">Pace per run. Dashed line = 4-week average; filter by run type.</p>
+      <p className="text-muted-foreground text-xs">Pace per run. Dashed line = 4-week average. Easy = Zone 2 (60–70% max HR), LT1 = 75–82%, LT2 = 85–92%, Long = distance-based (8–38 km).</p>
     </>
   ),
   prs: (
@@ -236,9 +238,9 @@ function FitnessSummaryRow({
   );
 }
 
-function EmptyState({ message, sub }: { message: string; sub?: string }) {
+function EmptyState({ message, sub, tall }: { message: string; sub?: string; tall?: boolean }) {
   return (
-    <div className="h-[260px] flex flex-col items-center justify-center gap-2 text-sm text-center px-4">
+    <div className={`flex flex-col items-center justify-center gap-2 text-sm text-center px-4 ${tall ? "h-[300px] min-h-[300px]" : "h-[260px] min-h-[260px]"}`}>
       <p className="text-muted-foreground">{message}</p>
       {sub && <p className="text-xs text-muted-foreground">{sub}</p>}
     </div>
@@ -302,7 +304,7 @@ function FitnessChart({
     return computed;
   }, [activities, readiness]);
 
-  if (!chartData.length) return <EmptyState message="No fitness data yet" sub="Connect intervals.icu in Settings to see CTL/ATL/TSB" />;
+  if (!chartData.length) return <EmptyState message="No fitness data yet" sub="Connect intervals.icu in Settings to see CTL/ATL/TSB" tall />;
 
   const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { value: number; name: string }[]; label?: string }) => {
     if (!active || !payload?.length || !label) return null;
@@ -327,7 +329,7 @@ function FitnessChart({
   const yDomain: [number, number] = [Math.floor(yMin - yPadding), Math.ceil(yMax + yPadding)];
 
   const hasMeaningfulData = chartData.some((d) => d.CTL > 0 || d.ATL > 0 || Math.abs(d.TSB) > 0.1);
-  if (!hasMeaningfulData) return <EmptyState message="No fitness data yet" sub="Sync intervals.icu in Settings to see CTL/ATL/TSB" />;
+  if (!hasMeaningfulData) return <EmptyState message="No fitness data yet" sub="Sync intervals.icu in Settings to see CTL/ATL/TSB" tall />;
 
   return (
     <div className="h-[300px]">
@@ -388,25 +390,47 @@ function WeeklyMileageChartSimple({ activities }: { activities: { date: string; 
   );
 }
 
-// ── 3. Pace Progression Scatter (running only) ──
-type PaceFilter = "all" | "easy" | "tempo" | "long";
-function PaceProgressionChart({ activities }: { activities: { date: string; type: string | null; avg_pace: string | null; distance_km: number | null }[] }) {
+// ── 3. Pace Progression (running only) ──
+const PACE_FILTER_LABELS: Record<PaceProgressionFilter, string> = {
+  all: "All",
+  easy: "Easy (Z2)",
+  lt1: "LT1",
+  lt2: "LT2",
+  long: "Long",
+};
+
+function PaceProgressionChart({
+  activities,
+  maxHr,
+}: {
+  activities: { date: string; type: string | null; avg_pace: string | null; avg_hr: number | null; distance_km: number | null }[];
+  maxHr: number | null;
+}) {
   const runningOnly = useMemo(() => activities.filter((a) => isRunningActivity(a.type)), [activities]);
-  const [filter, setFilter] = useState<PaceFilter>("all");
+  const [filter, setFilter] = useState<PaceProgressionFilter>("all");
+
+  const longRunThresholdKm = useMemo(
+    () => computeLongRunThresholdKm(runningOnly),
+    [runningOnly]
+  );
 
   const { points, trendline } = useMemo(() => {
     const pts = runningOnly
       .filter((a) => {
         const pace = parsePaceToMinPerKm(a.avg_pace);
         if (!pace || !a.date || pace < 2 || pace > 25) return false;
-        const t = inferRunType(a.type);
-        if (filter !== "all" && t !== filter) return false;
+        if (filter === "all") return true;
+        if (filter === "easy" || filter === "lt1" || filter === "lt2") {
+          const hrType = classifyRunByHr(a.avg_hr, maxHr);
+          return hrType === filter;
+        }
+        if (filter === "long") return (a.distance_km ?? 0) >= longRunThresholdKm;
         return true;
       })
       .map((a) => ({
         date: a.date,
         pace: parsePaceToMinPerKm(a.avg_pace)!,
-        type: inferRunType(a.type),
+        filter,
       }))
       .sort((a, b) => a.date.localeCompare(b.date));
 
@@ -418,22 +442,34 @@ function PaceProgressionChart({ activities }: { activities: { date: string; type
     });
 
     return { points: pts, trendline: trend };
-  }, [runningOnly, filter]);
+  }, [runningOnly, filter, maxHr, longRunThresholdKm]);
 
-  if (!points.length) return <EmptyState message="No pace data yet" sub="Connect intervals.icu to sync runs with pace data" />;
+  if (!points.length) {
+    const needsMaxHr = (filter === "easy" || filter === "lt1" || filter === "lt2") && !maxHr;
+    const hasRuns = runningOnly.some((a) => parsePaceToMinPerKm(a.avg_pace) != null);
+    return (
+      <EmptyState
+        message={needsMaxHr ? "Set max HR in Settings" : hasRuns ? "No runs match this filter" : "No pace data yet"}
+        sub={needsMaxHr ? "HR-based filters (Easy, LT1, LT2) require max HR" : hasRuns ? "Try All or Long, or record HR on runs" : "Connect intervals.icu to sync runs with pace data"}
+      />
+    );
+  }
 
   return (
     <div>
-      <div className="flex gap-2 mb-4 flex-wrap">
-        {(["all", "easy", "tempo", "long"] as const).map((f) => (
+      <div className="flex gap-2 mb-4 flex-wrap items-center">
+        {(["all", "easy", "lt1", "lt2", "long"] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${filter === f ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:bg-secondary/80"}`}
           >
-            {f.charAt(0).toUpperCase() + f.slice(1)}
+            {PACE_FILTER_LABELS[f]}
           </button>
         ))}
+        {filter === "long" && (
+          <span className="text-xs text-muted-foreground ml-1">≥{longRunThresholdKm} km</span>
+        )}
       </div>
       <div className="h-[260px]">
         <ResponsiveContainer width="100%" height="100%">
@@ -755,10 +791,12 @@ function RunningStatsSection({
   activities,
   readiness,
   goalPaceMinPerKm,
+  maxHr,
 }: {
   activities: { date: string; type: string | null; distance_km: number | null; duration_seconds: number | null; avg_hr: number | null; avg_pace: string | null; id: string; splits: unknown }[];
   readiness: { date: string; ctl?: number | null; atl?: number | null; tsb?: number | null; vo2max?: number | null }[];
   goalPaceMinPerKm: number | null;
+  maxHr: number | null;
 }) {
   const runningActivities = useMemo(
     () => activities.filter((a) => isRunningActivity(a.type) && (a.distance_km ?? 0) <= 150),
@@ -779,7 +817,7 @@ function RunningStatsSection({
         <WeeklyMileageChartSimple activities={runningActivities} />
       </ChartCard>
       <ChartCard icon={Activity} title="Pace Progression (runs only)" info="pace">
-        <PaceProgressionChart activities={runningActivities} />
+        <PaceProgressionChart activities={runningActivities} maxHr={maxHr} />
       </ChartCard>
     </>
   );
@@ -812,6 +850,15 @@ export default function Stats() {
     if (sec == null || sec <= 0 || km <= 0) return null;
     return sec / 60 / km;
   }, [planData, athleteProfile]);
+
+  const maxHr = useMemo(() => {
+    const profileMax = (athleteProfile as { max_hr?: number | null })?.max_hr;
+    if (profileMax != null && profileMax > 0) return profileMax;
+    const actMax = activities
+      .map((a) => (a as { max_hr?: number | null }).max_hr)
+      .filter((v): v is number => v != null && v > 0);
+    return actMax.length > 0 ? Math.max(...actMax) : null;
+  }, [athleteProfile, activities]);
 
   const fitnessSummary = useMemo(() => {
     const latest = readiness.length > 0 ? readiness[readiness.length - 1] : null;
@@ -896,7 +943,7 @@ export default function Stats() {
 
         {tab === "runs" && (
           <div className="flex flex-col gap-4">
-            <RunningStatsSection activities={activities} readiness={readiness} goalPaceMinPerKm={goalPaceMinPerKm} />
+            <RunningStatsSection activities={activities} readiness={readiness} goalPaceMinPerKm={goalPaceMinPerKm} maxHr={maxHr} />
           </div>
         )}
 

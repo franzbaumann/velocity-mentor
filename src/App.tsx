@@ -1,3 +1,4 @@
+import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -11,14 +12,16 @@ import Index from "./pages/Index";
 import LandingPage from "./pages/LandingPage";
 import TrainingPlan from "./pages/TrainingPlan";
 import Activities from "./pages/Activities";
-import ActivityDetail from "./pages/ActivityDetail";
-import Coach from "./pages/Coach";
-import Stats from "./pages/Stats";
 import SettingsPage from "./pages/SettingsPage";
 import Philosophy from "./pages/Philosophy";
 import AuthPage from "./pages/AuthPage";
 import StravaCallback from "./pages/StravaCallback";
 import NotFound from "./pages/NotFound";
+
+// Chart-heavy pages: lazy load to avoid Recharts/ResizeObserver issues on initial hydration
+const ActivityDetail = lazy(() => import("./pages/ActivityDetail"));
+const Coach = lazy(() => import("./pages/Coach"));
+const Stats = lazy(() => import("./pages/Stats"));
 
 const queryClient = new QueryClient();
 
@@ -73,7 +76,12 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <SidebarProvider>
-        <Routes>
+        <Suspense fallback={
+            <div className="min-h-screen bg-background flex items-center justify-center">
+              <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+            </div>
+          }>
+          <Routes>
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/auth/strava/callback" element={<StravaCallback />} />
           <Route path="/" element={<LandingOrDashboard />} />
@@ -135,6 +143,7 @@ const App = () => (
           />
           <Route path="*" element={<NotFound />} />
         </Routes>
+        </Suspense>
         </SidebarProvider>
       </BrowserRouter>
     </TooltipProvider>

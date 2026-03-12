@@ -88,27 +88,29 @@ function FitnessMiniChart({ data }: { data: ChartDataPoint[] }) {
   const tickInterval = data.length > 60 ? Math.floor(data.length / 6) : "preserveStartEnd";
 
   return (
-    <ResponsiveContainer width="100%" height={180}>
-      <LineChart data={data} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
-        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
-        <XAxis
-          dataKey="date"
-          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-          tickFormatter={(v) => format(new Date(v), "MMM d")}
-          interval={tickInterval}
-        />
-        <YAxis
-          tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
-          tickFormatter={(v) => Math.round(v).toString()}
-          domain={[Math.floor(yMin - pad), Math.ceil(yMax + pad)]}
-        />
-        <Tooltip content={<MiniTooltip unit="" />} />
-        <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" opacity={0.4} />
-        <Line type="natural" dataKey="CTL" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} name="CTL" connectNulls animationDuration={800} animationEasing="ease-out" />
-        <Line type="natural" dataKey="ATL" stroke="hsl(36 100% 52%)" strokeWidth={2} dot={false} name="ATL" connectNulls animationDuration={900} animationEasing="ease-out" />
-        <Line type="natural" dataKey="TSB" stroke="hsl(141 72% 50%)" strokeWidth={1.5} dot={false} name="TSB" connectNulls animationDuration={1000} animationEasing="ease-out" />
-      </LineChart>
-    </ResponsiveContainer>
+    <div className="w-full h-[180px] min-h-[180px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={data} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+          <XAxis
+            dataKey="date"
+            tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+            tickFormatter={(v) => format(new Date(v), "MMM d")}
+            interval={tickInterval}
+          />
+          <YAxis
+            tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+            tickFormatter={(v) => Math.round(v).toString()}
+            domain={[Math.floor(yMin - pad), Math.ceil(yMax + pad)]}
+          />
+          <Tooltip content={<MiniTooltip unit="" />} />
+          <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" opacity={0.4} />
+          <Line type="natural" dataKey="CTL" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} name="CTL" connectNulls animationDuration={800} animationEasing="ease-out" />
+          <Line type="natural" dataKey="ATL" stroke="hsl(36 100% 52%)" strokeWidth={2} dot={false} name="ATL" connectNulls animationDuration={900} animationEasing="ease-out" />
+          <Line type="natural" dataKey="TSB" stroke="hsl(141 72% 50%)" strokeWidth={1.5} dot={false} name="TSB" connectNulls animationDuration={1000} animationEasing="ease-out" />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
@@ -158,7 +160,8 @@ function SimpleMiniLine({
 
 function MileageMiniBar({ data }: { data: ChartDataPoint[] }) {
   return (
-    <ResponsiveContainer width="100%" height={180}>
+    <div className="w-full h-[180px] min-h-[180px]">
+      <ResponsiveContainer width="100%" height="100%">
       <BarChart data={data} margin={{ top: 4, right: 8, left: -16, bottom: 0 }}>
         <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
         <XAxis
@@ -180,7 +183,8 @@ function MileageMiniBar({ data }: { data: ChartDataPoint[] }) {
           animationEasing="ease-out"
         />
       </BarChart>
-    </ResponsiveContainer>
+      </ResponsiveContainer>
+    </div>
   );
 }
 
@@ -226,7 +230,21 @@ export function ChatStatChart({ statType, readiness, activities }: ChatStatChart
     }
   }, [statType, readiness, activities]);
 
-  if (!chartData.length) return null;
+  if (!chartData.length) {
+    return (
+      <div className="animate-chart-in rounded-xl border border-border/60 bg-card/80 backdrop-blur-sm overflow-hidden">
+        <div className="flex items-center justify-between px-3.5 py-2 border-b border-border/40">
+          <div className="flex items-center gap-1.5">
+            <Icon className="w-3.5 h-3.5 text-primary" />
+            <span className="text-xs font-semibold text-foreground">{meta.title}</span>
+          </div>
+        </div>
+        <div className="flex items-center justify-center h-[180px] min-h-[180px] text-muted-foreground text-sm">
+          No data available yet
+        </div>
+      </div>
+    );
+  }
 
   const latestValue = (() => {
     const last = chartData[chartData.length - 1];

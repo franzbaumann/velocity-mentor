@@ -7,6 +7,7 @@ import { useGreeting } from "@/hooks/useGreeting";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { predictRaceTime, formatRaceTime, calculateZonePaces, findBestEffort } from "@/lib/race-prediction";
+import { useZoneSource } from "@/hooks/useZoneSource";
 import { TrendingDown, Moon, Heart, ChevronRight, Loader2 } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { formatSleepHours } from "@/lib/format";
@@ -210,6 +211,7 @@ function KipcoacheeWidget() {
 
 export default function Dashboard() {
   const greeting = useGreeting();
+  const zoneSource = useZoneSource();
   const { weekStats, lastActivity, recoveryMetrics, readiness, weekPlan, todaysWorkout, athlete, isSampleData, activities } = useDashboardData();
   const { isConnected: intervalsConnected } = useIntervalsIntegration();
   const progressPct = Math.round((weekStats.actualKm / weekStats.plannedKm) * 100);
@@ -363,7 +365,10 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div>
-                  <p className="text-xs text-muted-foreground mb-1.5">HR Zones</p>
+                  <div className="flex items-center justify-between gap-2 mb-1.5">
+                    <p className="text-xs text-muted-foreground">HR Zones</p>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">{zoneSource}</span>
+                  </div>
                   <div className="flex h-3 rounded-full overflow-hidden">
                     <div className={`${HR_ZONE_LIGHT[0]} dark:bg-[#94a3b8]`} style={{ width: `${lastActivity.hrZones.z1}%` }} />
                     <div className={`${HR_ZONE_LIGHT[1]} dark:bg-[#3b82f6]`} style={{ width: `${lastActivity.hrZones.z2}%` }} />
@@ -413,7 +418,10 @@ export default function Dashboard() {
                 </div>
               </div>
               <div>
-                <p className="text-xs text-muted-foreground mb-1.5">HR Zones</p>
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <p className="text-xs text-muted-foreground">HR Zones</p>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">{zoneSource}</span>
+                </div>
                 <div className="flex h-3 rounded-full overflow-hidden">
                   <div className={`${HR_ZONE_LIGHT[0]} dark:bg-[#94a3b8]`} style={{ width: `${lastActivity.hrZones.z1}%` }} />
                   <div className={`${HR_ZONE_LIGHT[1]} dark:bg-[#3b82f6]`} style={{ width: `${lastActivity.hrZones.z2}%` }} />

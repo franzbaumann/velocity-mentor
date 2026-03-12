@@ -3,6 +3,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/AppLayout";
 import { useTheme } from "@/hooks/useTheme";
 import { useActivityDetail, type ActivityStreams } from "@/hooks/useActivityDetail";
+import { useZoneSource } from "@/hooks/useZoneSource";
 import { useParams, useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { isNonDistanceActivity } from "@/lib/analytics";
@@ -219,6 +220,15 @@ const TILE_LIGHT = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_DARK = "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png";
 
 type ActivityTab = "charts" | "data" | "notes";
+
+function ZoneSourceBadge() {
+  const zoneSource = useZoneSource();
+  return (
+    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+      {zoneSource}
+    </span>
+  );
+}
 
 export default function ActivityDetail() {
   const { id } = useParams<{ id: string }>();
@@ -557,9 +567,12 @@ export default function ActivityDetail() {
             {/* HR Zone Detail Table (intervals.icu style) */}
             {activity.hr_zone_times && activity.hr_zone_times.some(t => t > 0) && (
               <div className="card-standard card-standard--no-padding overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 bg-muted/30">
-                  <Heart className="w-3.5 h-3.5 text-primary" />
-                  <span className="text-xs font-semibold text-foreground">Heart Rate Zones</span>
+                <div className="px-4 py-2.5 border-b border-border flex items-center justify-between gap-2 bg-muted/30">
+                  <div className="flex items-center gap-2">
+                    <Heart className="w-3.5 h-3.5 text-primary" />
+                    <span className="text-xs font-semibold text-foreground">Heart Rate Zones</span>
+                  </div>
+                  <ZoneSourceBadge />
                 </div>
                 <ZoneDetailTable times={activity.hr_zone_times} names={HR_ZONE_NAMES} colors={HR_ZONE_COLORS} maxHr={activity.max_hr} />
               </div>
