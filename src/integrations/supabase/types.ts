@@ -176,9 +176,6 @@ export type Database = {
           goal_distance: string | null
           days_per_week: number | null
           injury_history_text: string | null
-          weight_kg: number | null
-          height_cm: number | null
-          preferred_units: string | null
         }
         Insert: {
           created_at?: string
@@ -245,9 +242,6 @@ export type Database = {
           goal_distance?: string | null
           days_per_week?: number | null
           injury_history_text?: string | null
-          weight_kg?: number | null
-          height_cm?: number | null
-          preferred_units?: string | null
         }
         Relationships: []
       }
@@ -306,7 +300,6 @@ export type Database = {
           sleep_quality: number | null
           tsb: number | null
           user_id: string
-          weight: number | null
         }
         Insert: {
           ai_summary?: string | null

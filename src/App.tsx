@@ -1,4 +1,3 @@
-import { lazy, Suspense } from "react";
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -7,21 +6,17 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/useTheme";
 import { SidebarProvider } from "@/components/SidebarContext";
-import { IntervalsAutoSync } from "@/components/IntervalsAutoSync";
 import Index from "./pages/Index";
-import LandingPage from "./pages/LandingPage";
 import TrainingPlan from "./pages/TrainingPlan";
 import Activities from "./pages/Activities";
+import ActivityDetail from "./pages/ActivityDetail";
+import Coach from "./pages/Coach";
+import Stats from "./pages/Stats";
 import SettingsPage from "./pages/SettingsPage";
 import Philosophy from "./pages/Philosophy";
 import AuthPage from "./pages/AuthPage";
 import StravaCallback from "./pages/StravaCallback";
 import NotFound from "./pages/NotFound";
-
-// Chart-heavy pages: lazy load to avoid Recharts/ResizeObserver issues on initial hydration
-const ActivityDetail = lazy(() => import("./pages/ActivityDetail"));
-const Coach = lazy(() => import("./pages/Coach"));
-const Stats = lazy(() => import("./pages/Stats"));
 
 const queryClient = new QueryClient();
 
@@ -40,32 +35,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
     );
   }
   if (!user) return <Navigate to="/auth" replace />;
-  return (
-    <>
-      <IntervalsAutoSync />
-      {children}
-    </>
-  );
-}
-
-function LandingOrDashboard() {
-  const { user, loading } = useAuth();
-  if (loading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-      </div>
-    );
-  }
-  if (user) {
-    return (
-      <>
-        <IntervalsAutoSync />
-        <Index />
-      </>
-    );
-  }
-  return <LandingPage />;
+  return <>{children}</>;
 }
 
 const App = () => (
@@ -76,15 +46,17 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <SidebarProvider>
-        <Suspense fallback={
-            <div className="min-h-screen bg-background flex items-center justify-center">
-              <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-            </div>
-          }>
-          <Routes>
+        <Routes>
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/auth/strava/callback" element={<StravaCallback />} />
-          <Route path="/" element={<LandingOrDashboard />} />
+          <Route
+            path="/"
+            element={
+              <AuthGuard>
+                <Index />
+              </AuthGuard>
+            }
+          />
           <Route
             path="/plan"
             element={
@@ -143,7 +115,6 @@ const App = () => (
           />
           <Route path="*" element={<NotFound />} />
         </Routes>
-        </Suspense>
         </SidebarProvider>
       </BrowserRouter>
     </TooltipProvider>

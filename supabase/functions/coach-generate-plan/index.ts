@@ -90,22 +90,38 @@ serve(async (req) => {
 
   try {
     const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!LOVABLE_API_KEY && !ANTHROPIC_API_KEY) {
+      throw new Error(
+        "No AI key configured. Set ANTHROPIC_API_KEY or LOVABLE_API_KEY in Supabase.",
+      );
+    }
+
+    const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+    const SUPABASE_ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+    const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
     const authHeader = req.headers.get("authorization") ?? "";
-    const token = authHeader.replace("Bearer ", "");
-    const supabaseUser = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: `Bearer ${token}` } } }
-    );
+    const token = authHeader.replace("Bearer ", "").trim();
 
-    const { data: { user }, error: userError } = await supabaseUser.auth.getUser(token);
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    let user: { id: string } | null = null;
+    if (token) {
+      try {
+        const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+          global: { headers: { Authorization: `Bearer ${token}` } },
+        });
+        const { data: { user: u }, error: ue } = await supabaseUser.auth.getUser();
+        if (!ue && u) user = u;
+      } catch (e) {
+        console.error("Auth check failed:", e);
+      }
+    }
+
+    if (!user) {
+      return new Response(
+        JSON.stringify({ error: "Unauthorized – sign in and try again" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
     }
 
     const body = await req.json();
@@ -122,34 +138,92 @@ serve(async (req) => {
     const convStr = Array.isArray(conversationContext) && conversationContext.length > 0
       ? `\n\nConversation context:\n${conversationContext.map((m: { role?: string; content?: string }) => `${m.role}: ${m.content}`).join("\n")}`
       : "";
-    const userPrompt = `Generate a training plan. Intake: ${JSON.stringify(intakeAnswers)}${convStr}`;
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: PLAN_PROMPT },
-          { role: "user", content: userPrompt },
-        ],
-        stream: false,
-      }),
-    });
+    const userPrompt = `Generate a training plan. Intake: ${
+      JSON.stringify(intakeAnswers)
+    }${convStr}`;
 
-    if (!response.ok) {
-      const t = await response.text();
-      console.error("AI error:", response.status, t);
-      return new Response(JSON.stringify({ error: "Failed to generate plan" }), {
-        status: 500,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
+    async function callAnthropic(): Promise<string | null> {
+      if (!ANTHROPIC_API_KEY) return null;
+
+      const anthropicFetch = () =>
+        fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "claude-3-5-sonnet-latest",
+            system: PLAN_PROMPT,
+            max_tokens: 4096,
+            temperature: 0.7,
+            messages: [{ role: "user", content: userPrompt }],
+          }),
+        });
+
+      let res = await anthropicFetch();
+      for (
+        let retry = 0;
+        retry < 3 && !res.ok && res.status === 429;
+        retry++
+      ) {
+        await new Promise((r) =>
+          setTimeout(r, (5 + retry * 5) * 1000)
+        );
+        res = await anthropicFetch();
+      }
+
+      if (!res.ok) {
+        console.error("Anthropic plan error:", res.status, await res.text());
+        return null;
+      }
+
+      const json = await res.json();
+      const content = Array.isArray(json.content)
+        ? json.content
+            .filter((c: { type?: string }) => c.type === "text")
+            .map((c: { text?: string }) => c.text ?? "")
+            .join("")
+        : "";
+      return content || null;
     }
 
-    const json = await response.json();
-    const rawContent = json.choices?.[0]?.message?.content ?? "";
+    async function callLovable(): Promise<string | null> {
+      if (!LOVABLE_API_KEY) return null;
+      const response = await fetch(
+        "https://ai.gateway.lovable.dev/v1/chat/completions",
+        {
+          method: "POST",
+          headers: {
+            Authorization: `Bearer ${LOVABLE_API_KEY}`,
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "google/gemini-3-flash-preview",
+            messages: [
+              { role: "system", content: PLAN_PROMPT },
+              { role: "user", content: userPrompt },
+            ],
+            stream: false,
+          }),
+        },
+      );
+
+      if (!response.ok) {
+        const t = await response.text();
+        console.error("Lovable AI error:", response.status, t);
+        return null;
+      }
+
+      const json = await response.json();
+      return json.choices?.[0]?.message?.content ?? null;
+    }
+
+    const rawContent =
+      (await callAnthropic()) ??
+      (await callLovable()) ??
+      "";
     let cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");
@@ -166,10 +240,7 @@ serve(async (req) => {
       plan = createFallbackPlan(intakeAnswers);
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
     const { data: planRow, error: planErr } = await supabase
       .from("training_plan")

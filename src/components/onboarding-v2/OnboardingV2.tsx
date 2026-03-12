@@ -159,21 +159,30 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
     setPhiloLoading(true);
     setPhiloError(null);
 
-    supabase.functions
-      .invoke("paceiq-philosophy", { body: { answers: state.answers } })
-      .then(({ data, error }) => {
-        if (error) {
-          setPhiloError(error.message ?? "Failed to get recommendation");
-          return;
-        }
-        if (!data?.primary) {
-          setPhiloError((data as { error?: string })?.error ?? "Failed to get recommendation");
-          return;
-        }
-        setState((prev) => ({ ...prev, recommendedPhilosophy: data as PhilosophyRecommendation }));
+    const apikey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/paceiq-philosophy`;
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(apikey ? { apikey } : {}),
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({ answers: state.answers }),
       })
-      .catch((e) => setPhiloError(e.message ?? "Network error"))
-      .finally(() => setPhiloLoading(false));
+        .then(async (r) => {
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok || !data?.primary) {
+            setPhiloError(data.error ?? "Failed to get recommendation");
+          } else {
+            setState((prev) => ({ ...prev, recommendedPhilosophy: data as PhilosophyRecommendation }));
+          }
+        })
+        .catch((e) => setPhiloError(e.message ?? "Network error"))
+        .finally(() => setPhiloLoading(false));
+    });
   }, [state.currentStep, state.recommendedPhilosophy, state.answers, philoRetryCount]);
 
   const handleSelectPhilosophy = useCallback((philosophy: string) => {

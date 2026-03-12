@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState } from "react";
 import { ReadinessRing } from "@/components/ReadinessRing";
 import { WorkoutBadge } from "@/components/WorkoutBadge";
 import { Sparkline } from "@/components/Sparkline";
@@ -7,9 +7,7 @@ import { useGreeting } from "@/hooks/useGreeting";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { predictRaceTime, formatRaceTime, calculateZonePaces, findBestEffort } from "@/lib/race-prediction";
-import { useZoneSource } from "@/hooks/useZoneSource";
-import { TrendingDown, Moon, Heart, ChevronRight, Loader2 } from "lucide-react";
-import { supabase } from "@/integrations/supabase/client";
+import { TrendingDown, Moon, Heart, ChevronRight, MessageCircle } from "lucide-react";
 import { formatSleepHours } from "@/lib/format";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
@@ -19,8 +17,6 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { toast } from "sonner";
 
 const RACE_DISTANCES: { km: number; label: string }[] = [
   { km: 5, label: "5K" },
@@ -142,83 +138,15 @@ function RacePredictionCard({
   );
 }
 
-function KipcoacheeWidget() {
-  const [message, setMessage] = useState<string | null>(null);
-  const [loading, setLoading] = useState(true);
-  const fetchedRef = useRef(false);
-  const { isConnected } = useIntervalsIntegration();
-
-  useEffect(() => {
-    if (fetchedRef.current) {
-      setLoading(false);
-      return;
-    }
-    fetchedRef.current = true;
-    (async () => {
-      try {
-        await supabase.auth.refreshSession();
-        const { data, error } = await supabase.functions.invoke("coach-opening", {
-          body: { short: true },
-        });
-        if (error) {
-          setLoading(false);
-          return;
-        }
-        const msg = data?.message;
-        if (typeof msg === "string" && msg.length > 5 && !/invalid jwt|unauthorized|error/i.test(msg)) {
-          setMessage(msg);
-        }
-        if (data?.rateLimitHit) {
-          toast.error("AI rate limit reached. Try again later or upgrade your plan.");
-        }
-      } catch {
-        // ignore
-      } finally {
-        setLoading(false);
-      }
-    })();
-  }, []);
-
-  const displayText = message ?? (loading ? "" : null);
-  const isFallback = !message && !loading;
-
-  return (
-    <Link to="/coach?from=dashboard" className="block h-full">
-          <div className="glass-card p-6 h-full min-h-[120px] hover:opacity-95 transition-opacity cursor-pointer flex flex-col justify-between">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-            <span className="text-sm font-semibold text-primary">K</span>
-          </div>
-          <span className="text-sm font-semibold text-foreground">Kipcoachee</span>
-        </div>
-        {loading ? (
-          <div className="flex items-center gap-2 text-muted-foreground text-sm py-2">
-            <Loader2 className="w-4 h-4 animate-spin" />
-            <span>Reading your data…</span>
-          </div>
-        ) : (
-          <p className="text-sm text-foreground leading-relaxed flex-1">
-            {displayText ? `"${displayText}"` : isFallback ? (isConnected ? "Ask Kipcoachee for a quick training check-in." : "Connect intervals.icu in Settings to get personalized coaching.") : "\u2014"}
-          </p>
-        )}
-        <div className="flex items-center gap-1 mt-3 text-xs text-primary font-medium">
-          Ask Kipcoachee <ChevronRight className="w-3.5 h-3.5" />
-        </div>
-      </div>
-    </Link>
-  );
-}
-
 export default function Dashboard() {
   const greeting = useGreeting();
-  const zoneSource = useZoneSource();
   const { weekStats, lastActivity, recoveryMetrics, readiness, weekPlan, todaysWorkout, athlete, isSampleData, activities } = useDashboardData();
   const { isConnected: intervalsConnected } = useIntervalsIntegration();
   const progressPct = Math.round((weekStats.actualKm / weekStats.plannedKm) * 100);
 
   return (
     <AppLayout>
-      <motion.div {...fadeIn} className="flex flex-col gap-6">
+      <motion.div {...fadeIn} className="space-y-6">
         {!intervalsConnected && !isSampleData && (
           <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground flex items-center justify-between gap-3">
             <span>Connect intervals.icu to sync your activities and wellness data</span>
@@ -232,8 +160,8 @@ export default function Dashboard() {
         )}
         {/* Page header */}
         <div>
-          <h1 className="page-title text-foreground">{greeting}</h1>
-          <p className="text-sm text-[#6B7280] mt-1">
+          <h1 className="text-2xl font-semibold text-foreground">{greeting}</h1>
+          <p className="text-sm text-muted-foreground mt-1">
             Week 6 of 14 · {athlete.currentPhase} Phase · {athlete.goalRace.type} in{" "}
             {athlete.goalRace.weeksRemaining} weeks
           </p>
@@ -241,7 +169,7 @@ export default function Dashboard() {
 
         {/* Readiness Card — clickable to Stats */}
         <Link to="/stats" className="block">
-          <div className="glass-card p-6 relative hover:opacity-95 transition-opacity cursor-pointer min-h-0">
+          <div className="glass-card p-6 relative hover:opacity-95 transition-opacity cursor-pointer">
             {isSampleData && (
               <span className="absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Sample</span>
             )}
@@ -255,14 +183,6 @@ export default function Dashboard() {
                 <p className="text-sm text-muted-foreground leading-relaxed">
                   {readiness.aiSummary}
                 </p>
-                {todaysWorkout.type === "rest" &&
-                  readiness.score != null &&
-                  readiness.score > 75 &&
-                  progressPct > 100 && (
-                    <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
-                      Rest recommended — weekly load is {progressPct}% of target
-                    </p>
-                  )}
                 <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
                   <span className="flex items-center gap-1">
                     <Heart className="w-3 h-3" /> HRV {readiness.hrv}ms
@@ -285,7 +205,7 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Card 1 — This Week — clickable to Activities */}
           <Link to="/activities" className="block">
-            <div className="glass-card p-6 space-y-4 hover:opacity-95 transition-opacity cursor-pointer h-full">
+            <div className="glass-card p-5 space-y-4 hover:opacity-95 transition-opacity cursor-pointer h-full">
               <p className="section-header">This Week</p>
             <div>
               <div className="flex justify-between text-sm mb-1.5">
@@ -301,31 +221,18 @@ export default function Dashboard() {
                 />
               </div>
             </div>
-            <div className="flex items-center justify-between text-sm gap-2">
+            <div className="flex items-center justify-between text-sm">
               <span className="text-muted-foreground">Quality sessions</span>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <div className="flex items-center gap-1.5 cursor-help">
-                    <span className="text-xs text-muted-foreground">
-                      {weekStats.qualityDone} of {weekStats.qualityPlanned} done
-                    </span>
-                    <span className="flex gap-0.5">
-                      {Array.from({ length: weekStats.qualityPlanned }).map((_, i) => (
-                        <span
-                          key={i}
-                          className={`inline-block w-2 h-2 rounded-full ${
-                            i < weekStats.qualityDone ? "bg-primary" : "bg-muted"
-                          }`}
-                          aria-hidden
-                        />
-                      ))}
-                    </span>
-                  </div>
-                </TooltipTrigger>
-                <TooltipContent side="top" className="max-w-[220px]">
-                  <p className="text-xs">Tempo, interval, or long run sessions this week</p>
-                </TooltipContent>
-              </Tooltip>
+              <div className="flex gap-1.5">
+                {Array.from({ length: weekStats.qualityPlanned }).map((_, i) => (
+                  <div
+                    key={i}
+                    className={`w-2.5 h-2.5 rounded-full ${
+                      i < weekStats.qualityDone ? "bg-primary" : "bg-muted"
+                    }`}
+                  />
+                ))}
+              </div>
             </div>
             <div>
               <p className="text-xs text-muted-foreground mb-1">Load trend</p>
@@ -340,7 +247,7 @@ export default function Dashboard() {
           {/* Card 2 — Last Activity — clickable to Activity Detail */}
           {lastActivity.detailId ? (
             <Link to={`/activities/${lastActivity.detailId}`} className="block">
-              <div className="glass-card p-6 space-y-3 hover:opacity-95 transition-opacity cursor-pointer h-full">
+              <div className="glass-card p-5 space-y-3 hover:opacity-95 transition-opacity cursor-pointer h-full">
                 <p className="section-header">Last Activity</p>
                 <div className="flex items-baseline justify-between">
                   <h3 className="text-sm font-medium text-foreground">{lastActivity.type}</h3>
@@ -365,10 +272,7 @@ export default function Dashboard() {
                   </div>
                 </div>
                 <div>
-                  <div className="flex items-center justify-between gap-2 mb-1.5">
-                    <p className="text-xs text-muted-foreground">HR Zones</p>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">{zoneSource}</span>
-                  </div>
+                  <p className="text-xs text-muted-foreground mb-1.5">HR Zones</p>
                   <div className="flex h-3 rounded-full overflow-hidden">
                     <div className={`${HR_ZONE_LIGHT[0]} dark:bg-[#94a3b8]`} style={{ width: `${lastActivity.hrZones.z1}%` }} />
                     <div className={`${HR_ZONE_LIGHT[1]} dark:bg-[#3b82f6]`} style={{ width: `${lastActivity.hrZones.z2}%` }} />
@@ -418,10 +322,7 @@ export default function Dashboard() {
                 </div>
               </div>
               <div>
-                <div className="flex items-center justify-between gap-2 mb-1.5">
-                  <p className="text-xs text-muted-foreground">HR Zones</p>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">{zoneSource}</span>
-                </div>
+                <p className="text-xs text-muted-foreground mb-1.5">HR Zones</p>
                 <div className="flex h-3 rounded-full overflow-hidden">
                   <div className={`${HR_ZONE_LIGHT[0]} dark:bg-[#94a3b8]`} style={{ width: `${lastActivity.hrZones.z1}%` }} />
                   <div className={`${HR_ZONE_LIGHT[1]} dark:bg-[#3b82f6]`} style={{ width: `${lastActivity.hrZones.z2}%` }} />
@@ -445,7 +346,7 @@ export default function Dashboard() {
 
           {/* Card 3 — Recovery Metrics — clickable to Stats */}
           <Link to="/stats" className="block">
-            <div className="glass-card p-6 space-y-3 hover:opacity-95 transition-opacity cursor-pointer h-full">
+            <div className="glass-card p-5 space-y-3 hover:opacity-95 transition-opacity cursor-pointer h-full">
             <p className="section-header">Recovery</p>
             <div className="flex items-center justify-between">
               <div>
@@ -489,9 +390,30 @@ export default function Dashboard() {
             </div>
             </div>
           </Link>
+
+          {/* Card 4 — Race Prediction — clickable to show all distances */}
+          <RacePredictionCard
+            activities={activities}
+            ctl={readiness.ctl}
+            goalRaceType={athlete.goalRace.type}
+          />
+
+          {/* Ask Kipcoachee — prominent CTA in open space */}
+          <Link to="/coach?from=dashboard" className="block md:col-span-2">
+            <div className="glass-card p-5 h-full min-h-[140px] flex flex-col justify-center items-center gap-3 hover:opacity-95 transition-opacity cursor-pointer border-2 border-dashed border-primary/30 hover:border-primary/50">
+              <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center">
+                <MessageCircle className="w-6 h-6 text-primary" />
+              </div>
+              <p className="text-base font-semibold text-foreground">Ask Kipcoachee</p>
+              <p className="text-xs text-muted-foreground text-center">Get training advice, adjust your plan, or chat about your goals</p>
+              <div className="flex items-center gap-1 text-xs text-primary font-medium">
+                Open chat <ChevronRight className="w-3.5 h-3.5" />
+              </div>
+            </div>
+          </Link>
         </div>
 
-        {/* Upcoming 7 days — above Race + Kipcoachee for visibility */}
+        {/* Upcoming 7 days */}
         <div>
           <p className="section-header">Next 7 Days</p>
           <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
@@ -529,16 +451,6 @@ export default function Dashboard() {
               );
             })}
           </div>
-        </div>
-
-        {/* Race Prediction + Kipcoachee — equal width, side by side */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          <RacePredictionCard
-            activities={activities}
-            ctl={readiness.ctl}
-            goalRaceType={athlete.goalRace.type}
-          />
-          <KipcoacheeWidget />
         </div>
       </motion.div>
     </AppLayout>

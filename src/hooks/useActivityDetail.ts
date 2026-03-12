@@ -247,40 +247,11 @@ export function useActivityDetail(activityId: string | undefined) {
         const cadenceArr = hasDbStreams ? (Array.isArray(dbRow?.cadence) ? dbRow.cadence : []) : getStream("cadence");
         const altitudeArr = hasDbStreams ? dbAlt : getStream("altitude");
         const velocityArr = hasDbStreams ? [] : getStream("velocity_smooth");
-        let paceArr = hasDbStreams ? dbPace : [];
-        if (paceArr.length === 0 && velocityArr.length > 0) {
-          paceArr = velocityArr.map((v: number) => (v > 0.1 ? 1000 / v / 60 : 0));
-        } else if (paceArr.length === 0) {
-          paceArr = toArray(streamsRaw?.pace);
-        }
+        const paceArr = hasDbStreams ? dbPace : [];
         const wattsArr = getStream("watts");
         const len = Math.max(timeArr.length, hrArr.length, latlng.length, 1);
         const dbDist = Array.isArray(dbRow?.distance) ? dbRow.distance : [];
         const distArr = hasDbStreams ? dbDist : getStream("distance");
-
-        // Persist streams to DB when fetched from live API (so chart data is available for all activities on next view)
-        const hasLiveStreams = !hasDbStreams && timeArr.length > 20 && (hrArr.length > 0 || paceArr.length > 0 || altitudeArr.length > 0);
-        if (hasLiveStreams && user?.id) {
-          supabase
-            .from("activity_streams")
-            .upsert(
-              {
-                user_id: user.id,
-                activity_id: intervalsId,
-                heartrate: hrArr.length ? hrArr : null,
-                cadence: cadenceArr.length ? cadenceArr : null,
-                altitude: altitudeArr.length ? altitudeArr : null,
-                pace: paceArr.length ? paceArr : null,
-                distance: distArr.length ? distArr : null,
-                time: timeArr.length ? timeArr.map(Math.round) : null,
-                latlng: latlng.length >= 2 ? latlng : null,
-              },
-              { onConflict: "user_id,activity_id" }
-            )
-            .then(() => {})
-            .catch(() => {});
-        }
-
         const streamsData: ActivityStreams = {
           time: timeArr.length ? timeArr : Array.from({ length: len }, (_, i) => (i / (len - 1 || 1)) * durSec),
           heartrate: hrArr,

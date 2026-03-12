@@ -116,36 +116,6 @@ export function inferRunType(type: string | null): "easy" | "tempo" | "long" | "
   return "other";
 }
 
-/** Pace progression filter: easy = Zone 2 (60–70% max HR), LT1 = 75–82%, LT2 = 85–92%, long = distance-based */
-export type PaceProgressionFilter = "all" | "easy" | "lt1" | "lt2" | "long";
-
-/** Classify run by HR zones. Easy = Z2 (60–70%), LT1 = 75–82%, LT2 = 85–92%. Returns null if no avg_hr or max_hr. */
-export function classifyRunByHr(
-  avgHr: number | null,
-  maxHr: number | null
-): "easy" | "lt1" | "lt2" | null {
-  if (avgHr == null || maxHr == null || maxHr <= 0) return null;
-  const pct = (avgHr / maxHr) * 100;
-  if (pct >= 60 && pct <= 70) return "easy";
-  if (pct >= 75 && pct <= 82) return "lt1";
-  if (pct >= 85 && pct <= 92) return "lt2";
-  return null;
-}
-
-/** Compute long-run threshold (km) from activities: 90th percentile of run distances, clamped 8–38 km. */
-export function computeLongRunThresholdKm(
-  activities: { distance_km: number | null }[]
-): number {
-  const dists = activities
-    .filter((a) => a.distance_km != null && a.distance_km >= 1 && a.distance_km <= 50)
-    .map((a) => a.distance_km as number)
-    .sort((a, b) => a - b);
-  if (dists.length === 0) return 8;
-  const idx = Math.ceil(dists.length * 0.9) - 1;
-  const p90 = dists[Math.max(0, idx)];
-  return Math.max(8, Math.min(38, Math.round(p90 * 10) / 10));
-}
-
 /** PR distances in km */
 export const PR_DISTANCES = [
   { key: "1km", km: 1, label: "1 km" },

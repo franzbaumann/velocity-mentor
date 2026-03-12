@@ -3,7 +3,6 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/AppLayout";
 import { useTheme } from "@/hooks/useTheme";
 import { useActivityDetail, type ActivityStreams } from "@/hooks/useActivityDetail";
-import { useZoneSource } from "@/hooks/useZoneSource";
 import { useParams, useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { isNonDistanceActivity } from "@/lib/analytics";
@@ -221,15 +220,6 @@ const TILE_DARK = "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x
 
 type ActivityTab = "charts" | "data" | "notes";
 
-function ZoneSourceBadge() {
-  const zoneSource = useZoneSource();
-  return (
-    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
-      {zoneSource}
-    </span>
-  );
-}
-
 export default function ActivityDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -319,7 +309,7 @@ export default function ActivityDetail() {
         </button>
 
         {/* ── Hero header — big readable stats ── */}
-        <div className="card-standard card-standard--no-padding overflow-hidden">
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
           <div className="px-5 py-5">
             {/* Title + date row */}
             <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
@@ -411,7 +401,7 @@ export default function ActivityDetail() {
           <div className="space-y-4">
             {/* Intervals bar */}
             {activity.splits.length > 1 && (
-              <div className="card-standard card-standard--no-padding overflow-hidden">
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
                 <div className="overflow-x-auto">
                   <div className="flex min-w-max">
                     {activity.splits.map((s, i) => {
@@ -433,7 +423,7 @@ export default function ActivityDetail() {
 
             {/* Stacked charts */}
             {hasGraphs && (
-              <div className="card-standard card-standard--no-padding overflow-hidden">
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
                 {hasPace && (
                   <div className="px-2 pt-3 pb-0">
                     <div className="flex items-center gap-2 px-3 mb-1">
@@ -566,13 +556,10 @@ export default function ActivityDetail() {
           <div className="space-y-4">
             {/* HR Zone Detail Table (intervals.icu style) */}
             {activity.hr_zone_times && activity.hr_zone_times.some(t => t > 0) && (
-              <div className="card-standard card-standard--no-padding overflow-hidden">
-                <div className="px-4 py-2.5 border-b border-border flex items-center justify-between gap-2 bg-muted/30">
-                  <div className="flex items-center gap-2">
-                    <Heart className="w-3.5 h-3.5 text-primary" />
-                    <span className="text-xs font-semibold text-foreground">Heart Rate Zones</span>
-                  </div>
-                  <ZoneSourceBadge />
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 bg-muted/30">
+                  <Heart className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-xs font-semibold text-foreground">Heart Rate Zones</span>
                 </div>
                 <ZoneDetailTable times={activity.hr_zone_times} names={HR_ZONE_NAMES} colors={HR_ZONE_COLORS} maxHr={activity.max_hr} />
               </div>
@@ -580,7 +567,7 @@ export default function ActivityDetail() {
 
             {/* Pace Zone Detail Table */}
             {activity.pace_zone_times && activity.pace_zone_times.some(t => t > 0) && (
-              <div className="card-standard card-standard--no-padding overflow-hidden">
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
                 <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 bg-muted/30">
                   <BarChart3 className="w-3.5 h-3.5 text-primary" />
                   <span className="text-xs font-semibold text-foreground">Pace Zones</span>
@@ -590,7 +577,7 @@ export default function ActivityDetail() {
             )}
 
             {/* Summary Stats Card */}
-            <div className="card-standard card-standard--no-padding overflow-hidden">
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
               <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 bg-muted/30">
                 <BarChart3 className="w-3.5 h-3.5 text-primary" />
                 <span className="text-xs font-semibold text-foreground">Summary</span>
@@ -616,7 +603,7 @@ export default function ActivityDetail() {
 
             {/* Splits Table */}
             {activity.splits.length > 0 && (
-              <div className="card-standard card-standard--no-padding overflow-hidden">
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
                 <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 bg-muted/30">
                   <BarChart3 className="w-3.5 h-3.5 text-primary" />
                   <span className="text-xs font-semibold text-foreground">Splits</span>
@@ -774,7 +761,7 @@ function ActivityNotes({
   }, [notes, nomio, lactate]);
 
   return (
-    <div className="card-standard space-y-4">
+    <div className="rounded-xl border border-border bg-card p-4 space-y-4">
       <div className="flex items-center gap-2 mb-3">
         <FileText className="w-4 h-4 text-primary" />
         <span className="text-sm font-semibold text-foreground">Training notes</span>
@@ -849,7 +836,7 @@ function CoachNote({ activityId, cachedNote }: { activityId: string | undefined;
 
   if (error && !note) {
     return (
-      <div className="card-standard flex items-center gap-3">
+      <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
         <div className="rounded-lg bg-primary/10 p-2 shrink-0">
           <MessageCircle className="w-4 h-4 text-primary" />
         </div>
@@ -863,7 +850,7 @@ function CoachNote({ activityId, cachedNote }: { activityId: string | undefined;
   }
 
   return (
-    <div className="card-standard flex items-start gap-3">
+    <div className="rounded-xl border border-border bg-card p-4 flex items-start gap-3">
       <div className="rounded-lg bg-primary/10 p-2 shrink-0 mt-0.5">
         <MessageCircle className="w-4 h-4 text-primary" />
       </div>
@@ -922,7 +909,7 @@ function HrDistributionChart({ chartData, maxHr }: { chartData: ChartPoint[]; ma
   }
 
   return (
-    <div className="card-standard">
+    <div className="rounded-xl border border-border bg-card p-4">
       <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
         <Heart className="w-3.5 h-3.5 text-red-500" />
         HR Distribution
@@ -969,7 +956,7 @@ function CumulativeHrChart({ chartData, maxHr }: { chartData: ChartPoint[]; maxH
   const zoneBreaks = [0.6, 0.7, 0.8, 0.9, 0.95, 1.0].map((pct) => Math.round(effectiveMax * pct));
 
   return (
-    <div className="card-standard">
+    <div className="rounded-xl border border-border bg-card p-4">
       <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
         <Heart className="w-3.5 h-3.5 text-red-500" />
         Cumulative Time
@@ -1036,7 +1023,7 @@ function MeanMaxHrChart({ chartData }: { chartData: ChartPoint[] }) {
   if (mmhr.length < 3) return null;
 
   return (
-    <div className="card-standard">
+    <div className="rounded-xl border border-border bg-card p-4">
       <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
         <Heart className="w-3.5 h-3.5 text-red-500" />
         HR Curve (Mean Maximal)
@@ -1054,7 +1041,7 @@ function MeanMaxHrChart({ chartData }: { chartData: ChartPoint[] }) {
             <XAxis dataKey="label" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} />
             <YAxis domain={["dataMin - 5", "dataMax + 5"]} tick={{ fontSize: 9, fill: HR_COLOR }} tickLine={false} axisLine={false} width={36} />
             <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} formatter={(v: number) => [`${v} bpm`, "Max Avg HR"]} />
-            <Area type="natural" dataKey="maxAvgHr" fill="url(#mmhrGrad)" stroke={HR_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 2 }} />
+            <Area type="monotone" dataKey="maxAvgHr" fill="url(#mmhrGrad)" stroke={HR_COLOR} strokeWidth={2} dot={{ r: 2, fill: HR_COLOR }} activeDot={{ r: 3 }} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>

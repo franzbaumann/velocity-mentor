@@ -11,15 +11,6 @@ node_modules
 dist
 dist-ssr
 *.local
-.env
-.env.local
-.env.*.local
-
-# Cursor / IDE
-.cursor/
-
-# Supabase
-supabase/.temp/
 
 # Editor directories and files
 .vscode/*
@@ -31,4 +22,3 @@ supabase/.temp/
 *.njsproj
 *.sln
 *.sw?
-.vercel
