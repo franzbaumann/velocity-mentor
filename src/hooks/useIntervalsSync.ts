@@ -12,9 +12,12 @@ export interface SyncProgress {
   runsCount: number;
   wellnessDays: number;
   streamsProgress?: { done: number; total: number };
+  yearsCompleted?: Record<string, number>;
+  updatedAt?: string;
   ctl?: number;
   atl?: number;
   tsb?: number;
+  pbsCount?: number;
 }
 
 interface SyncProgressRow {
@@ -29,6 +32,8 @@ interface SyncProgressRow {
   intervals_count?: number;
   wellness_days?: number;
   pbs_count?: number;
+  years_completed?: Record<string, number>;
+  updated_at?: string;
   ctl?: number;
   atl?: number;
   tsb?: number;
@@ -145,6 +150,7 @@ export function useIntervalsSync() {
             queryClient.invalidateQueries({ queryKey: ["athlete_profile"], ...refetchOpts }),
             queryClient.invalidateQueries({ queryKey: ["activityCount"], ...refetchOpts }),
             queryClient.invalidateQueries({ queryKey: ["personal_records"], ...refetchOpts }),
+            queryClient.invalidateQueries({ queryKey: ["sync_progress"], ...refetchOpts }),
           ]);
         }
       };
@@ -172,5 +178,81 @@ export function useIntervalsSync() {
     };
   }, []);
 
-  return { syncing, progress, runSync };
+  const runQuickSync = useCallback(async () => {
+    setSyncing(true);
+    setProgress({
+      stage: "quick_sync",
+      detail: "Syncing last 30 days...",
+      done: false,
+      runsCount: 0,
+      wellnessDays: 0,
+    });
+
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        setProgress({ stage: "error", detail: "Not signed in", done: true, runsCount: 0, wellnessDays: 0 });
+        setSyncing(false);
+        return;
+      }
+
+      const { data, error } = await supabase.functions.invoke("intervals-proxy", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { action: "quick_sync" },
+      });
+
+      if (error) {
+        let msg = error.message ?? "Quick sync failed";
+        if (error instanceof FunctionsHttpError && error.context) {
+          try {
+            const body = (await error.context.json()) as { error?: string };
+            if (body?.error) msg = String(body.error);
+          } catch {
+            // keep default
+          }
+        }
+        setProgress({ stage: "error", detail: msg, done: true, runsCount: 0, wellnessDays: 0 });
+        setSyncing(false);
+        return;
+      }
+
+      const result = data as { done?: boolean; activities?: number; wellness?: number; error?: string } | null;
+      if (result?.error) {
+        setProgress({ stage: "error", detail: result.error, done: true, runsCount: 0, wellnessDays: 0 });
+        setSyncing(false);
+        return;
+      }
+
+      setProgress({
+        stage: "done",
+        detail: `Done — ${result?.activities ?? 0} activities, ${result?.wellness ?? 0} wellness days`,
+        done: true,
+        runsCount: result?.activities ?? 0,
+        wellnessDays: result?.wellness ?? 0,
+      });
+
+      const refetchOpts = { refetchType: "all" as const };
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["activities"], ...refetchOpts }),
+        queryClient.invalidateQueries({ queryKey: ["daily_readiness"], ...refetchOpts }),
+        queryClient.invalidateQueries({ queryKey: ["intervals-activities-chunked"], ...refetchOpts }),
+        queryClient.invalidateQueries({ queryKey: ["intervals-data"], ...refetchOpts }),
+        queryClient.invalidateQueries({ queryKey: ["weekStats"], ...refetchOpts }),
+        queryClient.invalidateQueries({ queryKey: ["athlete_profile"], ...refetchOpts }),
+        queryClient.invalidateQueries({ queryKey: ["activityCount"], ...refetchOpts }),
+      ]);
+    } catch (e) {
+      setProgress({
+        stage: "error",
+        detail: `Error: ${e instanceof Error ? e.message : String(e)}`,
+        done: true,
+        runsCount: 0,
+        wellnessDays: 0,
+      });
+    } finally {
+      setSyncing(false);
+    }
+  }, [queryClient]);
+
+  return { syncing, progress, runSync, runQuickSync };
 }

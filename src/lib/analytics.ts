@@ -116,6 +116,22 @@ export function inferRunType(type: string | null): "easy" | "tempo" | "long" | "
   return "other";
 }
 
+/** Pace progression filter: easy = Zone 2 (60–70% max HR), LT1 = 75–82%, LT2 = 85–92% */
+export type PaceProgressionFilter = "all" | "easy" | "lt1" | "lt2";
+
+/** Classify run by HR zones. Easy = Z2 (60–70%), LT1 = 75–82%, LT2 = 85–92%. Returns null if no avg_hr or max_hr. */
+export function classifyRunByHr(
+  avgHr: number | null,
+  maxHr: number | null
+): "easy" | "lt1" | "lt2" | null {
+  if (avgHr == null || maxHr == null || maxHr <= 0) return null;
+  const pct = (avgHr / maxHr) * 100;
+  if (pct >= 60 && pct <= 70) return "easy";
+  if (pct >= 75 && pct <= 82) return "lt1";
+  if (pct >= 85 && pct <= 92) return "lt2";
+  return null;
+}
+
 /** PR distances in km */
 export const PR_DISTANCES = [
   { key: "1km", km: 1, label: "1 km" },

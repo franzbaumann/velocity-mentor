@@ -1,11 +1,12 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Send, Loader2 } from "lucide-react";
+import { Send, Loader2, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ReactMarkdown from "react-markdown";
 import { OnboardingFlow } from "@/components/OnboardingFlow";
 import { lazy, Suspense } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const OnboardingV2 = lazy(() => import("@/components/onboarding-v2/OnboardingV2"));
 const USE_NEW_ONBOARDING = import.meta.env.VITE_NEW_ONBOARDING === "true";
@@ -13,19 +14,27 @@ import type { Components } from "react-markdown";
 import { toast } from "sonner";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useActivities } from "@/hooks/useActivities";
-import { useReadiness } from "@/hooks/useReadiness";
+import { useReadiness, resolveCtlAtlTsb } from "@/hooks/useReadiness";
 import { useAthleteProfile } from "@/hooks/useAthleteProfile";
 import { useTrainingPlan } from "@/hooks/use-training-plan";
-import { useQueryClient } from "@tanstack/react-query";
 import { format, addDays, isToday, startOfWeek } from "date-fns";
 import { isRunningActivity } from "@/lib/analytics";
 import { formatDistance } from "@/lib/format";
 import { ChatStatCharts } from "@/components/ChatStatChart";
-import { extractPlanJson, stripPlanJson } from "../../shared/coach-plan";
 
 type Msg = { role: "user" | "assistant"; content: string };
+type StoredMsg = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  message_type: string;
+  activity_id: string | null;
+  created_at: string;
+};
+type ChatFilter = "all" | "analyses" | "chat";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/coach-chat`;
+const GENERATE_PLAN_FN = "coach-generate-plan";
 
 const KIPCOACH_WELCOME = `Hey — I'm **Kipcoachee**, your AI running coach.
 
@@ -77,6 +86,30 @@ function isNutritionMessage(content: string): boolean {
   );
 }
 
+/** Strip JSON code blocks from display — user sees only the explanation */
+function stripPlanJson(content: string): string {
+  return content
+    .replace(/```json\s*[\s\S]*?```/gi, "")
+    .replace(/```\s*\{[\s\S]*?"action"\s*:\s*"(?:create_plan|adjust_plan)"[\s\S]*?\}\s*```?/g, "")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+/** Extract plan JSON for Apply button */
+function extractPlanJson(content: string): { action: string; plan: Record<string, unknown> } | null {
+  const jsonMatch = content.match(/```json\s*([\s\S]*?)```/) ?? content.match(/\{[\s\S]*?"action"\s*:\s*"(?:create_plan|adjust_plan)"[\s\S]*?\}/);
+  if (!jsonMatch) return null;
+  try {
+    const parsed = JSON.parse(jsonMatch[1] ?? jsonMatch[0]);
+    if ((parsed?.action === "create_plan" || parsed?.action === "adjust_plan") && parsed?.plan) {
+      return { action: parsed.action, plan: parsed.plan };
+    }
+  } catch {
+    // ignore
+  }
+  return null;
+}
+
 function PlanAdjustmentCard({
   plan,
   onApply,
@@ -122,68 +155,67 @@ function PlanAdjustmentCard({
   );
 }
 
-function buildQuickPrompts({
-  from,
-  hasPlan,
-  isConnected,
+function buildDynamicPills({
   lastRun,
-  hasUpcomingWorkout,
-  upcomingDesc,
-  hrvLow,
+  hasPlan,
+  weeklyVolumePct,
+  tsb,
+  hrvDropPct,
+  weeksToRace,
+  todayWorkout,
+  keySessionDesc,
+  rampRate,
 }: {
-  from: string | null;
+  lastRun: { km: number; type: string } | null;
   hasPlan: boolean;
-  isConnected: boolean;
-  lastRun: { km: number; date: string; type: string } | null;
-  hasUpcomingWorkout: boolean;
-  upcomingDesc: string;
-  hrvLow: boolean;
+  weeklyVolumePct: number | null;
+  tsb: number | null;
+  hrvDropPct: number | null;
+  weeksToRace: number | null;
+  todayWorkout: string | null;
+  keySessionDesc: string;
+  rampRate: number | null;
 }): string[] {
   const prompts: string[] = [];
 
-  if (from === "plan" || from === "training") {
-    prompts.push("Am I on track with my plan this week?");
-    if (hasUpcomingWorkout) prompts.push(`What should I focus on for ${upcomingDesc || "my next session"}?`);
-    prompts.push("Can we adjust my plan for this week?");
-    prompts.push("What's the purpose of my current training phase?");
-    prompts.push("Should I skip or modify tomorrow's workout?");
-  } else if (from === "activities" || from === "activity") {
-    if (lastRun) prompts.push(`How was my ${lastRun.km}km ${lastRun.type?.toLowerCase() || "run"}?`);
-    prompts.push("Analyze my recent training load");
-    prompts.push("Am I running too much or too little?");
-    prompts.push("What do my pace trends say about my fitness?");
-    prompts.push("Compare my last few weeks of training");
-  } else if (from === "stats") {
-    prompts.push("What does my CTL/TSB trend mean?");
-    prompts.push("How is my fitness progressing?");
-    prompts.push("Am I recovering well between sessions?");
-    prompts.push("What do my HR zones tell you about my training?");
-    prompts.push("Is my weekly volume appropriate?");
-  } else if (from === "dashboard") {
-    if (hrvLow) prompts.push("My HRV is low — should I take it easy today?");
-    prompts.push("Should I run hard today or take it easy?");
-    if (hasUpcomingWorkout) prompts.push(`Tell me about ${upcomingDesc || "today's workout"}`);
-    prompts.push("How am I recovering this week?");
-    prompts.push("Give me a quick training summary");
-  } else {
-    if (!hasPlan) {
-      prompts.push("Build me a training plan");
-      prompts.push("I'd like to describe my history and goals");
-    }
-    if (!isConnected) {
-      prompts.push("How do I connect my data?");
-    }
-    if (hrvLow) prompts.push("My HRV is low — what should I do?");
-    if (lastRun) prompts.push(`How was my last run (${lastRun.km}km)?`);
-    if (hasPlan) {
-      prompts.push("Am I on track with my plan?");
-      prompts.push("Should I run hard today or take it easy?");
-    }
-    prompts.push("How is my fitness trending?");
-    prompts.push("What are my current training zones?");
-    prompts.push("Help me peak for my race");
+  if (rampRate != null && rampRate > 5) {
+    prompts.push("My ramp rate looks high — should I back off?");
+  }
+  if (hrvDropPct != null && hrvDropPct > 10) {
+    prompts.push("Why is my HRV lower this week?");
+  }
+  if (weeklyVolumePct != null && weeklyVolumePct > 120) {
+    prompts.push("Am I overtraining this week?");
+  }
+  if (tsb != null && tsb < -20) {
+    prompts.push("Should I take an extra rest day?");
+  }
+  if (tsb != null && tsb > 15 && weeksToRace != null && weeksToRace <= 4) {
+    prompts.push("Am I ready to race?");
+  }
+  if (weeksToRace != null && weeksToRace > 0 && weeksToRace <= 8 && !prompts.some((p) => p.includes("race"))) {
+    prompts.push(`${weeksToRace} weeks to race — how should I prepare?`);
+  }
+  if (lastRun) {
+    prompts.push(`How was my last run? (${lastRun.km}km ${lastRun.type?.toLowerCase() || "run"})`);
+  }
+  if (hasPlan && keySessionDesc) {
+    prompts.push(`What's my key session this week?`);
+  }
+  if (todayWorkout && !prompts.some((p) => p.includes("key session"))) {
+    prompts.push(`Tell me about today's workout`);
   }
 
+  const fallbacks = [
+    "How is my fitness trending?",
+    "Should I run hard today or take it easy?",
+    "Am I on track with my plan?",
+    "What does my CTL/TSB mean?",
+  ];
+  for (const f of fallbacks) {
+    if (prompts.length >= 6) break;
+    if (!prompts.includes(f)) prompts.push(f);
+  }
   return prompts.slice(0, 6);
 }
 
@@ -200,8 +232,6 @@ const HAS_ALL_DATA_PATTERNS = [
 function assistantSaysHasAllData(content: string): boolean {
   return HAS_ALL_DATA_PATTERNS.some((p) => p.test(content));
 }
-
-const GENERATE_PLAN_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/coach-generate-plan`;
 
 async function streamChat({
   messages,
@@ -220,32 +250,51 @@ async function streamChat({
   onDone: () => void;
   onRateLimit?: () => void;
 }) {
-  const apikey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    ...(apikey ? { apikey } : {}),
-  };
-  if (token) headers.Authorization = `Bearer ${token}`;
-
   if (!CHAT_URL || CHAT_URL.includes("undefined")) {
     console.error("[Kipcoachee] CHAT_URL missing - check VITE_SUPABASE_URL in .env");
   }
 
-  const resp = await fetch(CHAT_URL, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ messages, intakeAnswers, intervalsContext }),
-  });
+  const apikey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(apikey ? { apikey } : {}),
+    Authorization: token ? `Bearer ${token}` : (apikey ? `Bearer ${apikey}` : ""),
+  };
+
+  let resp: Response;
+  try {
+    resp = await fetch(CHAT_URL, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({ messages, intakeAnswers, intervalsContext, stream: false }),
+    });
+  } catch (e) {
+    console.error("[Kipcoachee] fetch error:", e);
+    toast.error("Failed to reach Kipcoachee. Check your connection and try again.");
+    onDone();
+    return;
+  }
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: "Request failed" }));
     console.error("[Kipcoachee]", resp.status, err);
     if (resp.status === 429) {
       onRateLimit?.();
-      toast.error("Rate limit (Gemini ~15/min). Wait 90s, then try again.");
+      toast.error(err.error || "Rate limit reached. Try again in 15–60 minutes, or upgrade your Groq/Gemini plan.");
+    } else if (resp.status === 502 || resp.status === 503) {
+      toast.error("Kipcoachee is temporarily unavailable. Ensure GROQ_API_KEY and GEMINI_API_KEY are set in Supabase secrets.");
     } else {
       toast.error(err.error || "Kipcoachee is unavailable right now.");
     }
+    onDone();
+    return;
+  }
+
+  const contentType = resp.headers.get("content-type") ?? "";
+  if (contentType.includes("application/json")) {
+    const data = await resp.json().catch(() => ({}));
+    const msg = data?.message;
+    if (typeof msg === "string" && msg) onDelta(msg);
     onDone();
     return;
   }
@@ -257,31 +306,37 @@ async function streamChat({
   let buffer = "";
   let done = false;
 
-  while (!done) {
-    const { done: readerDone, value } = await reader.read();
-    if (readerDone) break;
-    buffer += decoder.decode(value, { stream: true });
+  try {
+    while (!done) {
+      const { done: readerDone, value } = await reader.read();
+      if (readerDone) break;
+      buffer += decoder.decode(value, { stream: true });
 
-    let newlineIndex: number;
-    while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
-      let line = buffer.slice(0, newlineIndex);
-      buffer = buffer.slice(newlineIndex + 1);
-      if (line.endsWith("\r")) line = line.slice(0, -1);
-      if (line.startsWith(":") || line.trim() === "") continue;
-      if (!line.startsWith("data: ")) continue;
-      const jsonStr = line.slice(6).trim();
-      if (jsonStr === "[DONE]") { done = true; break; }
-      try {
-        const parsed = JSON.parse(jsonStr);
-        const content = parsed.choices?.[0]?.delta?.content;
-        if (content) onDelta(content);
-      } catch {
-        buffer = line + "\n" + buffer;
-        break;
+      let newlineIndex: number;
+      while ((newlineIndex = buffer.indexOf("\n")) !== -1) {
+        let line = buffer.slice(0, newlineIndex);
+        buffer = buffer.slice(newlineIndex + 1);
+        if (line.endsWith("\r")) line = line.slice(0, -1);
+        if (line.startsWith(":") || line.trim() === "") continue;
+        if (!line.startsWith("data: ")) continue;
+        const jsonStr = line.slice(6).trim();
+        if (jsonStr === "[DONE]") { done = true; break; }
+        try {
+          const parsed = JSON.parse(jsonStr);
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) onDelta(content);
+        } catch {
+          buffer = line + "\n" + buffer;
+          break;
+        }
       }
     }
+  } catch (e) {
+    console.error("[Kipcoachee] stream error:", e);
+    onDelta("Sorry — the response was interrupted. Please try again.");
+  } finally {
+    onDone();
   }
-  onDone();
 }
 
 function getNextMonday(): Date {
@@ -505,10 +560,45 @@ async function applyAdjustmentToExistingPlan(
   return true;
 }
 
+function PostWorkoutAnalysisCard({ content, date }: { content: string; date: string }) {
+  return (
+    <div className="flex gap-3 max-w-lg">
+      <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+        <Activity className="w-4 h-4 text-emerald-500" />
+      </div>
+      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm leading-relaxed flex-1">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+            Post-workout analysis
+          </span>
+          <span className="text-[10px] text-muted-foreground">{date}</span>
+        </div>
+        <ReactMarkdown components={markdownComponents}>{content}</ReactMarkdown>
+      </div>
+    </div>
+  );
+}
+
+async function extractMemories(msgs: Msg[]) {
+  const userMsgCount = msgs.filter((m) => m.role === "user").length;
+  if (userMsgCount < 3) return;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
+    await supabase.functions.invoke("coach-chat", {
+      body: { action: "extract_memories", messages: msgs },
+    });
+  } catch {
+    // silent — memory extraction is best-effort
+  }
+}
+
 export default function Coach() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
+  const [openingMessage, setOpeningMessage] = useState<string | null>(null);
+  const [openingLoading, setOpeningLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [rateLimitUntil, setRateLimitUntil] = useState<number>(0);
   const [generatingPlan, setGeneratingPlan] = useState(false);
@@ -520,9 +610,41 @@ export default function Coach() {
   });
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [chatFilter, setChatFilter] = useState<ChatFilter>("all");
+  const messagesRef = useRef<Msg[]>([]);
+  messagesRef.current = messages;
+
+  // Load chat history (analyses + recent messages)
+  const { data: chatHistory = [] } = useQuery({
+    queryKey: ["coach_history"],
+    queryFn: async () => {
+      const { data: { user: u } } = await supabase.auth.getUser();
+      if (!u) return [];
+      const { data, error } = await supabase
+        .from("coach_message")
+        .select("id, role, content, message_type, activity_id, created_at")
+        .eq("user_id", u.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) return [];
+      return (data ?? []) as StoredMsg[];
+    },
+  });
+
+  const analyses = useMemo(
+    () => chatHistory.filter((m) => m.message_type === "post_workout_analysis"),
+    [chatHistory],
+  );
+
+  // Extract coaching memories when leaving the page
+  useEffect(() => {
+    return () => {
+      extractMemories(messagesRef.current);
+    };
+  }, []);
 
   const queryClient = useQueryClient();
-  const { onboardingComplete, update: updateProfile } = useAthleteProfile();
+  const { onboardingComplete, update: updateProfile, profile: athleteProfile } = useAthleteProfile();
   const { plan: planData, isLoading: planLoading } = useTrainingPlan();
 
   useEffect(() => {
@@ -540,6 +662,43 @@ export default function Coach() {
 
   const autoSentRef = useRef(false);
   const pendingAutoSend = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (messages.length > 0 || sessionParam) return;
+    const OPENING_COOLDOWN_MS = 30 * 60 * 1000;
+    const cacheKey = "kipcoachee_opening";
+    try {
+      const cached = JSON.parse(localStorage.getItem(cacheKey) || "null") as { msg: string; ts: number } | null;
+      if (cached && Date.now() - cached.ts < OPENING_COOLDOWN_MS) {
+        setOpeningMessage(cached.msg);
+        return;
+      }
+    } catch { /* ignore corrupt cache */ }
+
+    setOpeningLoading(true);
+    (async () => {
+      try {
+        await supabase.auth.refreshSession();
+        const { data, error } = await supabase.functions.invoke("coach-opening", {
+          body: {
+            intervalsContext: isConnected
+              ? { wellness: Array.isArray(wellnessData) ? wellnessData : undefined, activities: Array.isArray(activitiesData) ? activitiesData : undefined }
+              : null,
+          },
+        });
+        if (!error && data?.message) {
+          setOpeningMessage(data.message);
+          try { localStorage.setItem(cacheKey, JSON.stringify({ msg: data.message, ts: Date.now() })); } catch { /* ignore */ }
+          if (data.rateLimitHit) toast.error("AI rate limit reached. Try again in a few minutes or upgrade your Groq/Gemini plan.");
+        }
+      } catch {
+        // ignore — use fallback
+      } finally {
+        setOpeningLoading(false);
+      }
+    })();
+  }, [messages.length, sessionParam, isConnected, wellnessData, activitiesData]);
+
   useEffect(() => {
     if (autoSentRef.current || messages.length > 0) return;
     if (sessionParam) {
@@ -558,82 +717,100 @@ export default function Coach() {
     }
   }, [sessionParam, planMetaParam, workoutContext, message, messages.length]);
 
-  const contextAwareOpener = useMemo(() => {
-    if (workoutContext) {
-      return `Let's talk about: **${decodeURIComponent(workoutContext)}**`;
-    }
-    const activities = Array.isArray(activitiesData) ? activitiesData : [];
-    const runs = activities.filter((a) => (a.distance_km ?? 0) > 0 && (a.type?.toLowerCase().includes("run") || !a.type));
-    const lastRun = runs[runs.length - 1];
-    const today = new Date();
-    const yesterday = addDays(today, -1);
-    if (lastRun?.date) {
-      const d = new Date(lastRun.date);
-      if (isToday(d) || (d.getTime() === yesterday.getTime())) {
-        const when = isToday(d) ? "today" : "yesterday";
-        const km = lastRun.distance_km ? `${Math.round(lastRun.distance_km * 10) / 10}km` : "a run";
-        return `I see you ran ${km} ${when}. How did it feel?`;
-      }
-    }
-    const weeks = planData?.weeks ?? [];
-    const tomorrow = addDays(today, 1);
-    const tomorrowStr = format(tomorrow, "yyyy-MM-dd");
-    for (const w of weeks) {
-      const sessions = w.sessions ?? [];
-      for (const s of sessions) {
-        const sd = s.scheduled_date ? String(s.scheduled_date).slice(0, 10) : "";
-        if (sd === tomorrowStr) {
-          return `You've got ${s.description ?? "a workout"} tomorrow. Ready for it?`;
-        }
-      }
-    }
-    const readiness = Array.isArray(wellnessData) ? wellnessData : [];
-    const latest = readiness[readiness.length - 1];
-    if (latest?.hrv != null && latest?.hrv_baseline != null && latest.hrv < latest.hrv_baseline * 0.9) {
-      return `Your HRV has been a bit low lately. How are you feeling?`;
-    }
+  const fallbackOpener = useMemo(() => {
+    if (workoutContext) return `Let's talk about: **${decodeURIComponent(workoutContext)}**`;
     return `Here's your week. What's on your mind?`;
-  }, [workoutContext, activitiesData, planData, wellnessData]);
+  }, [workoutContext]);
 
-  const fromParam = searchParams.get("from");
+  const displayOpener = workoutContext
+    ? `Let's talk about: **${decodeURIComponent(workoutContext)}**`
+    : (openingMessage ?? fallbackOpener);
 
   const quickPrompts = useMemo(() => {
     const activities = Array.isArray(activitiesData) ? activitiesData : [];
-    const runs = activities.filter((a) => (a.distance_km ?? 0) > 0 && (a.type?.toLowerCase().includes("run") || !a.type));
+    const runs = activities.filter((a) => isRunningActivity(a.type) && (a.distance_km ?? 0) > 0);
     const lastRun = runs.length > 0 ? runs[runs.length - 1] : null;
-    const lastRunInfo = lastRun ? { km: Math.round((lastRun.distance_km ?? 0) * 10) / 10, date: lastRun.date, type: lastRun.type ?? "Run" } : null;
+    const lastRunInfo = lastRun ? { km: Math.round((lastRun.distance_km ?? 0) * 10) / 10, type: lastRun.type ?? "Run" } : null;
 
     const hasPlan = (planData?.weeks?.length ?? 0) > 0;
-
     const readiness = Array.isArray(wellnessData) ? wellnessData : [];
     const latest = readiness[readiness.length - 1];
-    const hrvLow = latest?.hrv != null && latest?.hrv_baseline != null && latest.hrv < latest.hrv_baseline * 0.9;
+    const { tsb } = latest ? resolveCtlAtlTsb(latest) : { tsb: null };
 
-    const today = new Date();
-    const todayStr = format(today, "yyyy-MM-dd");
-    const tomorrowStr = format(addDays(today, 1), "yyyy-MM-dd");
-    let upcomingDesc = "";
-    let hasUpcomingWorkout = false;
+    const hrvVals = readiness.map((r) => r.hrv).filter((v): v is number => v != null).slice(-7);
+    const hrv7dAvg = hrvVals.length ? hrvVals.reduce((a, b) => a + b, 0) / hrvVals.length : null;
+    const hrvToday = latest?.hrv ?? null;
+    const hrvDropPct = hrvToday != null && hrv7dAvg != null && hrv7dAvg > 0
+      ? ((hrv7dAvg - hrvToday) / hrv7dAvg) * 100
+      : null;
+
+    const mon = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const monStr = format(mon, "yyyy-MM-dd");
+    const sunStr = format(addDays(mon, 6), "yyyy-MM-dd");
+    const thisWeekKm = runs
+      .filter((a) => a.date >= monStr && a.date <= sunStr)
+      .reduce((s, a) => s + (a.distance_km ?? 0), 0);
+    let plannedKm = 0;
+    for (const w of planData?.weeks ?? []) {
+      const sess = w.sessions ?? [];
+      for (const s of sess) {
+        const sd = s.scheduled_date ? String(s.scheduled_date).slice(0, 10) : "";
+        if (sd >= monStr && sd <= sunStr) {
+          plannedKm += s.distance_km ?? 0;
+        }
+      }
+    }
+    const weeklyVolumePct = plannedKm > 0 ? (thisWeekKm / plannedKm) * 100 : null;
+
+    const todayStr = format(new Date(), "yyyy-MM-dd");
+    let todayWorkout: string | null = null;
+    let keySessionDesc = "";
     for (const w of planData?.weeks ?? []) {
       for (const s of w.sessions ?? []) {
         const sd = s.scheduled_date ? String(s.scheduled_date).slice(0, 10) : "";
-        if (sd === todayStr || sd === tomorrowStr) {
-          hasUpcomingWorkout = true;
-          upcomingDesc = s.description ?? s.session_type ?? "my next session";
-          break;
+        if (sd === todayStr) todayWorkout = s.description ?? s.session_type ?? "workout";
+        if (sd >= monStr && sd <= sunStr && /tempo|interval|long|race/i.test(s.session_type ?? "")) {
+          keySessionDesc = s.description ?? s.session_type ?? "key session";
         }
       }
-      if (hasUpcomingWorkout) break;
     }
 
-    return buildQuickPrompts({ from: fromParam, hasPlan, isConnected, lastRun: lastRunInfo, hasUpcomingWorkout, upcomingDesc, hrvLow });
-  }, [fromParam, activitiesData, planData, wellnessData, isConnected]);
+    const plan = planData?.plan as { goal_date?: string; goal_race_date?: string } | undefined;
+    const profile = athleteProfile as { goal_race_date?: string } | null | undefined;
+    const raceDate = plan?.goal_date ?? plan?.goal_race_date ?? profile?.goal_race_date;
+    const weeksToRace = raceDate ? Math.ceil((new Date(raceDate).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000)) : null;
+
+    const latestRamp = latest?.ramp_rate ?? (latest as Record<string, unknown> | undefined)?.icu_ramp_rate;
+    const rampRate = latestRamp != null ? Number(latestRamp) : null;
+
+    return buildDynamicPills({
+      lastRun: lastRunInfo,
+      hasPlan,
+      weeklyVolumePct,
+      tsb,
+      hrvDropPct,
+      weeksToRace: weeksToRace ?? null,
+      todayWorkout,
+      keySessionDesc: keySessionDesc || "key session",
+      rampRate,
+    });
+  }, [activitiesData, planData, wellnessData, athleteProfile]);
 
   const showGeneratePlan = messages.some((m) => m.role === "assistant" && assistantSaysHasAllData(m.content));
 
   const intervalsContext = isConnected
     ? { wellness: Array.isArray(wellnessData) ? wellnessData : undefined, activities: Array.isArray(activitiesData) ? activitiesData : undefined }
     : null;
+
+  const todayStr = format(new Date(), "yyyy-MM-dd");
+  const readinessForToday = useMemo(() => {
+    const readiness = Array.isArray(wellnessData) ? wellnessData : [];
+    const row = readiness.find((r) => r.date === todayStr) ?? readiness[readiness.length - 1];
+    if (!row) return { score: null, tsb: null };
+    const { tsb } = resolveCtlAtlTsb(row);
+    const score = row.score ?? (tsb != null ? Math.round(Math.min(100, Math.max(0, 50 + tsb * 2.5))) : null);
+    return { score, tsb };
+  }, [wellnessData]);
 
   const weekDays = useMemo(() => {
     const mon = startOfWeek(new Date(), { weekStartsOn: 1 });
@@ -672,11 +849,57 @@ export default function Coach() {
           : "Rest";
       const distance = act ? Math.round((act.distance_km ?? 0) * 10) / 10 : (planned?.distance_km ?? 0);
 
-      return { day: format(d, "EEE"), date: format(d, "d"), type, title, distance, today, done };
+      return { day: format(d, "EEE"), date: format(d, "d"), type, title, distance, today, done, planned };
     });
   }, [activitiesData, planData]);
 
   const hasWeekPlan = weekDays.some((d) => d.type !== "rest");
+
+  const contextSnapshot = useMemo(() => {
+    const readiness = Array.isArray(wellnessData) ? wellnessData : [];
+    const latest = readiness[readiness.length - 1];
+    const { ctl, atl, tsb } = latest ? resolveCtlAtlTsb(latest) : { ctl: null, atl: null, tsb: null };
+    const hrvVals = readiness.map((r) => r.hrv).filter((v): v is number => v != null).slice(-7);
+    const hrv7dAvg = hrvVals.length ? hrvVals.reduce((a, b) => a + b, 0) / hrvVals.length : null;
+    const hrvToday = latest?.hrv ?? null;
+    const hrvVsAvg = hrvToday != null && hrv7dAvg != null ? (hrvToday > hrv7dAvg ? "↑" : hrvToday < hrv7dAvg ? "↓" : "→") : null;
+
+    const mon = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const monStr = format(mon, "yyyy-MM-dd");
+    const sunStr = format(addDays(mon, 6), "yyyy-MM-dd");
+    const runs = (Array.isArray(activitiesData) ? activitiesData : []).filter((a) => isRunningActivity(a.type) && (a.distance_km ?? 0) > 0);
+    const thisWeekKm = runs.filter((a) => a.date >= monStr && a.date <= sunStr).reduce((s, a) => s + (a.distance_km ?? 0), 0);
+    let plannedKm = 0;
+    let plannedSessions = 0;
+    const allSessions: { date: string; description: string; session_type?: string; key_focus?: string; target_hr_zone?: number; distance_km?: number }[] = [];
+    for (const w of planData?.weeks ?? []) {
+      for (const s of w.sessions ?? []) {
+        const sd = s.scheduled_date ? String(s.scheduled_date).slice(0, 10) : "";
+        if (sd >= monStr && sd <= sunStr) {
+          plannedKm += s.distance_km ?? 0;
+          if (!/rest|recovery/i.test(s.session_type ?? "")) plannedSessions++;
+        }
+        if (sd) allSessions.push({ date: sd, description: s.description ?? "", session_type: s.session_type, key_focus: s.key_focus, target_hr_zone: s.target_hr_zone, distance_km: s.distance_km });
+      }
+    }
+    allSessions.sort((a, b) => a.date.localeCompare(b.date));
+    const next = allSessions.find((s) => s.date >= todayStr);
+    const nextSession = next
+      ? { date: next.date, desc: next.description || next.session_type || "Workout", focus: next.key_focus ?? (next.target_hr_zone ? `Keep HR zone ${next.target_hr_zone}` : "") }
+      : null;
+    const doneSessions = runs.filter((a) => a.date >= monStr && a.date <= sunStr).length;
+
+    return {
+      ctl, atl, tsb,
+      hrv: hrvToday,
+      hrvVsAvg,
+      volumeActual: Math.round(thisWeekKm * 10) / 10,
+      volumePlanned: Math.round(plannedKm * 10) / 10,
+      sessionsDone: doneSessions,
+      sessionsPlanned: plannedSessions,
+      nextSession,
+    };
+  }, [wellnessData, activitiesData, planData]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -697,8 +920,13 @@ export default function Coach() {
       return;
     }
 
+    await supabase.auth.refreshSession();
     const { data: { session } } = await supabase.auth.getSession();
     const token = session?.access_token ?? null;
+    if (!token) {
+      toast.error("Session expired. Please refresh the page and sign in again.");
+      return;
+    }
 
     const userMsg: Msg = { role: "user", content: input.trim() };
     const newMessages = [...messages, userMsg];
@@ -753,7 +981,10 @@ export default function Coach() {
   };
 
   const handleStartFresh = () => {
+    extractMemories(messagesRef.current);
     setMessages([]);
+    setChatFilter("all");
+    try { localStorage.removeItem("kipcoachee_opening"); } catch { /* ignore */ }
     toast.success("Started a fresh conversation.");
   };
 
@@ -813,30 +1044,20 @@ export default function Coach() {
   );
 
   const handleGeneratePlan = useCallback(async () => {
-    const { data: { session } } = await supabase.auth.getSession();
-    const token = session?.access_token ?? null;
-    if (!token) {
-      toast.error("Sign in to generate a plan.");
-      return;
-    }
     setGeneratingPlan(true);
     try {
-      const apikey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
-      const res = await fetch(GENERATE_PLAN_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(apikey ? { apikey } : {}),
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
+      const { data, error } = await supabase.functions.invoke(GENERATE_PLAN_FN, {
+        body: {
           intakeAnswers: intakeAnswers ?? {},
           conversationContext: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
-        }),
+        },
       });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        toast.error(data.error ?? "Failed to generate plan");
+      if (error) {
+        toast.error(error.message ?? "Failed to generate plan");
+        return;
+      }
+      if (data?.error) {
+        toast.error(data.error);
         return;
       }
       toast.success("Plan generated! Check Training Plan.");
@@ -849,11 +1070,11 @@ export default function Coach() {
   }, [intakeAnswers, messages]);
 
   const hasPlan = !!planData?.plan;
+  const fromPlan = searchParams.get("from") === "plan";
   const showOnboarding =
     !planLoading &&
     !hasPlan &&
-    !onboardingComplete &&
-    onboardingPhase !== "done";
+    ((!onboardingComplete && onboardingPhase !== "done") || fromPlan);
 
   if (showOnboarding) {
     if (USE_NEW_ONBOARDING) {
@@ -879,10 +1100,28 @@ export default function Coach() {
 
   return (
     <AppLayout>
-      <div className="animate-fade-in flex flex-col h-[calc(100vh-6rem)]">
+      <div className="animate-fade-in flex flex-col xl:flex-row xl:gap-6 h-[calc(100vh-6rem)]">
+        <div className="flex flex-col flex-1 min-w-0 xl:max-w-[65%]">
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-semibold text-foreground">Kipcoachee</h1>
           <div className="flex items-center gap-2">
+            {analyses.length > 0 && messages.length === 0 && (
+              <div className="flex items-center gap-1 bg-secondary rounded-full p-0.5">
+                {([["all", "All"], ["analyses", "Analyses"], ["chat", "Chat"]] as [ChatFilter, string][]).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setChatFilter(key)}
+                    className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                      chatFilter === key
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             {messages.length > 0 && (
               <button
                 onClick={handleStartFresh}
@@ -920,6 +1159,22 @@ export default function Coach() {
                   <p className={`text-[11px] font-medium mb-1 ${d.today ? "text-primary font-bold" : "text-muted-foreground"}`}>
                     {d.today ? "Today" : d.day} <span className="font-normal">{d.date}</span>
                   </p>
+                  {d.today && readinessForToday.score != null && (
+                    <span
+                      className={`inline-block text-[10px] font-medium px-1.5 py-0.5 rounded mb-1 ${
+                        readinessForToday.score > 75 ? "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400" :
+                        readinessForToday.score >= 50 ? "bg-amber-500/20 text-amber-600 dark:text-amber-400" :
+                        "bg-red-500/20 text-red-600 dark:text-red-400"
+                      }`}
+                    >
+                      {readinessForToday.score}
+                    </span>
+                  )}
+                  {d.today && readinessForToday.tsb != null && (
+                    <p className="text-[10px] text-muted-foreground mb-0.5">
+                      Form: {readinessForToday.tsb >= 0 ? "+" : ""}{Math.round(readinessForToday.tsb)}
+                    </p>
+                  )}
                   {hasSession ? (
                     <button
                       onClick={() => send(`Tell me about ${d.today ? "today's" : d.day + "'s"} session: ${d.title}`)}
@@ -941,14 +1196,41 @@ export default function Coach() {
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 p-6 overflow-y-auto space-y-4">
             {messages.length === 0 && (
-              <div className="flex gap-3 max-w-lg">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-xs font-semibold text-primary">K</span>
-                </div>
-                <div className="glass-card p-4 text-sm text-foreground leading-relaxed">
-                  <ReactMarkdown components={markdownComponents}>{contextAwareOpener}</ReactMarkdown>
-                </div>
-              </div>
+              <>
+                {chatFilter !== "analyses" && (
+                  <div className="flex gap-3 max-w-lg">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <span className="text-xs font-semibold text-primary">K</span>
+                    </div>
+                    <div className="glass-card p-4 text-sm text-foreground leading-relaxed">
+                      {openingLoading ? (
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Kipcoachee is reading your data…</span>
+                        </div>
+                      ) : (
+                        <ReactMarkdown components={markdownComponents}>{displayOpener}</ReactMarkdown>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Post-workout analyses */}
+                {(chatFilter === "all" || chatFilter === "analyses") && analyses.length > 0 && (
+                  <div className="space-y-3 mt-2">
+                    {chatFilter === "all" && analyses.length > 0 && (
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Recent analyses</p>
+                    )}
+                    {analyses.slice(0, chatFilter === "analyses" ? 20 : 5).map((a) => (
+                      <PostWorkoutAnalysisCard
+                        key={a.id}
+                        content={a.content}
+                        date={format(new Date(a.created_at), "MMM d, HH:mm")}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
 
             {messages.map((msg, i) => {
@@ -1079,6 +1361,55 @@ export default function Coach() {
                 )}
               </button>
             </div>
+          </div>
+        </div>
+        </div>
+
+        {/* Context panel — desktop only, ≥1200px */}
+        <div className="hidden xl:flex xl:w-[35%] xl:max-w-[400px] xl:flex-shrink-0">
+          <div className="glass-card rounded-2xl p-5 w-full h-fit max-h-[calc(100vh-10rem)] overflow-y-auto space-y-5">
+            <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">Athlete snapshot</h3>
+            <div className="grid grid-cols-2 gap-3 text-sm">
+              <div className="rounded-lg bg-muted/50 px-3 py-2">
+                <p className="text-muted-foreground text-xs">CTL (Fitness)</p>
+                <p className="font-semibold tabular-nums text-foreground">{contextSnapshot.ctl != null ? Math.round(contextSnapshot.ctl) : "—"}</p>
+              </div>
+              <div className="rounded-lg bg-muted/50 px-3 py-2">
+                <p className="text-muted-foreground text-xs">ATL (Fatigue)</p>
+                <p className="font-semibold tabular-nums text-foreground">{contextSnapshot.atl != null ? Math.round(contextSnapshot.atl) : "—"}</p>
+              </div>
+              <div className="rounded-lg bg-muted/50 px-3 py-2">
+                <p className="text-muted-foreground text-xs">TSB (Form)</p>
+                <p className="font-semibold tabular-nums text-foreground">
+                  {contextSnapshot.tsb != null ? `${contextSnapshot.tsb >= 0 ? "+" : ""}${Math.round(contextSnapshot.tsb)}` : "—"}
+                  {contextSnapshot.tsb != null && contextSnapshot.tsb > 5 && <span className="ml-1 text-emerald-500">✓</span>}
+                </p>
+              </div>
+              <div className="rounded-lg bg-muted/50 px-3 py-2">
+                <p className="text-muted-foreground text-xs">HRV</p>
+                <p className="font-semibold tabular-nums text-foreground">
+                  {contextSnapshot.hrv != null ? `${Math.round(contextSnapshot.hrv)} ms` : "—"}
+                  {contextSnapshot.hrvVsAvg && <span className="ml-1 text-muted-foreground text-xs">vs avg {contextSnapshot.hrvVsAvg}</span>}
+                </p>
+              </div>
+            </div>
+
+            <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider pt-2">This week</h3>
+            <div className="space-y-1 text-sm">
+              <p className="flex justify-between"><span className="text-muted-foreground">Volume</span><span className="font-medium tabular-nums">{contextSnapshot.volumeActual} / {contextSnapshot.volumePlanned} km</span></p>
+              <p className="flex justify-between"><span className="text-muted-foreground">Sessions</span><span className="font-medium tabular-nums">{contextSnapshot.sessionsDone} / {contextSnapshot.sessionsPlanned}</span></p>
+            </div>
+
+            {contextSnapshot.nextSession && (
+              <>
+                <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider pt-2">Next session</h3>
+                <div className="rounded-lg border border-border bg-card/50 p-3 text-sm">
+                  <p className="font-medium text-foreground">{format(new Date(contextSnapshot.nextSession.date), "EEE MMM d")}</p>
+                  <p className="text-muted-foreground mt-0.5">{contextSnapshot.nextSession.desc}</p>
+                  {contextSnapshot.nextSession.focus && <p className="text-xs text-primary mt-1">{contextSnapshot.nextSession.focus}</p>}
+                </div>
+              </>
+            )}
           </div>
         </div>
       </div>
