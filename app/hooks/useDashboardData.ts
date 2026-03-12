@@ -11,6 +11,7 @@ import {
   recoveryMetrics as mockRecoveryMetrics,
   weekPlan as mockWeekPlan,
 } from "../data/mockDashboard";
+import { useActivitiesList } from "./useActivities";
 
 export type ActivityRow = {
   id: string;
@@ -22,6 +23,10 @@ export type ActivityRow = {
   avg_pace: string | null;
   avg_hr: number | null;
   max_hr: number | null;
+  source?: string | null;
+  external_id?: string | null;
+  hr_zones?: Record<string, number> | null;
+  hr_zone_times?: number[] | null;
 };
 
 export type ReadinessRow = {
@@ -107,7 +112,7 @@ export function useDashboardData() {
       const { data, error } = await supabase
         .from("activity")
         .select(
-          "id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, max_hr",
+          "id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, source, external_id, hr_zones, hr_zone_times",
         )
         .eq("user_id", user.id)
         .gte("date", oldest.toISOString().slice(0, 10))
@@ -138,6 +143,9 @@ export function useDashboardData() {
     staleTime: 5 * 60 * 1000,
   });
 
+  // Reuse the ActivitiesList hook so ids/detailIds match calendar & ActivityDetail navigation
+  const { items: activityItems } = useActivitiesList(730);
+
   const { data: athleteProfile } = useQuery({
     queryKey: ["athlete_profile-mobile"],
     queryFn: async () => {
@@ -154,6 +162,39 @@ export function useDashboardData() {
     },
   });
 
+  /** Normalize hr_zones/hr_zone_times into { z1..z5 } percentages for last-activity widget */
+  const normalizeHrZones = (a: { hr_zones?: Record<string, number> | null; hr_zone_times?: number[] | null }) => {
+    const times = a.hr_zone_times;
+    if (Array.isArray(times) && times.length > 0 && times.some((t) => t > 0)) {
+      const total = times.reduce((s, t) => s + t, 0);
+      if (total > 0) {
+        const z5Sum = (times[4] ?? 0) + (times[5] ?? 0);
+        return {
+          z1: Math.round(((times[0] ?? 0) / total) * 100),
+          z2: Math.round(((times[1] ?? 0) / total) * 100),
+          z3: Math.round(((times[2] ?? 0) / total) * 100),
+          z4: Math.round(((times[3] ?? 0) / total) * 100),
+          z5: Math.round((z5Sum / total) * 100),
+        };
+      }
+    }
+    const raw = a.hr_zones;
+    if (raw && typeof raw === "object") {
+      const get = (keys: string[]) =>
+        keys
+          .map((k) => raw[k])
+          .find((v) => typeof v === "number") as number | undefined;
+      return {
+        z1: get(["z1", "zone1", "1"]) ?? 0,
+        z2: get(["z2", "zone2", "2"]) ?? 0,
+        z3: get(["z3", "zone3", "3"]) ?? 0,
+        z4: get(["z4", "zone4", "4"]) ?? 0,
+        z5: get(["z5", "zone5", "5"]) ?? 0,
+      };
+    }
+    return null;
+  };
+
   const lastActivity = useMemo(() => {
     const runs = activities.filter(
       (a) =>
@@ -162,8 +203,22 @@ export function useDashboardData() {
         (a.distance_km ?? 0) <= 150,
     );
     const last = runs[runs.length - 1];
-    if (!last) return mockLastActivity;
-    const z = { z1: 5, z2: 18, z3: 32, z4: 40, z5: 5 };
+    if (!last) {
+      return { ...mockLastActivity, detailId: null as string | null };
+    }
+
+    // Find matching item from ActivitiesList so id matches calendar/detail
+    const match = activityItems.find(
+      (it) =>
+        it.rawId === last.id ||
+        (!!last.external_id && it.externalId === last.external_id),
+    );
+
+    const z = normalizeHrZones(last) ?? mockLastActivity.hrZones;
+    const isIcu = last.source === "intervals_icu" && last.external_id;
+    const computedDetailId =
+      isIcu && last.external_id ? `icu_${last.external_id}` : last.id;
+    const detailId = match ? match.id : computedDetailId;
     return {
       type: last.type ?? "Run",
       date: formatMonthDay(new Date(last.date)),
@@ -173,8 +228,9 @@ export function useDashboardData() {
       maxHr: Math.round(last.max_hr ?? 0),
       duration: formatDuration(last.duration_seconds),
       hrZones: z,
+      detailId,
     };
-  }, [activities]);
+  }, [activities, activityItems]);
 
   const weekStats = useMemo(() => {
     const runningActivities = activities.filter(

@@ -10,6 +10,7 @@ import { ActivitiesScreen } from "../screens/ActivitiesScreen";
 import { ActivityDetailScreen } from "../screens/ActivityDetailScreen";
 import { TrainingPlanScreen } from "../screens/TrainingPlanScreen";
 import { PlanOnboardingScreen } from "../screens/PlanOnboardingScreen";
+import { PlanReadyScreen } from "../screens/PlanReadyScreen";
 import { CoachScreen } from "../screens/CoachScreen";
 import { StatsScreen } from "../screens/StatsScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
@@ -30,6 +31,7 @@ export type ActivitiesStackParamList = {
 
 export type PlanStackParamList = {
   PlanOnboarding: undefined;
+  PlanReady: undefined;
   PlanMain: undefined;
 };
 
@@ -101,6 +103,7 @@ function PlanStackNavigator() {
       initialRouteName="PlanOnboarding"
     >
       <PlanStack.Screen name="PlanOnboarding" component={PlanOnboardingScreen} />
+      <PlanStack.Screen name="PlanReady" component={PlanReadyScreen} />
       <PlanStack.Screen name="PlanMain" component={TrainingPlanScreen} />
     </PlanStack.Navigator>
   );

@@ -279,6 +279,16 @@ export const HomeScreen: FC = () => {
   }
 
   const progressPct = Math.round((weekStats.actualKm / weekStats.plannedKm) * 100);
+  const lastActivityDetailId =
+    (lastActivity as unknown as { detailId?: string | null }).detailId ?? null;
+
+  const goToLastActivity = () => {
+    if (!lastActivityDetailId) return;
+    navigation.navigate(
+      "ActivitiesStack" as never,
+      { screen: "ActivityDetail", params: { id: lastActivityDetailId } } as never,
+    );
+  };
 
   // Dark Pro layout – intervals.icu style
   if (isDarkPro) {
@@ -378,7 +388,11 @@ export const HomeScreen: FC = () => {
           </View>
 
           {/* LAST ACTIVITY */}
-          <View style={styles.widgetCard}>
+          <TouchableOpacity
+            style={styles.widgetCard}
+            activeOpacity={lastActivityDetailId ? 0.9 : 1}
+            onPress={lastActivityDetailId ? goToLastActivity : undefined}
+          >
             <Text style={styles.widgetHeader}>Last Activity</Text>
             <View style={styles.lastActivityHeader}>
               <Text style={styles.lastActivityType}>{lastActivity.type}</Text>
@@ -446,11 +460,12 @@ export const HomeScreen: FC = () => {
             </View>
             <TouchableOpacity
               activeOpacity={0.8}
-              onPress={() => navigation.navigate("ActivitiesStack" as never)}
+              onPress={lastActivityDetailId ? goToLastActivity : undefined}
+              disabled={!lastActivityDetailId}
             >
               <Text style={styles.widgetLink}>View activity ›</Text>
             </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
 
           {/* RECOVERY */}
           <View style={styles.widgetCard}>
@@ -778,45 +793,50 @@ export const HomeScreen: FC = () => {
       {/* Last Activity – matches web */}
       <GlassCard>
         <Text style={[styles.sectionHeader, typography.sectionHeader]}>Last Activity</Text>
-        <View style={styles.lastActivityHeader}>
-          <Text style={styles.lastActivityType}>{lastActivity.type}</Text>
-          <Text style={styles.metaText}>{lastActivity.date}</Text>
-        </View>
-        <View style={styles.metricsGrid}>
-          <View style={styles.metricCell}>
-            <Text style={styles.metricLabel}>Distance</Text>
-            <Text style={[styles.metricValue, typography.mono]}>{lastActivity.distance}</Text>
+        <TouchableOpacity
+          activeOpacity={lastActivityDetailId ? 0.9 : 1}
+          onPress={lastActivityDetailId ? goToLastActivity : undefined}
+        >
+          <View style={styles.lastActivityHeader}>
+            <Text style={styles.lastActivityType}>{lastActivity.type}</Text>
+            <Text style={styles.metaText}>{lastActivity.date}</Text>
           </View>
-          <View style={styles.metricCell}>
-            <Text style={styles.metricLabel}>Avg Pace</Text>
-            <Text style={[styles.metricValue, typography.mono]}>{lastActivity.avgPace}</Text>
+          <View style={styles.metricsGrid}>
+            <View style={styles.metricCell}>
+              <Text style={styles.metricLabel}>Distance</Text>
+              <Text style={[styles.metricValue, typography.mono]}>{lastActivity.distance}</Text>
+            </View>
+            <View style={styles.metricCell}>
+              <Text style={styles.metricLabel}>Avg Pace</Text>
+              <Text style={[styles.metricValue, typography.mono]}>{lastActivity.avgPace}</Text>
+            </View>
+            <View style={styles.metricCell}>
+              <Text style={styles.metricLabel}>Avg HR</Text>
+              <Text style={[styles.metricValue, typography.mono]}>{lastActivity.avgHr} bpm</Text>
+            </View>
+            <View style={styles.metricCell}>
+              <Text style={styles.metricLabel}>Duration</Text>
+              <Text style={[styles.metricValue, typography.mono]}>{lastActivity.duration}</Text>
+            </View>
           </View>
-          <View style={styles.metricCell}>
-            <Text style={styles.metricLabel}>Avg HR</Text>
-            <Text style={[styles.metricValue, typography.mono]}>{lastActivity.avgHr} bpm</Text>
+          <View style={styles.hrZonesBlock}>
+            <Text style={styles.sparklineLabel}>HR Zones</Text>
+            <View style={styles.hrZonesBar}>
+              <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z1}%`, backgroundColor: theme.textMuted }]} />
+              <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z2}%`, backgroundColor: theme.accentBlue }]} />
+              <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z3}%`, backgroundColor: theme.accentGreen }]} />
+              <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z4}%`, backgroundColor: theme.accentOrange }]} />
+              <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z5}%`, backgroundColor: theme.accentRed }]} />
+            </View>
+            <View style={styles.hrZonesLabels}>
+              <Text style={styles.hrZoneLabel}>Z1</Text>
+              <Text style={styles.hrZoneLabel}>Z2</Text>
+              <Text style={styles.hrZoneLabel}>Z3</Text>
+              <Text style={styles.hrZoneLabel}>Z4</Text>
+              <Text style={styles.hrZoneLabel}>Z5</Text>
+            </View>
           </View>
-          <View style={styles.metricCell}>
-            <Text style={styles.metricLabel}>Duration</Text>
-            <Text style={[styles.metricValue, typography.mono]}>{lastActivity.duration}</Text>
-          </View>
-        </View>
-        <View style={styles.hrZonesBlock}>
-          <Text style={styles.sparklineLabel}>HR Zones</Text>
-          <View style={styles.hrZonesBar}>
-            <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z1}%`, backgroundColor: theme.textMuted }]} />
-            <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z2}%`, backgroundColor: theme.accentBlue }]} />
-            <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z3}%`, backgroundColor: theme.accentGreen }]} />
-            <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z4}%`, backgroundColor: theme.accentOrange }]} />
-            <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z5}%`, backgroundColor: theme.accentRed }]} />
-          </View>
-          <View style={styles.hrZonesLabels}>
-            <Text style={styles.hrZoneLabel}>Z1</Text>
-            <Text style={styles.hrZoneLabel}>Z2</Text>
-            <Text style={styles.hrZoneLabel}>Z3</Text>
-            <Text style={styles.hrZoneLabel}>Z4</Text>
-            <Text style={styles.hrZoneLabel}>Z5</Text>
-          </View>
-        </View>
+        </TouchableOpacity>
       </GlassCard>
 
       {/* Recovery – matches web */}

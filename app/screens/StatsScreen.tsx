@@ -12,6 +12,8 @@ import { PaceProgressionChartMobile } from "../components/charts/PaceProgression
 import { HREfficiencyChartMobile } from "../components/charts/HREfficiencyChartMobile";
 import { PersonalRecordsListMobile } from "../components/PersonalRecordsListMobile";
 import { useStatsData } from "../hooks/useStatsData";
+import { StepsTrendChartMobile } from "../components/charts/StepsTrendChartMobile";
+import { WeightTrendChartMobile } from "../components/charts/WeightTrendChartMobile";
 
 type StatsTab = "runs" | "wellness";
 
@@ -33,6 +35,9 @@ export const StatsScreen: FC = () => {
     vo2maxSeries,
     rampRateSeries,
     sleepRestingSeries,
+    sleepScoreSeries,
+    stepsSeries,
+    weightSeries,
     fitnessSummary,
   } = useStatsData();
   const [tab, setTab] = useState<StatsTab>(() =>
@@ -200,6 +205,7 @@ export const StatsScreen: FC = () => {
 
         {tab === "wellness" && (
           <View style={styles.section}>
+            <Text style={[styles.sectionHeader, { color: theme.textMuted }]}>Wellness scores</Text>
             <StatsChartCard
               icon="pulse-outline"
               title="Readiness Score"
@@ -215,17 +221,19 @@ export const StatsScreen: FC = () => {
             </StatsChartCard>
             <StatsChartCard
               icon="moon-outline"
-              title="Sleep & Resting HR"
-              description="Sleep duration and resting heart rate together. More sleep and lower resting HR generally mean better recovery."
+              title="Sleep Score"
+              description="0–100 sleep quality score from your imported wellness data. Higher scores usually mean better recovery."
             >
-              {sleepRestingSeries.length ? (
-                <SleepRestingTrendChartMobile data={sleepRestingSeries} />
+              {sleepScoreSeries.length ? (
+                <ReadinessTrendChartMobile data={sleepScoreSeries} />
               ) : (
                 <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No sleep or resting HR data yet. Import Garmin wellness.
+                  No sleep score data yet. Import Garmin wellness / intervals.
                 </Text>
               )}
             </StatsChartCard>
+
+            <Text style={[styles.sectionHeader, { color: theme.textMuted }]}>HR & recovery</Text>
             <StatsChartCard
               icon="bar-chart-outline"
               title="HRV Trend"
@@ -243,6 +251,19 @@ export const StatsScreen: FC = () => {
               ) : (
                 <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
                   No HRV data yet. Import Garmin wellness / intervals.
+                </Text>
+              )}
+            </StatsChartCard>
+            <StatsChartCard
+              icon="moon-outline"
+              title="Sleep & Resting HR"
+              description="Sleep duration and resting heart rate together. More sleep and lower resting HR generally mean better recovery."
+            >
+              {sleepRestingSeries.length ? (
+                <SleepRestingTrendChartMobile data={sleepRestingSeries} />
+              ) : (
+                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                  No sleep or resting HR data yet. Import Garmin wellness.
                 </Text>
               )}
             </StatsChartCard>
@@ -283,6 +304,32 @@ export const StatsScreen: FC = () => {
               ) : (
                 <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
                   No ramp rate data yet. Connect intervals.icu fitness ramp rate.
+                </Text>
+              )}
+            </StatsChartCard>
+            <StatsChartCard
+              icon="footsteps-outline"
+              title="Steps"
+              description="Daily steps from your wearable. Useful as a simple movement and activity baseline."
+            >
+              {stepsSeries.length ? (
+                <StepsTrendChartMobile data={stepsSeries} />
+              ) : (
+                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                  No steps data yet. Import Garmin wellness / intervals.
+                </Text>
+              )}
+            </StatsChartCard>
+            <StatsChartCard
+              icon="scale-outline"
+              title="Weight"
+              description="Body weight trend over time from your connected services."
+            >
+              {weightSeries.length ? (
+                <WeightTrendChartMobile data={weightSeries} />
+              ) : (
+                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                  No weight data yet. Import Garmin wellness / intervals.
                 </Text>
               )}
             </StatsChartCard>
@@ -356,6 +403,12 @@ const styles = StyleSheet.create({
   },
   section: {
     gap: 16,
+  },
+  sectionHeader: {
+    fontSize: 13,
+    fontWeight: "600",
+    marginBottom: 4,
+    marginTop: 4,
   },
   loadingCard: {
     borderRadius: 16,

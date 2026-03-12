@@ -104,7 +104,17 @@ function downsample(arr: number[], target: number): number[] {
   return out;
 }
 
-const MAX_POINTS = 200;
+/** Safely extract a number[] from proxy data that may be wrapped in { data: [...] } */
+function toArray(s: unknown): number[] {
+  if (Array.isArray(s)) return s.map((x) => Number(x)).filter((n) => !isNaN(n));
+  if (s && typeof s === "object" && "data" in (s as Record<string, unknown>)) {
+    const d = (s as { data: unknown }).data;
+    if (Array.isArray(d)) return d.map((x) => Number(x)).filter((n) => !isNaN(n));
+  }
+  return [];
+}
+
+const MAX_POINTS = 300;
 
 export function useActivityDetailMobile(
   activityId: string | undefined,
@@ -136,7 +146,7 @@ export function useActivityDetailMobile(
         } = await supabase.auth.getSession();
         if (!session?.access_token) return null;
 
-        const [detailRes, streamsRes, dbRowRes] = await Promise.all([
+        const [detailRes, streamsRes, dbRowRes, dbStreamsRes] = await Promise.all([
           supabase.functions.invoke("intervals-proxy", {
             headers: { Authorization: `Bearer ${session.access_token}` },
             body: { action: "activity", activityId: extId },
@@ -152,6 +162,12 @@ export function useActivityDetailMobile(
             )
             .eq("user_id", user.id)
             .eq("external_id", extId)
+            .maybeSingle(),
+          supabase
+            .from("activity_streams")
+            .select("time, heartrate, cadence, altitude, pace, distance")
+            .eq("user_id", user.id)
+            .eq("activity_id", extId)
             .maybeSingle(),
         ]);
 
@@ -190,19 +206,67 @@ export function useActivityDetailMobile(
           avgPace = `${m}:${String(s).padStart(2, "0")}/km`;
         }
 
-        // Streams (from proxy)
+        // ── Streams: prefer DB (persisted by web), fallback to proxy ──
+        const dbS = dbStreamsRes.data as {
+          time?: number[]; heartrate?: number[]; cadence?: number[];
+          altitude?: number[]; pace?: number[]; distance?: number[];
+        } | null;
+        const dbTime = Array.isArray(dbS?.time) ? dbS.time : [];
+        const dbHr = Array.isArray(dbS?.heartrate) ? dbS.heartrate : [];
+        const dbAlt = Array.isArray(dbS?.altitude) ? dbS.altitude : [];
+        const dbPace = Array.isArray(dbS?.pace) ? dbS.pace : [];
+        const dbCad = Array.isArray(dbS?.cadence) ? dbS.cadence : [];
+        const hasDbStreams = dbTime.length > 20 && (dbHr.length > 0 || dbAlt.length > 0 || dbPace.length > 0);
+
         const sProxy = (streamsRes.data as Record<string, unknown> | null) ?? null;
+        const proxyTime = sProxy ? toArray(sProxy.time) : [];
+        const proxyHr = sProxy ? toArray(sProxy.heartrate) : [];
+        const proxyCad = sProxy ? toArray(sProxy.cadence) : [];
+        const proxyAlt = sProxy ? toArray(sProxy.altitude) : [];
+        const proxyVelocity = sProxy ? toArray(sProxy.velocity_smooth) : [];
+        let proxyPace = sProxy ? toArray(sProxy.pace) : [];
+        if (proxyPace.length === 0 && proxyVelocity.length > 0) {
+          proxyPace = proxyVelocity.map((v) => (v > 0.1 ? 1000 / v / 60 : 0));
+        }
+
+        const timeArr = hasDbStreams ? dbTime : proxyTime;
+        const hrArr = hasDbStreams ? dbHr : proxyHr;
+        const cadArr = hasDbStreams ? dbCad : proxyCad;
+        const altArr = hasDbStreams ? dbAlt : proxyAlt;
+        const paceArr = hasDbStreams ? dbPace : proxyPace;
+        const hasAnyStreams = timeArr.length > 20 && (hrArr.length > 0 || altArr.length > 0 || paceArr.length > 0);
+
         let streams: ActivityStreams | undefined;
-        if (sProxy) {
-          const time = downsample(sProxy.time as number[] | undefined ?? [], MAX_POINTS);
-          const hr = downsample(sProxy.heartrate as number[] | undefined ?? [], MAX_POINTS);
-          const cad = downsample(sProxy.cadence as number[] | undefined ?? [], MAX_POINTS);
-          const alt = downsample(sProxy.altitude as number[] | undefined ?? [], MAX_POINTS);
-          const pace = downsample(sProxy.pace as number[] | undefined ?? [], MAX_POINTS);
-          const hasAny = time.length > 20 && (hr.length || alt.length || pace.length);
-          if (hasAny) {
-            streams = { time, heartrate: hr, cadence: cad, altitude: alt, pace };
-          }
+        if (hasAnyStreams) {
+          streams = {
+            time: downsample(timeArr, MAX_POINTS),
+            heartrate: downsample(hrArr, MAX_POINTS),
+            cadence: downsample(cadArr, MAX_POINTS),
+            altitude: downsample(altArr, MAX_POINTS),
+            pace: downsample(paceArr, MAX_POINTS),
+          };
+        }
+
+        // Persist proxy streams to DB so they're available next time
+        const hasLiveStreams = !hasDbStreams && proxyTime.length > 20 &&
+          (proxyHr.length > 0 || proxyPace.length > 0 || proxyAlt.length > 0);
+        if (hasLiveStreams) {
+          supabase
+            .from("activity_streams")
+            .upsert(
+              {
+                user_id: user.id,
+                activity_id: extId,
+                time: proxyTime.length ? proxyTime.map(Math.round) : null,
+                heartrate: proxyHr.length ? proxyHr : null,
+                cadence: proxyCad.length ? proxyCad : null,
+                altitude: proxyAlt.length ? proxyAlt : null,
+                pace: proxyPace.length ? proxyPace : null,
+              },
+              { onConflict: "user_id,activity_id" },
+            )
+            .then(() => {})
+            .catch(() => {});
         }
 
         // latlng – helst från DB
@@ -312,12 +376,20 @@ export function useActivityDetailMobile(
           userNotes: (dbAct?.user_notes as string | null) ?? null,
           nomioDrink: !!(dbAct?.nomio_drink as boolean | null),
           lactateLevels: (dbAct?.lactate_levels as string | null) ?? null,
-          hrZoneTimes: Array.isArray(dbAct?.hr_zone_times)
-            ? (dbAct?.hr_zone_times as number[]).map(Number)
-            : null,
-          paceZoneTimes: Array.isArray(dbAct?.pace_zone_times)
-            ? (dbAct?.pace_zone_times as number[]).map(Number)
-            : null,
+          hrZoneTimes: (() => {
+            const raw =
+              (a as { icu_hr_zone_times?: unknown })?.icu_hr_zone_times ??
+              dbAct?.hr_zone_times;
+            if (Array.isArray(raw)) return (raw as unknown[]).map((x) => Number(x));
+            return null;
+          })(),
+          paceZoneTimes: (() => {
+            const raw =
+              (a as { icu_pace_zone_times?: unknown })?.icu_pace_zone_times ??
+              dbAct?.pace_zone_times;
+            if (Array.isArray(raw)) return (raw as unknown[]).map((x) => Number(x));
+            return null;
+          })(),
           coachNote: (dbAct?.coach_note as string | null) ?? null,
         };
       }

@@ -31,6 +31,15 @@ import { ChatStatChartsMobile } from "../components/ChatStatChartsMobile";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
+type StoredMsg = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  message_type: string;
+  activity_id: string | null;
+  created_at: string;
+};
+
 const DEFAULT_QUICK_PROMPTS = [
   "I'd like to describe my history and get a plan",
   "I'll import my Garmin data first",
@@ -290,12 +299,29 @@ async function streamChatNative({
   onDone();
 }
 
+async function extractMemories(msgs: Msg[]) {
+  const userMsgCount = msgs.filter((m) => m.role === "user").length;
+  if (userMsgCount < 3) return;
+  try {
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
+    await supabase.functions.invoke("coach-chat", {
+      body: { action: "extract_memories", messages: msgs },
+    });
+  } catch {
+    // best-effort
+  }
+}
+
 export const CoachScreen: FC = () => {
   const { colors, theme } = useTheme();
   const navigation = useNavigation<BottomTabNavigationProp<AppTabsParamList, "Coach">>();
   const route = useRoute<RouteProp<AppTabsParamList, "Coach">>();
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
+  const messagesRef = useRef<Msg[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [rateLimitUntil, setRateLimitUntil] = useState<number>(0);
   const [generatingPlan, setGeneratingPlan] = useState(false);
@@ -307,6 +333,10 @@ export const CoachScreen: FC = () => {
   const { plan: planData } = useTrainingPlan();
   const queryClient = useQueryClient();
   const [applyingPlan, setApplyingPlan] = useState(false);
+  const [openingMessage, setOpeningMessage] = useState<string | null>(null);
+  const [openingLoading, setOpeningLoading] = useState(false);
+
+  messagesRef.current = messages;
 
   const { data: activitiesData } = useQuery({
     queryKey: ["activities", 730],
@@ -359,6 +389,29 @@ export const CoachScreen: FC = () => {
           activities: Array.isArray(activitiesData) ? activitiesData : undefined,
         }
       : null;
+
+  const { data: chatHistory = [] } = useQuery({
+    queryKey: ["coach_history"],
+    queryFn: async () => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from("coach_message")
+        .select("id, role, content, message_type, activity_id, created_at")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) return [];
+      return (data ?? []) as StoredMsg[];
+    },
+  });
+
+  const analyses = useMemo(
+    () => chatHistory.filter((m) => m.message_type === "post_workout_analysis"),
+    [chatHistory],
+  );
 
   const contextAwareOpener = useMemo(() => {
     const acts = Array.isArray(activities) ? activities : [];
@@ -428,6 +481,57 @@ export const CoachScreen: FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (messages.length > 0) return;
+    let cancelled = false;
+
+    const loadOpening = async () => {
+      const OPENING_COOLDOWN_MS = 30 * 60 * 1000;
+      const cacheKey = "kipcoachee_opening";
+      try {
+        const raw = await AsyncStorage.getItem(cacheKey);
+        if (cancelled) return;
+        if (raw) {
+          const cached = JSON.parse(raw) as { msg: string; ts: number };
+          if (cached.msg && Date.now() - cached.ts < OPENING_COOLDOWN_MS) {
+            setOpeningMessage(cached.msg);
+            return;
+          }
+        }
+      } catch {
+        // ignore cache errors
+      }
+
+      setOpeningLoading(true);
+      try {
+        await supabase.auth.refreshSession();
+        const { data, error } = await supabase.functions.invoke("coach-opening", {
+          body: {
+            intervalsContext,
+          },
+        });
+        if (!cancelled && !error && (data as any)?.message) {
+          const msg = (data as any).message as string;
+          setOpeningMessage(msg);
+          try {
+            await AsyncStorage.setItem(cacheKey, JSON.stringify({ msg, ts: Date.now() }));
+          } catch {
+            // ignore cache write errors
+          }
+        }
+      } catch {
+        // ignore — fall back to contextAwareOpener/WELCOME
+      } finally {
+        if (!cancelled) setOpeningLoading(false);
+      }
+    };
+
+    loadOpening();
+    return () => {
+      cancelled = true;
+    };
+  }, [messages.length, intervalsContext]);
+
   const rateLimitSecs = Math.max(0, Math.ceil((rateLimitUntil - Date.now()) / 1000));
   const [, setTick] = useState(0);
 
@@ -441,6 +545,12 @@ export const CoachScreen: FC = () => {
     if (!scrollRef.current) return;
     scrollRef.current.scrollToEnd({ animated: true });
   }, [messages.length]);
+
+  useEffect(() => {
+    return () => {
+      extractMemories(messagesRef.current);
+    };
+  }, []);
 
   const showGeneratePlan = messages.some(
     (m) => m.role === "assistant" && assistantSaysHasAllData(m.content),
@@ -511,7 +621,9 @@ export const CoachScreen: FC = () => {
   );
 
   const handleStartFresh = () => {
+    extractMemories(messages);
     setMessages([]);
+    AsyncStorage.removeItem("kipcoachee_opening").catch(() => {});
     Alert.alert("Done", "Started a fresh conversation.");
   };
 
@@ -1001,8 +1113,48 @@ export const CoachScreen: FC = () => {
                   <Text style={styles.avatarText}>K</Text>
                 </View>
                 <GlassCard>
-                  <Text style={styles.welcomeText}>{contextAwareOpener || WELCOME}</Text>
+                  <Text style={styles.welcomeText}>
+                    {openingLoading
+                      ? "Kipcoachee is reading your data…"
+                      : openingMessage || contextAwareOpener || WELCOME}
+                  </Text>
                 </GlassCard>
+              </View>
+            )}
+
+            {messages.length === 0 && analyses.length > 0 && (
+              <View style={{ marginTop: 8, gap: 6 }}>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: colors.mutedForeground,
+                    marginLeft: 36,
+                    marginBottom: 2,
+                  }}
+                >
+                  Recent analyses
+                </Text>
+                {analyses.slice(0, 5).map((a) => (
+                  <View key={a.id} style={styles.row}>
+                    <View style={styles.avatar}>
+                      <Text style={styles.avatarText}>K</Text>
+                    </View>
+                    <GlassCard>
+                      <View style={{ padding: 10 }}>
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            color: colors.mutedForeground,
+                            marginBottom: 4,
+                          }}
+                        >
+                          {format(new Date(a.created_at), "MMM d, HH:mm")}
+                        </Text>
+                        {renderMarkdownLike(a.content, colors.foreground)}
+                      </View>
+                    </GlassCard>
+                  </View>
+                ))}
               </View>
             )}
 

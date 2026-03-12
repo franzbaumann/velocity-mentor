@@ -26,6 +26,7 @@ import { HRAnalysisCharts } from "../components/activity/HRAnalysisCharts";
 import { HeartRateZones } from "../components/activity/HeartRateZones";
 import { formatDistance, formatDuration } from "../lib/format";
 import { isNonDistanceActivity } from "../lib/analytics";
+import type { TooltipLine } from "../components/activity/StreamChart";
 import { supabase } from "../shared/supabase";
 import Svg, { Path, Rect } from "react-native-svg";
 
@@ -33,29 +34,104 @@ type ActivityDetailRoute = RouteProp<ActivitiesStackParamList, "ActivityDetail">
 
 type ActivityTab = "charts" | "data" | "notes";
 
-function formatPace(secPerKm: number): string {
-  const m = Math.floor(secPerKm / 60);
-  const s = Math.round(secPerKm % 60);
-  return `${m}:${String(s).padStart(2, "0")}`;
+// ── Pace format: min/km decimal (5.5 = 5:30/km) — matches web exactly ──
+
+function formatPace(val: number): string {
+  if (!Number.isFinite(val) || val <= 0 || val > 20) return "--";
+  return `${Math.floor(val)}:${String(Math.round((val % 1) * 60)).padStart(2, "0")}`;
 }
 
 function paceYLabels(data: number[]): string[] {
-  if (data.length === 0) return [];
-  const min = Math.min(...data.filter(Boolean));
-  const max = Math.max(...data.filter(Boolean));
+  const vals = data.filter((v) => Number.isFinite(v) && v > 0);
+  if (vals.length === 0) return [];
+  const min = Math.min(...vals);
+  const max = Math.max(...vals);
   const mid = (min + max) / 2;
   return [formatPace(min), formatPace(mid), formatPace(max)];
 }
 
 function numYLabels(data: number[], unit?: string): string[] {
-  if (data.length === 0) return [];
-  const valid = data.filter(Boolean);
+  const valid = data.filter((v) => Number.isFinite(v) && v > 0);
   if (valid.length === 0) return [];
   const max = Math.max(...valid);
   const min = Math.min(...valid);
   const mid = Math.round((max + min) / 2);
   const u = unit ?? "";
   return [`${Math.round(max)}${u}`, `${mid}${u}`, `${Math.round(min)}${u}`];
+}
+
+// ── Rolling average — matches web rollingAvg() ──
+
+function rollingAvg(arr: number[], windowSize: number): number[] {
+  if (windowSize <= 1 || arr.length === 0) return arr;
+  const half = Math.floor(windowSize / 2);
+  return arr.map((_, i) => {
+    let sum = 0;
+    let count = 0;
+    for (let j = Math.max(0, i - half); j <= Math.min(arr.length - 1, i + half); j++) {
+      sum += arr[j];
+      count++;
+    }
+    return sum / count;
+  });
+}
+
+// ── Clamp outlier pace values — matches web smoothPace() ──
+
+function fmtElapsed(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return "0:00";
+  const total = Math.round(sec);
+  if (total >= 3600) {
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  }
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+function smoothPace(raw: number[], minPace = 2.0, maxPace = 12.0): number[] {
+  const out = [...raw];
+  for (let i = 0; i < out.length; i++) {
+    if (out[i] < minPace || out[i] > maxPace || out[i] === 0 || !Number.isFinite(out[i])) {
+      let left = 0;
+      let right = 0;
+      for (let j = i - 1; j >= 0; j--) {
+        if (out[j] >= minPace && out[j] <= maxPace) { left = raw[j]; break; }
+      }
+      for (let j = i + 1; j < out.length; j++) {
+        if (raw[j] >= minPace && raw[j] <= maxPace) { right = raw[j]; break; }
+      }
+      out[i] = left && right ? (left + right) / 2 : left || right || 6;
+    }
+  }
+  return out;
+}
+
+// ── Build processed chart arrays from streams — mirrors web buildChartData() ──
+
+type ProcessedStreams = {
+  pace: number[];
+  hr: number[];
+  cadence: number[];
+  altitude: number[];
+};
+
+function buildProcessedStreams(streams: {
+  pace: number[];
+  heartrate: number[];
+  cadence: number[];
+  altitude: number[];
+}): ProcessedStreams {
+  const cleanPace = smoothPace(streams.pace);
+  return {
+    pace: rollingAvg(cleanPace, 15),
+    hr: rollingAvg(streams.heartrate.map(Number), 10),
+    cadence: rollingAvg(streams.cadence.map(Number), 10),
+    altitude: streams.altitude.map(Number),
+  };
 }
 
 export const ActivityDetailScreen: FC = () => {
@@ -71,6 +147,16 @@ export const ActivityDetailScreen: FC = () => {
 
   const streams = activity?.streams;
   const latlng = activity?.latlng ?? [];
+
+  const processed = useMemo(() => {
+    if (!streams) return null;
+    const hasAny =
+      streams.heartrate.length > 2 ||
+      streams.altitude.length > 2 ||
+      streams.pace.length > 2;
+    if (!hasAny) return null;
+    return buildProcessedStreams(streams);
+  }, [streams]);
 
   const [tab, setTab] = useState<ActivityTab>("charts");
   const [notes, setNotes] = useState("");
@@ -411,57 +497,85 @@ export const ActivityDetailScreen: FC = () => {
           {tab === "charts" && (
             <>
               <LapScroll laps={activity.laps} />
-              {streams && (
+              {streams && processed && (
                 <View style={styles.chartsArea}>
-                  {streams.pace.length > 2 && (
+                  {processed.pace.some((v) => v > 0) && (
                     <StreamChart
                       label="PACE"
                       labelColor="#3b82f6"
-                      yLabels={paceYLabels(streams.pace)}
-                      height={110}
-                      data={streams.pace}
+                      yLabels={paceYLabels(processed.pace)}
+                      height={140}
+                      data={processed.pace}
                       strokeColor="#3b82f6"
                       gradientColors={["#93c5fd", "#bfdbfe"]}
                       reversed
                       gradientId="paceGrad"
+                      formatTooltip={(idx: number): TooltipLine[] => {
+                        const d = activity.distance_km * (idx / Math.max(1, processed.pace.length - 1));
+                        return [
+                          { label: "Distance", value: `${d.toFixed(1)} km` },
+                          { label: "Pace", value: `${formatPace(processed.pace[idx])} /km` },
+                        ];
+                      }}
                     />
                   )}
 
-                  {streams.heartrate.length > 2 && (
+                  {processed.hr.some((v) => v > 0) && (
                     <StreamChart
                       label="HEART RATE"
                       labelColor="#c0392b"
-                      yLabels={numYLabels(streams.heartrate)}
-                      height={110}
-                      data={streams.heartrate}
-                      strokeColor="#8b1a1a"
+                      yLabels={numYLabels(processed.hr)}
+                      height={120}
+                      data={processed.hr}
+                      strokeColor="#c0392b"
+                      formatTooltip={(idx: number): TooltipLine[] => {
+                        const t = streams!.time[idx] ?? 0;
+                        return [
+                          { label: "Time", value: fmtElapsed(t) },
+                          { label: "HR", value: `${Math.round(processed.hr[idx])} bpm` },
+                        ];
+                      }}
                     />
                   )}
 
-                  {streams.cadence.length > 2 && (
+                  {processed.cadence.some((v) => v > 0) && (
                     <StreamChart
                       label="CADENCE"
                       labelColor="#7c3aed"
-                      yLabels={numYLabels(streams.cadence)}
+                      yLabels={numYLabels(processed.cadence)}
                       height={100}
-                      data={streams.cadence}
+                      data={processed.cadence}
                       strokeColor="#7c3aed"
                       gradientColors={["#a78bfa", "#ddd6fe"]}
                       gradientId="cadGrad"
+                      formatTooltip={(idx: number): TooltipLine[] => {
+                        const t = streams!.time[idx] ?? 0;
+                        return [
+                          { label: "Time", value: fmtElapsed(t) },
+                          { label: "Cadence", value: `${Math.round(processed.cadence[idx])} spm` },
+                        ];
+                      }}
                     />
                   )}
 
-                  {streams.altitude.length > 2 && (
+                  {processed.altitude.some((v) => v > 0) && (
                     <StreamChart
                       label="ALTITUDE"
                       labelColor="#16a34a"
-                      yLabels={numYLabels(streams.altitude, "m")}
-                      height={70}
-                      data={streams.altitude}
+                      yLabels={numYLabels(processed.altitude, "m")}
+                      height={90}
+                      data={processed.altitude}
                       strokeColor="#16a34a"
                       gradientColors={["#86efac", "#dcfce7"]}
                       gradientId="altGrad"
                       lastInSequence
+                      formatTooltip={(idx: number): TooltipLine[] => {
+                        const d = activity.distance_km * (idx / Math.max(1, processed.altitude.length - 1));
+                        return [
+                          { label: "Distance", value: `${d.toFixed(1)} km` },
+                          { label: "Altitude", value: `${Math.round(processed.altitude[idx])} m` },
+                        ];
+                      }}
                     />
                   )}
 
@@ -474,7 +588,7 @@ export const ActivityDetailScreen: FC = () => {
                   </View>
                 </View>
               )}
-              {!streams && (
+              {(!streams || !processed) && (
                 <View style={styles.noStreams}>
                   <Text style={styles.noStreamsText}>
                     No stream data. Sync from intervals.icu to see charts.

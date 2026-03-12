@@ -33,6 +33,9 @@ type ReadinessScorePoint = { date: string; score: number };
 type VO2maxPoint = { date: string; vo2max: number };
 type RampRatePoint = { date: string; rampRate: number };
 type SleepRestingPoint = { date: string; sleep: number | null; restingHr: number | null };
+type SleepScorePoint = { date: string; score: number };
+type StepsPoint = { date: string; steps: number };
+type WeightPoint = { date: string; weight: number };
 
 function resolveCtlAtlTsb(r: {
   ctl?: number | null;
@@ -278,6 +281,39 @@ function buildSleepRestingSeries(readiness: ReadinessRow[]): SleepRestingPoint[]
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+function buildSleepScoreSeries(readiness: ReadinessRow[]): SleepScorePoint[] {
+  return readiness
+    .filter((r) => r.sleep_score != null && r.date >= oldest2m && r.date <= fmt(now))
+    .map<SleepScorePoint>((r) => ({
+      date: r.date,
+      score: r.sleep_score ?? 0,
+    }))
+    .slice(-120)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function buildStepsSeries(readiness: ReadinessRow[]): StepsPoint[] {
+  return readiness
+    .filter((r) => (r.steps ?? 0) > 0 && r.date >= oldest2m && r.date <= fmt(now))
+    .map<StepsPoint>((r) => ({
+      date: r.date,
+      steps: r.steps ?? 0,
+    }))
+    .slice(-120)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
+function buildWeightSeries(readiness: ReadinessRow[]): WeightPoint[] {
+  return readiness
+    .filter((r) => r.weight != null && r.date >= oldest2m && r.date <= fmt(now))
+    .map<WeightPoint>((r) => ({
+      date: r.date,
+      weight: r.weight ?? 0,
+    }))
+    .slice(-120)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export function useStatsData() {
   const { activities, readinessRows, isLoading, athleteProfile } = useDashboardData();
 
@@ -317,6 +353,18 @@ export function useStatsData() {
   const rampRateSeries = useMemo(() => buildRampRateSeries(readinessRows), [readinessRows]);
   const sleepRestingSeries = useMemo(
     () => buildSleepRestingSeries(readinessRows),
+    [readinessRows],
+  );
+  const sleepScoreSeries = useMemo(
+    () => buildSleepScoreSeries(readinessRows),
+    [readinessRows],
+  );
+  const stepsSeries = useMemo(
+    () => buildStepsSeries(readinessRows),
+    [readinessRows],
+  );
+  const weightSeries = useMemo(
+    () => buildWeightSeries(readinessRows),
     [readinessRows],
   );
 
@@ -378,6 +426,9 @@ export function useStatsData() {
     vo2maxSeries,
     rampRateSeries,
     sleepRestingSeries,
+    sleepScoreSeries,
+    stepsSeries,
+    weightSeries,
     fitnessSummary,
   };
 }

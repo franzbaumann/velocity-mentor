@@ -29,6 +29,10 @@ export function buildAreaPath(points: XY[], viewH: number): string {
   return `${line} L ${last.x},${viewH} L ${first.x},${viewH} Z`;
 }
 
+/**
+ * Map values into viewBox coordinates with vertical padding
+ * so lines are never clipped at the very top/bottom edge.
+ */
 export function normalizeToViewBox(
   values: number[],
   viewW: number,
@@ -36,13 +40,21 @@ export function normalizeToViewBox(
   opts?: { reversed?: boolean; domainMin?: number; domainMax?: number },
 ): XY[] {
   if (values.length === 0) return [];
-  const min = opts?.domainMin ?? Math.min(...values);
-  const max = opts?.domainMax ?? Math.max(...values);
-  const range = max - min || 1;
+  const valid = values.filter((v) => Number.isFinite(v));
+  if (valid.length === 0) return [];
+
+  const rawMin = opts?.domainMin ?? Math.min(...valid);
+  const rawMax = opts?.domainMax ?? Math.max(...valid);
+  const range = rawMax - rawMin || 1;
+
+  const pad = viewH * 0.06;
+  const usableH = viewH - pad * 2;
   const step = viewW / (values.length - 1 || 1);
+
   return values.map((v, i) => {
-    let y = viewH - ((v - min) / range) * viewH;
-    if (opts?.reversed) y = viewH - y;
+    const clamped = Number.isFinite(v) ? v : rawMin;
+    let y = pad + usableH - ((clamped - rawMin) / range) * usableH;
+    if (opts?.reversed) y = pad + usableH - (y - pad);
     return { x: i * step, y: Math.max(0, Math.min(viewH, y)) };
   });
 }

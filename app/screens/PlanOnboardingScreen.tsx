@@ -290,7 +290,11 @@ export const PlanOnboardingScreen: FC = () => {
         return;
       }
 
-      navigation.replace("PlanMain");
+      if (planData?.plan_id) {
+        navigation.replace("PlanReady");
+      } else {
+        navigation.replace("PlanMain");
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : "Failed to reach plan builder";
       console.warn("[PlanOnboarding] submit error", e);

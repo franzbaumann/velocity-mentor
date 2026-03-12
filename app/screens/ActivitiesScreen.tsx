@@ -528,7 +528,11 @@ export const ActivitiesScreen: FC = () => {
                       </View>
                       <View style={styles.dayModalRight}>
                         <Text style={styles.dayModalDistance}>
-                          {a.nonDist ? a.duration : `${a.km.toFixed(1)} km`}
+                          {a.nonDist
+                            ? a.duration
+                            : a.km != null
+                              ? `${a.km.toFixed(1)} km`
+                              : ""}
                         </Text>
                         <Text style={styles.dayModalType}>{a.type}</Text>
                       </View>
