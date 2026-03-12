@@ -7,6 +7,9 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+const EXTRACTION_PROMPT =
+  'Extract the following markers from this sports lab test report and return ONLY valid JSON, no other text: { "vo2max": number|null, "lactate_threshold_hr": number|null, "lactate_threshold_pace": string|null, "vlamax": number|null, "anaerobic_threshold_hr": number|null, "max_hr_measured": number|null, "test_date": string|null, "lab_name": string|null }';
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -15,10 +18,11 @@ serve(async (req) => {
   try {
     const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
     const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 
-    if (!GEMINI_API_KEY) {
-      return new Response(JSON.stringify({ error: "GEMINI_API_KEY not configured" }), {
+    if (!ANTHROPIC_API_KEY && !GEMINI_API_KEY) {
+      return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY or GEMINI_API_KEY not configured" }), {
         status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
@@ -48,40 +52,72 @@ serve(async (req) => {
       });
     }
 
-    const geminiRes = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-      {
+    let rawText = "";
+
+    // Priority: Claude (primary) → Gemini (fallback)
+    if (ANTHROPIC_API_KEY) {
+      const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "x-api-key": ANTHROPIC_API_KEY,
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify({
-          contents: [{
-            parts: [
+          model: "claude-sonnet-4-5",
+          max_tokens: 1000,
+          messages: [{
+            role: "user",
+            content: [
               {
-                inlineData: {
-                  mimeType: "application/pdf",
-                  data: pdf,
-                },
+                type: "document",
+                source: { type: "base64", media_type: "application/pdf", data: pdf },
               },
-              {
-                text: 'Extract the following markers from this sports lab test report and return ONLY valid JSON, no other text: { "vo2max": number|null, "lactate_threshold_hr": number|null, "lactate_threshold_pace": string|null, "vlamax": number|null, "anaerobic_threshold_hr": number|null, "max_hr_measured": number|null, "test_date": string|null, "lab_name": string|null }',
-              },
+              { type: "text", text: EXTRACTION_PROMPT },
             ],
           }],
-          generationConfig: { temperature: 0.1, maxOutputTokens: 1000 },
         }),
-      },
-    );
+      });
 
-    if (!geminiRes.ok) {
-      const errText = await geminiRes.text();
-      console.error("Gemini error:", geminiRes.status, errText);
+      if (claudeRes.ok) {
+        const data = await claudeRes.json();
+        rawText = data?.content?.[0]?.text?.trim() ?? "";
+      } else {
+        console.error("Claude error:", claudeRes.status, await claudeRes.text());
+      }
+    }
+
+    if (!rawText && GEMINI_API_KEY) {
+      const geminiRes = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            contents: [{
+              parts: [
+                { inlineData: { mimeType: "application/pdf", data: pdf } },
+                { text: EXTRACTION_PROMPT },
+              ],
+            }],
+            generationConfig: { temperature: 0.1, maxOutputTokens: 1000 },
+          }),
+        },
+      );
+
+      if (geminiRes.ok) {
+        const data = await geminiRes.json();
+        rawText = data?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+      } else {
+        console.error("Gemini error:", geminiRes.status, await geminiRes.text());
+      }
+    }
+
+    if (!rawText) {
       return new Response(JSON.stringify({ error: "AI extraction failed" }), {
         status: 502, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const geminiData = await geminiRes.json();
-    const rawText = geminiData?.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
 
     const jsonMatch = rawText.match(/\{[\s\S]*\}/);
     if (!jsonMatch) {

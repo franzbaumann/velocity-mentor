@@ -41,7 +41,8 @@ export function useStravaConnection() {
   const fetchConnection = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
     if (!user) {
       setState({ connected: false, athleteName: null, athleteId: null, lastSyncAt: null, loading: false, error: null });
       return;
@@ -80,7 +81,8 @@ export function useStravaConnection() {
   const disconnectStrava = useCallback(async () => {
     setState((s) => ({ ...s, loading: true, error: null }));
 
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { session } } = await supabase.auth.getSession();
+    const user = session?.user ?? null;
     if (!user) return;
 
     const { error } = await supabase

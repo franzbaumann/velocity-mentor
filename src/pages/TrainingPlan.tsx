@@ -2,7 +2,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { useTrainingPlan } from "@/hooks/use-training-plan";
 import { supabase } from "@/integrations/supabase/client";
 import { FunctionsHttpError } from "@supabase/supabase-js";
-import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, GripVertical, Check, MessageCircle, Sparkles } from "lucide-react";
+import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, GripVertical, Check, MessageCircle, Sparkles, RefreshCw } from "lucide-react";
 import { UnifiedCalendar } from "@/components/UnifiedCalendar";
 import { useState, useMemo, useEffect } from "react";
 import { format, parseISO, startOfWeek, endOfWeek, isWithinInterval } from "date-fns";
@@ -10,6 +10,78 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+
+// ── Workout Steps ──────────────────────────────────────────────────────────────
+type WorkoutStep = {
+  phase: "warmup" | "main" | "cooldown" | "note";
+  label: string;
+  duration_min?: number | null;
+  distance_km?: number | null;
+  target_pace?: string | null;
+  target_hr_zone?: number | null;
+  notes?: string | null;
+  // main-phase only
+  reps?: number | null;
+  rep_distance_km?: number | null;
+  rest_label?: string | null;
+};
+
+function parseSteps(raw: unknown): WorkoutStep[] | null {
+  if (!raw) return null;
+  try {
+    const arr = Array.isArray(raw) ? raw : JSON.parse(String(raw));
+    if (Array.isArray(arr) && arr.length > 0) return arr as WorkoutStep[];
+  } catch { /* ignore */ }
+  return null;
+}
+
+const PHASE_STYLES: Record<string, { border: string; bg: string; badge: string; label: string }> = {
+  warmup:   { border: "border-l-emerald-500",       bg: "bg-emerald-500/5",     badge: "bg-emerald-500/15 text-emerald-400",    label: "Warm-up"  },
+  main:     { border: "border-l-primary",            bg: "bg-primary/5",         badge: "bg-primary/15 text-primary",            label: "Main Set" },
+  cooldown: { border: "border-l-muted-foreground/40", bg: "bg-muted/20",          badge: "bg-muted text-muted-foreground",         label: "Cool-down"},
+  note:     { border: "border-l-muted-foreground/20", bg: "bg-muted/10",          badge: "bg-muted text-muted-foreground",         label: "Note"    },
+};
+
+function WorkoutStepsDisplay({ steps }: { steps: WorkoutStep[] }) {
+  if (steps.length === 0) return null;
+  return (
+    <div className="space-y-2 mb-4">
+      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Session Breakdown</p>
+      {steps.map((step, i) => {
+        const style = PHASE_STYLES[step.phase] ?? PHASE_STYLES.note;
+        const isMain = step.phase === "main";
+        return (
+          <div key={i} className={`border-l-[3px] rounded-r-lg pl-3 pr-3 py-2.5 ${style.border} ${style.bg}`}>
+            <div className="flex items-start gap-2 flex-wrap">
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide shrink-0 ${style.badge}`}>
+                {style.label}
+              </span>
+              <span className="text-sm font-medium text-foreground leading-snug">{step.label}</span>
+            </div>
+            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-xs text-muted-foreground">
+              {isMain && step.reps != null && step.rep_distance_km != null && (
+                <span className="font-medium text-foreground/80">{step.reps} × {step.rep_distance_km} km</span>
+              )}
+              {step.target_pace && <span>{step.target_pace}</span>}
+              {step.target_hr_zone != null && <span>HR zone {step.target_hr_zone}</span>}
+              {step.duration_min != null && !isMain && <span>{step.duration_min} min</span>}
+              {step.distance_km != null && !isMain && <span>{step.distance_km} km</span>}
+            </div>
+            {isMain && step.rest_label && (
+              <div className="mt-1.5 flex items-center gap-1.5">
+                <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wide">Rest:</span>
+                <span className="text-xs text-muted-foreground">{step.rest_label}</span>
+              </div>
+            )}
+            {step.notes && (
+              <p className="text-xs text-muted-foreground/70 mt-1 italic">{step.notes}</p>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 /** Match app theme for session badges */
 const SESSION_COLORS: Record<string, string> = {
@@ -127,6 +199,7 @@ type SessionLike = {
   coach_note?: string | null;
   adjustment_notes?: string | null;
   supportsCoachNote?: boolean;
+  workout_steps?: unknown;
 };
 
 function SessionDetailModal({
@@ -145,7 +218,39 @@ function SessionDetailModal({
   const [coachNote, setCoachNote] = useState<string | null>(session.coach_note ?? null);
   const [coachNoteLoading, setCoachNoteLoading] = useState(false);
   const [coachNoteError, setCoachNoteError] = useState<string | null>(null);
+
+  const [steps, setSteps] = useState<WorkoutStep[] | null>(parseSteps(session.workout_steps));
+  const [stepsLoading, setStepsLoading] = useState(false);
+  const [stepsError, setStepsError] = useState<string | null>(null);
+
   const queryClient = useQueryClient();
+  const isRestDay = session.session_type?.toLowerCase() === "rest";
+
+  const fetchSteps = async (regenerate = false) => {
+    setStepsLoading(true);
+    setStepsError(null);
+    try {
+      const { data, error } = await supabase.functions.invoke("intervals-proxy", {
+        body: { action: "workout_steps", workoutId: session.id, regenerate },
+      });
+      if (error) throw error;
+      const res = data as { steps?: unknown[]; error?: string };
+      if (res?.error) { setStepsError(res.error); return; }
+      if (Array.isArray(res?.steps)) {
+        setSteps(res.steps as WorkoutStep[]);
+        queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+      }
+    } catch (e) {
+      let msg = (e as Error).message ?? "Failed to generate";
+      if (e instanceof FunctionsHttpError && e.context) {
+        const ctx = e.context as { error?: string };
+        if (ctx.error) msg = ctx.error;
+      }
+      setStepsError(msg);
+    } finally {
+      setStepsLoading(false);
+    }
+  };
 
   const fetchCoachNote = async (regenerate = false) => {
     setCoachNoteLoading(true);
@@ -181,6 +286,12 @@ function SessionDetailModal({
   useEffect(() => {
     setCoachNote(session.coach_note ?? null);
     setCoachNoteError(null);
+    setSteps(parseSteps(session.workout_steps));
+    setStepsError(null);
+
+    if (!isRestDay && !parseSteps(session.workout_steps)) {
+      fetchSteps();
+    }
     if (session.supportsCoachNote !== false && !session.coach_note) {
       fetchCoachNote();
     }
@@ -189,7 +300,8 @@ function SessionDetailModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="glass-card p-6 max-w-md w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+      <div className="glass-card p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
         <div className="flex items-center gap-2 mb-3">
           <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${SESSION_COLORS[session.session_type] ?? "bg-primary/10 text-primary"}`}>
             {session.session_type}
@@ -198,16 +310,56 @@ function SessionDetailModal({
             <span className="text-xs text-muted-foreground">{format(parseISO(session.scheduled_date), "EEEE, MMM d")}</span>
           )}
         </div>
-        <p className="text-sm font-medium text-foreground mb-2">{session.description}</p>
-        <div className="flex gap-3 text-xs text-muted-foreground mb-2">
-          {session.distance_km != null && <span>{session.distance_km} km</span>}
+
+        {/* Title */}
+        <p className="text-base font-semibold text-foreground mb-2">{session.description}</p>
+
+        {/* Metrics summary */}
+        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mb-2">
+          {session.distance_km != null && <span className="font-medium">{session.distance_km} km</span>}
           {session.duration_min != null && <span>{session.duration_min} min</span>}
           {session.pace_target && <span>@{session.pace_target}</span>}
           {session.target_hr_zone != null && <span>HR zone {session.target_hr_zone}</span>}
         </div>
-        <p className="text-xs text-muted-foreground mb-4">
-          {session.key_focus ?? "—"}
-        </p>
+        {session.key_focus && (
+          <p className="text-xs text-muted-foreground mb-4 italic">{session.key_focus}</p>
+        )}
+
+        {/* Session Breakdown */}
+        {!isRestDay && (
+          <div className="mb-4">
+            {stepsLoading && (
+              <div className="space-y-2 mb-4">
+                <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Session Breakdown</p>
+                {[0, 1, 2].map((i) => (
+                  <div key={i} className="border-l-[3px] border-l-muted/30 rounded-r-lg pl-3 pr-3 py-2.5 bg-muted/10 animate-pulse">
+                    <div className="h-3 bg-muted/30 rounded w-3/4 mb-1.5" />
+                    <div className="h-2.5 bg-muted/20 rounded w-1/2" />
+                  </div>
+                ))}
+              </div>
+            )}
+            {stepsError && (
+              <div className="mb-4">
+                <p className="text-xs text-destructive mb-1">{stepsError}</p>
+                <Button size="sm" variant="outline" onClick={() => fetchSteps(true)}>Retry</Button>
+              </div>
+            )}
+            {steps && steps.length > 0 && (
+              <div>
+                <WorkoutStepsDisplay steps={steps} />
+                <button
+                  onClick={() => fetchSteps(true)}
+                  className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground flex items-center gap-1 mb-4"
+                >
+                  <RefreshCw className="w-2.5 h-2.5" /> Regenerate breakdown
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Why this session */}
         {session.supportsCoachNote !== false && (
           <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 mb-4">
             <p className="text-xs font-medium text-primary flex items-center gap-1.5 mb-1.5">
@@ -228,6 +380,8 @@ function SessionDetailModal({
             )}
           </div>
         )}
+
+        {/* Actions */}
         <div className="flex flex-wrap gap-2">
           <Button
             size="sm"

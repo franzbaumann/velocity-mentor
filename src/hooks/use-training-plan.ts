@@ -47,7 +47,8 @@ async function triggerNutritionMessage(sessionId: string): Promise<void> {
     }
 
     if (fullText.trim()) {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (user) {
         await supabase.from("coach_message").insert({
           user_id: user.id,
@@ -70,7 +71,8 @@ export function useTrainingPlan() {
   const { data: plan, isLoading } = useQuery({
     queryKey: ["training-plan"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return null;
       const { data: planRow, error: planErr } = await supabase
         .from("training_plan")
@@ -155,6 +157,7 @@ export function useTrainingPlan() {
           completed_at: w.completed ? (w.date ? `${w.date}T12:00:00Z` : new Date().toISOString()) : null,
           coach_note: (w as { coach_note?: string | null }).coach_note ?? null,
           adjustment_notes: (w as { notes?: string | null }).notes ?? null,
+          workout_steps: (w as { workout_steps?: unknown }).workout_steps ?? null,
           supportsCoachNote: true,
         });
       }

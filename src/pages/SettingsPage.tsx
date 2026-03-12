@@ -345,7 +345,8 @@ function LabTestSection() {
   const { data: profile } = useQuery({
     queryKey: ["athlete-profile-lab"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return null;
       const { data } = await supabase
         .from("athlete_profile")

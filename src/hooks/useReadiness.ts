@@ -61,7 +61,8 @@ export function useReadiness(days = 1095) {
   return useQuery({
     queryKey: ["daily_readiness", days],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return [];
       const oldest = subDays(new Date(), days);
       const { data, error } = await supabase

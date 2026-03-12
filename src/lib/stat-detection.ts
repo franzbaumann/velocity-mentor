@@ -5,12 +5,13 @@ import { isRunningActivity } from "@/lib/analytics";
 import { startOfWeek, format } from "date-fns";
 
 export type StatType =
-  | "fitness"    // CTL / ATL / TSB
-  | "hrv"        // Heart rate variability
-  | "mileage"    // Weekly running volume
-  | "sleep"      // Sleep hours / score
-  | "resting_hr" // Resting heart rate
-  | "vo2max";    // VO2max estimate
+  | "fitness"       // CTL / ATL / TSB
+  | "hrv"           // Heart rate variability
+  | "mileage"       // Weekly running volume
+  | "sleep"         // Sleep hours / score
+  | "resting_hr"    // Resting heart rate
+  | "vo2max"        // VO2max estimate
+  | "last_activity"; // Pace + HR chart for the most recent run
 
 interface StatPattern {
   type: StatType;
@@ -74,6 +75,23 @@ const STAT_PATTERNS: StatPattern[] = [
     patterns: [
       /\bvo2\s*max\b/i,
       /\baerobic\s+capacity\b/i,
+    ],
+  },
+  {
+    type: "last_activity",
+    patterns: [
+      /\blast\s+run\b/i,
+      /\bthat\s+run\b/i,
+      /\byour\s+run\b/i,
+      /\brun\s+analysis\b/i,
+      /\bpost.?workout\b/i,
+      /\beffort\s+level\b/i,
+      /\bpace\s+of\s+\d+:\d+/i,
+      /\bavg(?:erage)?\s+(?:hr|heart\s+rate)\s+of\s+\d+/i,
+      /\bbreakdown\b.*\brun\b/i,
+      /\b\d+(?:\.\d+)?\s*km\s+(?:at|run|pace)\b/i,
+      /\blast\s+workout\b/i,
+      /\bthis\s+run\b/i,
     ],
   },
 ];

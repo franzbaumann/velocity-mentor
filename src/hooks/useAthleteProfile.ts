@@ -28,7 +28,8 @@ export function useAthleteProfile() {
   const { data: profile, isLoading } = useQuery({
     queryKey: ["athlete_profile"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return null;
       const { data, error } = await supabase
         .from("athlete_profile")
@@ -42,7 +43,8 @@ export function useAthleteProfile() {
 
   const updateMutation = useMutation({
     mutationFn: async (updates: Record<string, unknown>) => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) throw new Error("Not authenticated");
       const { error } = await supabase
         .from("athlete_profile")
@@ -59,7 +61,8 @@ export function useAthleteProfile() {
 
   const completeOnboarding = useMutation({
     mutationFn: async (answers: OnboardingAnswers) => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) throw new Error("Not authenticated");
       const updates: Record<string, unknown> = {
         user_id: user.id,

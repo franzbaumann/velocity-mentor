@@ -136,7 +136,8 @@ export function useActivityDetail(activityId: string | undefined) {
       const intervalsId = isIntervals ? id.replace(/^icu_/, "") : null;
 
       if (isIntervals && intervalsId) {
-        const { data: { user } } = await supabase.auth.getUser();
+        const { data: { session: sess2 } } = await supabase.auth.getSession();
+        const user = sess2?.user ?? null;
         if (!user) return null;
 
         // Fetch DB activity + streams first (always available), then try live API for extra data
@@ -371,7 +372,8 @@ export function useActivityDetail(activityId: string | undefined) {
       }
 
       // Supabase activity
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session: sess3 } } = await supabase.auth.getSession();
+      const user = sess3?.user ?? null;
       if (!user) return null;
       const { data: row, error } = await supabase
         .from("activity")

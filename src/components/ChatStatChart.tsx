@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import {
   LineChart,
   Line,
@@ -25,11 +26,14 @@ import {
 } from "@/lib/stat-detection";
 import type { ReadinessRow } from "@/hooks/useReadiness";
 import type { ActivityRow } from "@/hooks/useActivities";
+import { supabase } from "@/integrations/supabase/client";
 
 interface ChatStatChartProps {
   statType: StatType;
   readiness: ReadinessRow[];
   activities: ActivityRow[];
+  lastRunId?: string;
+  lastRunName?: string;
 }
 
 const CHART_META: Record<
@@ -47,6 +51,7 @@ const CHART_META: Record<
   sleep: { title: "Sleep Score", icon: Moon, color: "hsl(262 70% 55%)", unit: "" },
   resting_hr: { title: "Resting Heart Rate", icon: Zap, color: "hsl(0 84% 60%)", unit: " bpm" },
   vo2max: { title: "VO2max Trend", icon: Wind, color: "hsl(160 70% 45%)", unit: "" },
+  last_activity: { title: "Run", icon: Activity, color: "hsl(211 100% 52%)", unit: "" },
 };
 
 function MiniTooltip({
@@ -188,6 +193,158 @@ function MileageMiniBar({ data }: { data: ChartDataPoint[] }) {
   );
 }
 
+interface ActivityStreamPoint {
+  t: number;
+  pace: number | null;
+  hr: number | null;
+}
+
+function downsample<T>(arr: T[], target: number): T[] {
+  if (arr.length <= target) return arr;
+  const step = arr.length / target;
+  return Array.from({ length: target }, (_, i) => arr[Math.round(i * step)]);
+}
+
+function ActivityPaceHrChart({ activityId, activityName }: { activityId: string; activityName?: string }) {
+  const { data: streams, isLoading } = useQuery({
+    queryKey: ["activity-streams-chat", activityId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("activity_streams")
+        .select("time, heartrate, pace")
+        .eq("activity_id", activityId)
+        .maybeSingle();
+      return data as { time: number[] | null; heartrate: number[] | null; pace: number[] | null } | null;
+    },
+    staleTime: 5 * 60 * 1000,
+  });
+
+  const chartData = useMemo((): ActivityStreamPoint[] => {
+    if (!streams) return [];
+    const time = streams.time ?? [];
+    const hr = streams.heartrate ?? [];
+    const pace = streams.pace ?? [];
+    const len = Math.max(time.length, hr.length, pace.length);
+    if (len === 0) return [];
+    const raw: ActivityStreamPoint[] = Array.from({ length: len }, (_, i) => ({
+      t: time[i] != null ? Math.round(time[i] / 60) : i,
+      pace: pace[i] != null && pace[i] > 0 && pace[i] < 20 ? Math.round(pace[i] * 100) / 100 : null,
+      hr: hr[i] != null && hr[i] > 40 && hr[i] < 220 ? hr[i] : null,
+    }));
+    return downsample(raw, 120);
+  }, [streams]);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-[200px] text-muted-foreground text-xs">
+        Loading chart…
+      </div>
+    );
+  }
+
+  if (!chartData.length) {
+    return (
+      <div className="flex items-center justify-center h-[200px] text-muted-foreground text-xs">
+        No stream data for this activity
+      </div>
+    );
+  }
+
+  const hasPace = chartData.some((d) => d.pace != null);
+  const hasHr = chartData.some((d) => d.hr != null);
+
+  const paceVals = chartData.map((d) => d.pace).filter((v): v is number => v != null);
+  const hrVals = chartData.map((d) => d.hr).filter((v): v is number => v != null);
+  const paceMin = Math.max(2, Math.min(...paceVals) - 0.5);
+  const paceMax = Math.min(15, Math.max(...paceVals) + 0.5);
+  const hrMin = Math.max(40, Math.min(...hrVals) - 10);
+  const hrMax = Math.min(220, Math.max(...hrVals) + 10);
+
+  const paceFormatter = (v: number) => {
+    const min = Math.floor(v);
+    const sec = Math.round((v - min) * 60);
+    return `${min}:${String(sec).padStart(2, "0")}`;
+  };
+
+  return (
+    <div className="w-full h-[200px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 4, right: 8, left: -12, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" opacity={0.5} />
+          <XAxis
+            dataKey="t"
+            tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+            tickFormatter={(v) => `${v}m`}
+            interval="preserveStartEnd"
+          />
+          {hasPace && (
+            <YAxis
+              yAxisId="pace"
+              orientation="left"
+              domain={[paceMin, paceMax]}
+              reversed
+              tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+              tickFormatter={paceFormatter}
+            />
+          )}
+          {hasHr && (
+            <YAxis
+              yAxisId="hr"
+              orientation="right"
+              domain={[hrMin, hrMax]}
+              tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }}
+              tickFormatter={(v) => `${v}`}
+            />
+          )}
+          <Tooltip
+            content={({ active, payload, label }) => {
+              if (!active || !payload?.length) return null;
+              return (
+                <div className="rounded-lg border border-border bg-card/95 backdrop-blur-sm px-2.5 py-1.5 shadow-lg text-xs">
+                  <p className="font-medium text-foreground mb-0.5">{label}m</p>
+                  {payload.map((p) => (
+                    <p key={p.name} style={{ color: p.color as string }}>
+                      {p.name === "pace"
+                        ? `Pace: ${paceFormatter(p.value as number)}/km`
+                        : `HR: ${p.value} bpm`}
+                    </p>
+                  ))}
+                </div>
+              );
+            }}
+          />
+          {hasPace && (
+            <Line
+              yAxisId="pace"
+              type="monotone"
+              dataKey="pace"
+              stroke="hsl(211 100% 52%)"
+              strokeWidth={1.5}
+              dot={false}
+              connectNulls
+              name="pace"
+              animationDuration={600}
+            />
+          )}
+          {hasHr && (
+            <Line
+              yAxisId="hr"
+              type="monotone"
+              dataKey="hr"
+              stroke="hsl(36 100% 52%)"
+              strokeWidth={1.5}
+              dot={false}
+              connectNulls
+              name="hr"
+              animationDuration={700}
+            />
+          )}
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
 function ChartRenderer({ statType, data, meta }: { statType: StatType; data: ChartDataPoint[]; meta: typeof CHART_META[StatType] }) {
   switch (statType) {
     case "fitness":
@@ -207,9 +364,38 @@ function ChartRenderer({ statType, data, meta }: { statType: StatType; data: Cha
   }
 }
 
-export function ChatStatChart({ statType, readiness, activities }: ChatStatChartProps) {
+export function ChatStatChart({ statType, readiness, activities, lastRunId, lastRunName }: ChatStatChartProps) {
   const meta = CHART_META[statType];
   const Icon = meta.icon;
+
+  // Activity chart: handled separately — no chartData needed
+  if (statType === "last_activity") {
+    if (!lastRunId) return null;
+    const title = lastRunName ?? "Last Run";
+    return (
+      <div className="animate-chart-in rounded-xl border border-border/60 bg-card/80 backdrop-blur-sm overflow-hidden">
+        <div className="flex items-center justify-between px-3.5 py-2 border-b border-border/40">
+          <div className="flex items-center gap-1.5">
+            <Activity className="w-3.5 h-3.5 text-primary" />
+            <span className="text-xs font-semibold text-foreground">{title}</span>
+          </div>
+          <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
+            <span className="flex items-center gap-1">
+              <span style={{ display: "inline-block", width: 8, height: 2, background: "hsl(211 100% 52%)", borderRadius: 1 }} />
+              Pace
+            </span>
+            <span className="flex items-center gap-1">
+              <span style={{ display: "inline-block", width: 8, height: 2, background: "hsl(36 100% 52%)", borderRadius: 1 }} />
+              HR
+            </span>
+          </div>
+        </div>
+        <div className="px-2 py-2">
+          <ActivityPaceHrChart activityId={lastRunId} activityName={lastRunName} />
+        </div>
+      </div>
+    );
+  }
 
   const chartData = useMemo(() => {
     switch (statType) {
@@ -295,21 +481,31 @@ interface ChatStatChartsProps {
   content: string;
   readiness: ReadinessRow[];
   activities: ActivityRow[];
+  lastRunId?: string;
+  lastRunName?: string;
 }
 
-export function ChatStatCharts({ content, readiness, activities }: ChatStatChartsProps) {
+export function ChatStatCharts({ content, readiness, activities, lastRunId, lastRunName }: ChatStatChartsProps) {
   const stats = useMemo(() => detectStatsFromText(content), [content]);
 
   if (stats.length === 0) return null;
 
+  // Show activity chart first, then up to 1 additional stat chart
+  const activityFirst = stats.includes("last_activity")
+    ? ["last_activity", ...stats.filter((s) => s !== "last_activity")]
+    : stats;
+  const toShow = activityFirst.slice(0, activityFirst[0] === "last_activity" ? 2 : 2);
+
   return (
     <div className="mt-3 space-y-2">
-      {stats.slice(0, 2).map((stat) => (
+      {toShow.map((stat) => (
         <ChatStatChart
           key={stat}
           statType={stat}
           readiness={readiness}
           activities={activities}
+          lastRunId={lastRunId}
+          lastRunName={lastRunName}
         />
       ))}
     </div>

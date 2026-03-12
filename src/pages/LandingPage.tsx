@@ -1,12 +1,49 @@
+import { useEffect, useMemo, useState } from "react";
 import { Link } from "react-router-dom";
-import { Zap, Activity, BarChart2, BarChart3, MessageCircle, Calendar, BookOpen, ArrowRight, Check } from "lucide-react";
+import { motion } from "framer-motion";
+import { Zap, Activity, BarChart2, BarChart3, MessageCircle, Calendar, BookOpen, ArrowRight, Check, MoveRight } from "lucide-react";
 import { PricingCardComponent } from "@/components/ui/pricing-card-component";
+import { AuroraBackground } from "@/components/ui/aurora-background";
+import { Button } from "@/components/ui/button";
 
 const navLinks = [
   { label: "Features", href: "#features" },
   { label: "Pricing", href: "#pricing" },
   { label: "Philosophy", href: "#philosophy" },
 ];
+
+function AnimatedHeroWords() {
+  const [titleNumber, setTitleNumber] = useState(0);
+  const titles = useMemo(() => ["smarter", "faster", "stronger", "better"], []);
+
+  useEffect(() => {
+    const timeoutId = setTimeout(() => {
+      setTitleNumber(titleNumber === titles.length - 1 ? 0 : titleNumber + 1);
+    }, 2000);
+    return () => clearTimeout(timeoutId);
+  }, [titleNumber, titles]);
+
+  return (
+    <span className="relative flex w-full justify-center overflow-hidden text-center md:pb-4 md:pt-1">
+      &nbsp;
+      {titles.map((title, index) => (
+        <motion.span
+          key={index}
+          className="absolute font-semibold"
+          initial={{ opacity: 0, y: "-100" }}
+          transition={{ type: "spring", stiffness: 50 }}
+          animate={
+            titleNumber === index
+              ? { y: 0, opacity: 1 }
+              : { y: titleNumber > index ? -150 : 150, opacity: 0 }
+          }
+        >
+          {title}
+        </motion.span>
+      ))}
+    </span>
+  );
+}
 
 export default function LandingPage() {
   return (
@@ -31,11 +68,10 @@ export default function LandingPage() {
             ))}
           </nav>
           <div className="flex items-center gap-3">
-            <Link
-              to="/auth"
-              className="pill-button bg-primary text-primary-foreground px-5 py-2.5 text-sm font-medium"
-            >
-              Get started
+            <Link to="/auth">
+              <Button size="sm" className="gap-2">
+                Get started <MoveRight className="w-4 h-4" />
+              </Button>
             </Link>
             <Link
               to="/auth"
@@ -47,30 +83,39 @@ export default function LandingPage() {
         </div>
       </header>
 
-      <section className="pt-32 pb-20 px-4 sm:px-6">
-        <div className="max-w-3xl mx-auto text-center">
-          <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-foreground tracking-tight leading-[1.1]">
-            <span className="bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">Train smarter.</span>{" "}
-            <span className="bg-gradient-to-r from-primary to-blue-600 bg-clip-text text-transparent">Race faster.</span>
-          </h1>
-          <p className="mt-6 text-lg sm:text-xl text-muted-foreground max-w-2xl mx-auto leading-relaxed">
-            An AI coach that reads your actual training data — not generic advice.
-          </p>
-          <p className="mt-2 text-sm text-muted-foreground/80">
-            Powered by your intervals.icu data.
-          </p>
-          <div className="mt-10 flex flex-col sm:flex-row items-center justify-center gap-4">
-            <Link
-              to="/auth"
-              className="pill-button bg-primary text-primary-foreground px-8 py-3 text-base font-medium gap-2 w-full sm:w-auto justify-center"
-            >
-              Get started
-              <ArrowRight className="w-4 h-4" />
-            </Link>
-            <p className="text-sm text-muted-foreground">Free to start.</p>
+      <AuroraBackground className="min-h-[90vh] h-auto pt-24 pb-12">
+        <motion.div
+          initial={{ opacity: 0.0, y: 40 }}
+          whileInView={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.3, duration: 0.8, ease: "easeInOut" }}
+          className="relative flex flex-col gap-4 items-center justify-center px-4"
+        >
+          <div className="flex flex-col gap-4">
+            <h1 className="text-5xl md:text-7xl max-w-2xl tracking-tighter text-center font-regular">
+              <span className="text-foreground">Train</span>
+              <AnimatedHeroWords />
+            </h1>
+            <p className="text-lg md:text-xl leading-relaxed tracking-tight text-muted-foreground max-w-2xl text-center">
+              An AI running coach that reads your actual training data from intervals.icu — not generic advice. Personalized plans, real-time coaching, and stats that matter.
+            </p>
           </div>
-        </div>
-      </section>
+          <div className="flex flex-row gap-3 mt-4">
+            <Link to="/auth">
+              <Button size="lg" variant="outline" className="gap-4">
+                See how it works <ArrowRight className="w-4 h-4" />
+              </Button>
+            </Link>
+            <Link to="/auth">
+              <Button size="lg" className="gap-4">
+                Get started free <MoveRight className="w-4 h-4" />
+              </Button>
+            </Link>
+          </div>
+          <p className="text-sm text-muted-foreground/80 mt-2">
+            Powered by your intervals.icu data. No credit card required.
+          </p>
+        </motion.div>
+      </AuroraBackground>
 
       <section className="pt-8 pb-20 px-4 sm:px-6 overflow-hidden">
         <div className="max-w-5xl mx-auto">

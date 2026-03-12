@@ -280,9 +280,9 @@ async function streamChat({
     console.error("[Kipcoachee]", resp.status, err);
     if (resp.status === 429) {
       onRateLimit?.();
-      toast.error(err.error || "Rate limit reached. Try again in 15–60 minutes, or upgrade your Groq/Gemini plan.");
+      toast.error(err.error || "AI rate limit reached across all providers. Try again in a few minutes.");
     } else if (resp.status === 502 || resp.status === 503) {
-      toast.error("Kipcoachee is temporarily unavailable. Ensure GROQ_API_KEY and GEMINI_API_KEY are set in Supabase secrets.");
+      toast.error("Kipcoachee is temporarily unavailable. Ensure ANTHROPIC_API_KEY is set in Supabase secrets.");
     } else {
       toast.error(err.error || "Kipcoachee is unavailable right now.");
     }
@@ -350,7 +350,8 @@ function getNextMonday(): Date {
 const INTENSE_TYPES = new Set(["interval", "intervals", "tempo", "long", "race"]);
 
 async function savePlanFromChat(plan: Record<string, unknown>, isAdjustment: boolean, adjustmentReason?: string): Promise<boolean> {
-  const { data: { user } } = await supabase.auth.getUser();
+  const { data: { session } } = await supabase.auth.getSession();
+  const user = session?.user ?? null;
   if (!user) return false;
 
   const aiWeeks = Array.isArray(plan.weeks) ? plan.weeks : [];
@@ -617,8 +618,17 @@ export default function Coach() {
   // Load chat history (analyses + recent messages)
   const { data: chatHistory = [] } = useQuery({
     queryKey: ["coach_history"],
+    retry: false,
     queryFn: async () => {
-      const { data: { user: u } } = await supabase.auth.getUser();
+      const { data: { session }, error: authError } = await supabase.auth.getSession();
+      const u = session?.user;
+      if (authError) {
+        if (authError.message?.includes("Refresh") || authError.message?.includes("Invalid") || authError.message?.includes("JWT")) {
+          await supabase.auth.signOut();
+          toast.error("Your session expired. Please sign in again.");
+        }
+        return [];
+      }
       if (!u) return [];
       const { data, error } = await supabase
         .from("coach_message")
@@ -626,7 +636,13 @@ export default function Coach() {
         .eq("user_id", u.id)
         .order("created_at", { ascending: false })
         .limit(50);
-      if (error) return [];
+      if (error) {
+        if (error.code === "PGRST301" || error.message?.includes("JWT") || error.message?.includes("refresh")) {
+          await supabase.auth.signOut();
+          toast.error("Your session expired. Please sign in again.");
+        }
+        return [];
+      }
       return (data ?? []) as StoredMsg[];
     },
   });
@@ -662,42 +678,64 @@ export default function Coach() {
 
   const autoSentRef = useRef(false);
   const pendingAutoSend = useRef<string | null>(null);
+  // Permanent guard: set once per component instance, never reset.
+  // Prevents re-firing when isConnected or other deps change after the first attempt.
+  const openingAttemptedRef = useRef(false);
+
+  // Keep latest data in refs so the effect doesn't re-fire every time a chunk loads.
+  const wellnessRef = useRef(wellnessData);
+  wellnessRef.current = wellnessData;
+  const activitiesRef = useRef(activitiesData);
+  activitiesRef.current = activitiesData;
 
   useEffect(() => {
     if (messages.length > 0 || sessionParam) return;
+    // Once attempted, never retry within the same session — prevents double-fire
+    // when isConnected changes from false→true after the first call completes.
+    if (openingAttemptedRef.current) return;
+
     const OPENING_COOLDOWN_MS = 30 * 60 * 1000;
     const cacheKey = "kipcoachee_opening";
     try {
       const cached = JSON.parse(localStorage.getItem(cacheKey) || "null") as { msg: string; ts: number } | null;
       if (cached && Date.now() - cached.ts < OPENING_COOLDOWN_MS) {
+        openingAttemptedRef.current = true;
         setOpeningMessage(cached.msg);
         return;
       }
     } catch { /* ignore corrupt cache */ }
 
+    openingAttemptedRef.current = true;
     setOpeningLoading(true);
     (async () => {
       try {
-        await supabase.auth.refreshSession();
+        const { error: refreshErr } = await supabase.auth.refreshSession();
+        if (refreshErr && (refreshErr.message?.includes("Refresh") || refreshErr.message?.includes("Invalid"))) {
+          await supabase.auth.signOut();
+          toast.error("Your session expired. Please sign in again.");
+          return;
+        }
         const { data, error } = await supabase.functions.invoke("coach-opening", {
           body: {
             intervalsContext: isConnected
-              ? { wellness: Array.isArray(wellnessData) ? wellnessData : undefined, activities: Array.isArray(activitiesData) ? activitiesData : undefined }
+              ? { wellness: Array.isArray(wellnessRef.current) ? wellnessRef.current : undefined, activities: Array.isArray(activitiesRef.current) ? activitiesRef.current : undefined }
               : null,
           },
         });
         if (!error && data?.message) {
           setOpeningMessage(data.message);
           try { localStorage.setItem(cacheKey, JSON.stringify({ msg: data.message, ts: Date.now() })); } catch { /* ignore */ }
-          if (data.rateLimitHit) toast.error("AI rate limit reached. Try again in a few minutes or upgrade your Groq/Gemini plan.");
+          if (data.rateLimitHit) toast.error("AI rate limit reached. Try again in a few minutes.");
         }
       } catch {
-        // ignore — use fallback
+        // ignore — use fallback opener
       } finally {
         setOpeningLoading(false);
       }
     })();
-  }, [messages.length, sessionParam, isConnected, wellnessData, activitiesData]);
+  // wellnessData and activitiesData are intentionally read via refs, not deps.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages.length, sessionParam, isConnected]);
 
   useEffect(() => {
     if (autoSentRef.current || messages.length > 0) return;
@@ -801,6 +839,18 @@ export default function Coach() {
   const intervalsContext = isConnected
     ? { wellness: Array.isArray(wellnessData) ? wellnessData : undefined, activities: Array.isArray(activitiesData) ? activitiesData : undefined }
     : null;
+
+  const lastRun = useMemo(() => {
+    const runs = (Array.isArray(activitiesData) ? activitiesData : [])
+      .filter((a) => isRunningActivity(a.type) && (a.distance_km ?? 0) > 0)
+      .sort((a, b) => a.date.localeCompare(b.date));
+    return runs[runs.length - 1] ?? null;
+  }, [activitiesData]);
+
+  const lastRunId = lastRun?.external_id ?? lastRun?.id ?? undefined;
+  const lastRunName = lastRun
+    ? `${Math.round((lastRun.distance_km ?? 0) * 10) / 10} km run${lastRun.name ? ` — ${lastRun.name}` : ""}`
+    : undefined;
 
   const todayStr = format(new Date(), "yyyy-MM-dd");
   const readinessForToday = useMemo(() => {
@@ -954,7 +1004,14 @@ export default function Coach() {
         token,
         onDelta: upsert,
         onDone: () => setIsLoading(false),
-        onRateLimit: () => setRateLimitUntil(Date.now() + 90000),
+        onRateLimit: () => {
+          if (import.meta.env.DEV) {
+            // In dev, never block retries — just warn so the developer can try again immediately
+            toast.warning("AI rate limit hit — all providers exhausted. You can retry immediately.");
+          } else {
+            setRateLimitUntil(Date.now() + 90000);
+          }
+        },
       });
 
       // Plan JSON is shown in PlanAdjustmentCard — user clicks Apply to save
@@ -1270,6 +1327,8 @@ export default function Coach() {
                         content={msg.content}
                         readiness={Array.isArray(wellnessData) ? wellnessData : []}
                         activities={Array.isArray(activitiesData) ? activitiesData : []}
+                        lastRunId={lastRunId}
+                        lastRunName={lastRunName}
                       />
                     </div>
                   )}

@@ -164,10 +164,11 @@ serve(async (req) => {
     const body = await req.json().catch(() => ({}));
     const answers = body?.answers ?? body?.onboardingAnswers ?? {};
 
-    const groqResult = await callGroq(answers);
-    const geminiResult = groqResult ?? await callGemini(answers);
-    const claudeResult = geminiResult ?? await callClaude(answers);
-    const final = groqResult ?? geminiResult ?? claudeResult;
+    // Priority: Claude (primary) → Groq → Gemini
+    const claudeResult = await callClaude(answers);
+    const groqResult = claudeResult?.ok ? null : await callGroq(answers);
+    const geminiResult = (claudeResult ?? groqResult)?.ok ? null : await callGemini(answers);
+    const final = claudeResult ?? groqResult ?? geminiResult;
     const result = final && "ok" in final ? final.ok : null;
     const rateLimit = final && "rateLimit" in final && final.rateLimit;
     if (!result) {

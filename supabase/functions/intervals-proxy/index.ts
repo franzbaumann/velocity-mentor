@@ -159,7 +159,7 @@ Deno.serve(async (req: Request) => {
     const action = String(body.action ?? "").trim();
 
     // Actions that don't require Intervals.icu (use Supabase only)
-    const noIntervalsActions = ["workout_coach_note", "activity_coach_note"];
+    const noIntervalsActions = ["workout_coach_note", "workout_steps", "activity_coach_note"];
     let athleteId = "0";
     let headers: Record<string, string> = {};
     if (!noIntervalsActions.includes(action)) {
@@ -239,8 +239,19 @@ ${trkpts}
 
     // ─── ACTION: activity streams ───
     if (action === "streams" && body.activityId) {
-      const url = `https://intervals.icu/api/v1/activity/${encodeURIComponent(String(body.activityId))}/streams.json?types=${STREAM_TYPES}`;
-      const res = await fetch(url, { headers });
+      const CORE_STREAM_TYPES = "heartrate,cadence,altitude,distance,latlng,time,velocity_smooth";
+      const activityIdEnc = encodeURIComponent(String(body.activityId));
+      let res = await fetch(
+        `https://intervals.icu/api/v1/activity/${activityIdEnc}/streams.json?types=${STREAM_TYPES}`,
+        { headers }
+      );
+      // 422 = one or more requested stream types don't exist for this activity; retry with core types only
+      if (res.status === 422) {
+        res = await fetch(
+          `https://intervals.icu/api/v1/activity/${activityIdEnc}/streams.json?types=${CORE_STREAM_TYPES}`,
+          { headers }
+        );
+      }
       if (!res.ok) {
         const t = await res.text();
         console.error("streams error:", res.status, t);
@@ -1729,7 +1740,8 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
       }
 
       try {
-        const note = (await tryGroq()) ?? (await tryGemini()) ?? (await tryClaude());
+        // Priority: Claude (primary) → Groq → Gemini
+        const note = (await tryClaude()) ?? (await tryGroq()) ?? (await tryGemini());
         if (!note) {
           return jsonErr("AI generation failed. Check ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets.", 500);
         }
@@ -1938,7 +1950,8 @@ Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, pers
         return null;
       }
 
-      const note = (await tryGroq()) ?? (await tryGemini()) ?? (await tryClaude());
+      // Priority: Claude (primary) → Groq → Gemini
+      const note = (await tryClaude()) ?? (await tryGroq()) ?? (await tryGemini());
       if (!note) {
         return jsonErr("AI generation failed. Check ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets.", 500);
       }
@@ -1950,6 +1963,193 @@ Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, pers
         .eq("id", workoutId);
 
       return jsonOk({ note, cached: false });
+    }
+
+    // ─── ACTION: workout_steps ───
+    if (action === "workout_steps") {
+      const workoutId = String(body.workoutId ?? "").trim();
+      if (!workoutId) return jsonErr("Missing workoutId", 400);
+
+      const { data: workout, error: workoutErr } = await supabaseAdmin
+        .from("training_plan_workout")
+        .select("id, date, type, name, description, key_focus, distance_km, duration_minutes, target_pace, target_hr_zone, week_number, phase, plan_id, workout_steps")
+        .eq("user_id", user.id)
+        .eq("id", workoutId)
+        .maybeSingle();
+
+      if (workoutErr || !workout) return jsonErr("Workout not found", 404);
+
+      const regenerate = body.regenerate === true;
+      const existing = (workout as Record<string, unknown>).workout_steps;
+      if (existing && !regenerate) {
+        return jsonOk({ steps: existing, cached: true });
+      }
+
+      // Skip generation for rest days
+      const wType = String((workout as Record<string, unknown>).type ?? "").toLowerCase();
+      if (wType === "rest") {
+        return jsonOk({ steps: [], cached: false });
+      }
+
+      const isEasyRun = /^(easy|recovery)$/i.test(wType);
+
+      const anthropicKeysWS = [Deno.env.get("ANTHROPIC_API_KEY"), Deno.env.get("ANTHROPIC_API_KEY_2"), Deno.env.get("ANTHROPIC_API_KEY_3")].filter((k): k is string => !!k);
+      const groqKeysWS = [Deno.env.get("GROQ_API_KEY"), Deno.env.get("GROQ_API_KEY_2"), Deno.env.get("GROQ_API_KEY_3")].filter((k): k is string => !!k);
+      const geminiKeysWS = [Deno.env.get("GEMINI_API_KEY"), Deno.env.get("GEMINI_API_KEY_2"), Deno.env.get("GEMINI_API_KEY_3")].filter((k): k is string => !!k);
+
+      const w = workout as Record<string, unknown>;
+
+      const easyStepsPrompt = `You are Kipcoachee — an elite AI running coach. Break this easy/aerobic run into logical distance or time segments.
+
+Session: ${w.type ?? "easy"} — ${w.name ?? w.description ?? "?"}
+Description: ${w.description ?? "?"}
+Key focus: ${w.key_focus ?? "?"}
+Distance: ${w.distance_km != null ? `${w.distance_km} km` : "?"}
+Duration: ${w.duration_minutes != null ? `${w.duration_minutes} min` : "?"}
+Target pace: ${w.target_pace ?? "?"}
+HR zone: ${w.target_hr_zone ?? "?"}
+Phase: ${w.phase ?? "base"} | Week: ${w.week_number ?? "?"}
+
+Easy runs do NOT have a structured warm-up or cool-down — the entire run is at easy/aerobic effort.
+Return ONLY "main" phase steps (1–3 segments max, e.g. first km, middle, final stretch).
+
+Return ONLY a valid JSON array of step objects. Each object must have:
+- "phase": always "main"
+- "label": short title (e.g. "Easy Run", "First 5km", "Finish strong")
+- "duration_min": number or null
+- "distance_km": number or null
+- "target_pace": string or null (e.g. "6:30/km")
+- "target_hr_zone": number or null
+- "notes": string or null (effort cue or purpose)
+- "reps": null
+- "rep_distance_km": null
+- "rest_label": null
+
+No markdown, no explanation — ONLY the JSON array.`;
+
+      const structuredStepsPrompt = `You are Kipcoachee — an elite AI running coach. Break down this training session into structured phases (warm-up, main set, cool-down).
+
+Session: ${w.type ?? "easy"} — ${w.name ?? w.description ?? "?"}
+Description: ${w.description ?? "?"}
+Key focus: ${w.key_focus ?? "?"}
+Distance: ${w.distance_km != null ? `${w.distance_km} km` : "?"}
+Duration: ${w.duration_minutes != null ? `${w.duration_minutes} min` : "?"}
+Target pace: ${w.target_pace ?? "?"}
+HR zone: ${w.target_hr_zone ?? "?"}
+Phase: ${w.phase ?? "base"} | Week: ${w.week_number ?? "?"}
+
+Return ONLY a valid JSON array of step objects. Each object must have:
+- "phase": one of "warmup", "main", "cooldown"
+- "label": short title (e.g. "Warm-up", "4 × 1600m at tempo", "Cool-down")
+- "duration_min": number or null
+- "distance_km": number or null
+- "target_pace": string or null (e.g. "6:30/km")
+- "target_hr_zone": number or null
+- "notes": string or null (extra guidance)
+- For "main" phase only: "reps" (number or null), "rep_distance_km" (number or null), "rest_label" (string or null, e.g. "90 sec jog recovery")
+
+No markdown, no explanation — ONLY the JSON array.`;
+
+      const stepsPrompt = isEasyRun ? easyStepsPrompt : structuredStepsPrompt;
+
+      // Robust JSON array extractor: uses bracket counting to find the balanced
+      // array regardless of any [...] notation inside string values.
+      function extractJsonArray(text: string): unknown[] | null {
+        const start = text.indexOf("[");
+        if (start === -1) return null;
+        let depth = 0;
+        let inString = false;
+        let escape = false;
+        for (let i = start; i < text.length; i++) {
+          const ch = text[i];
+          if (escape) { escape = false; continue; }
+          if (ch === "\\" && inString) { escape = true; continue; }
+          if (ch === '"') { inString = !inString; continue; }
+          if (inString) continue;
+          if (ch === "[") depth++;
+          else if (ch === "]") {
+            if (--depth === 0) {
+              try { return JSON.parse(text.slice(start, i + 1)) as unknown[]; }
+              catch { return null; }
+            }
+          }
+        }
+        return null;
+      }
+
+      async function tryClaudeWS(): Promise<unknown[] | null> {
+        for (const key of anthropicKeysWS) {
+          try {
+            const res = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
+              body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1000, messages: [{ role: "user", content: stepsPrompt }] }),
+            });
+            if (res.status === 429) continue;
+            if (!res.ok) {
+              console.error("workout_steps Claude error:", res.status, await res.text());
+              continue;
+            }
+            const json = (await res.json()) as Record<string, unknown>;
+            const content = (json.content ?? []) as Array<{ type?: string; text?: string }>;
+            const text = content.find((b) => b.type === "text")?.text?.trim() ?? "";
+            const parsed = extractJsonArray(text);
+            if (parsed) return parsed;
+          } catch (e) { console.error("workout_steps Claude exception:", e); }
+        }
+        return null;
+      }
+
+      async function tryGroqWS(): Promise<unknown[] | null> {
+        for (const key of groqKeysWS) {
+          try {
+            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+              body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: stepsPrompt }], temperature: 0.4, max_tokens: 1000 }),
+            });
+            if (res.status === 429) continue;
+            if (!res.ok) { console.error("workout_steps Groq error:", res.status); continue; }
+            const data = (await res.json()) as Record<string, unknown>;
+            const text = String(((data.choices as Array<Record<string, unknown>>)?.[0]?.message as Record<string, unknown>)?.content ?? "").trim();
+            const parsed = extractJsonArray(text);
+            if (parsed) return parsed;
+          } catch (e) { console.error("workout_steps Groq exception:", e); }
+        }
+        return null;
+      }
+
+      async function tryGeminiWS(): Promise<unknown[] | null> {
+        for (const key of geminiKeysWS) {
+          try {
+            const res = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
+              { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: stepsPrompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 1000 } }) }
+            );
+            if (res.status === 429) continue;
+            if (!res.ok) { console.error("workout_steps Gemini error:", res.status); continue; }
+            const data = (await res.json()) as Record<string, unknown>;
+            const text = String(((data.candidates as Array<Record<string, unknown>>)?.[0]?.content as Record<string, unknown>)?.parts?.[0]?.text ?? "").trim();
+            const parsed = extractJsonArray(text);
+            if (parsed) return parsed;
+          } catch (e) { console.error("workout_steps Gemini exception:", e); }
+        }
+        return null;
+      }
+
+      // Priority: Claude → Groq → Gemini
+      const steps = (await tryClaudeWS()) ?? (await tryGroqWS()) ?? (await tryGeminiWS());
+      if (!steps || !Array.isArray(steps)) {
+        return jsonErr("Failed to generate workout steps", 500);
+      }
+
+      await supabaseAdmin
+        .from("training_plan_workout")
+        .update({ workout_steps: steps })
+        .eq("user_id", user.id)
+        .eq("id", workoutId);
+
+      return jsonOk({ steps, cached: false });
     }
 
     // ─── ACTION: post_workout_analysis (auto-analyze recent unanalyzed runs) ───

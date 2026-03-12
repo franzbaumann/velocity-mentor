@@ -25,7 +25,8 @@ export function useActivities(days = 120) {
   return useQuery({
     queryKey: ["activities", days],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return [];
       const oldest = subDays(new Date(), days);
       const { data, error } = await supabase

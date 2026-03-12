@@ -204,30 +204,47 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
     const apikey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
     const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/paceiq-generate-plan`;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(apikey ? { apikey } : {}),
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
-        body: JSON.stringify({
-          answers: state.answers,
-          philosophy: state.selectedPhilosophy,
-        }),
-      })
-        .then(async (r) => {
-          const data = await r.json().catch(() => ({}));
-          if (!r.ok || data.error) {
-            setPlanError(data.error ?? "Failed to generate plan");
-          } else {
-            setState((prev) => ({ ...prev, generatedPlan: data as PlanResult }));
-          }
-        })
-        .catch((e) => setPlanError(e.message ?? "Network error"))
-        .finally(() => setPlanLoading(false));
-    });
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 110_000);
+
+    (async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        const r = await fetch(url, {
+          method: "POST",
+          signal: controller.signal,
+          headers: {
+            "Content-Type": "application/json",
+            ...(apikey ? { apikey } : {}),
+            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+          },
+          body: JSON.stringify({
+            answers: state.answers,
+            philosophy: state.selectedPhilosophy,
+          }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (!r.ok || (data as { error?: string }).error) {
+          setPlanError((data as { error?: string }).error ?? "Failed to generate plan");
+        } else {
+          setState((prev) => ({ ...prev, generatedPlan: data as PlanResult }));
+        }
+      } catch (e) {
+        if (e instanceof Error && e.name === "AbortError") {
+          setPlanError("Plan generation timed out. Please try again.");
+        } else {
+          setPlanError(e instanceof Error ? e.message : "Network error");
+        }
+      } finally {
+        clearTimeout(timeoutId);
+        setPlanLoading(false);
+      }
+    })();
+
+    return () => {
+      controller.abort();
+      clearTimeout(timeoutId);
+    };
   }, [state.currentStep, state.selectedPhilosophy, state.generatedPlan, state.answers, planRetryCount]);
 
   const handleRetryPlan = useCallback(() => {
@@ -239,7 +256,8 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
   // ---- Profile save + completion ----
   const saveProfileToSupabase = useCallback(async (answers: OnboardingV2Answers, philosophy: string | null) => {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return;
 
       const updates: Record<string, unknown> = {

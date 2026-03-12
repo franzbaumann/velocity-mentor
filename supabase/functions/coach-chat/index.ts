@@ -191,7 +191,22 @@ async function buildAthleteContext(
       const sortedWeeks = [...byWeek.keys()].sort((a, b) => a - b);
       const lines: string[] = [];
 
-      for (const wn of sortedWeeks) {
+      // Only include workouts within -7 days to +28 days to keep the system prompt concise.
+      const windowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const windowEnd = new Date(Date.now() + 28 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const relevantWeeks = sortedWeeks.filter((wn) => {
+        const ws = byWeek.get(wn)!;
+        return ws.some((w) => {
+          const d = String(w.date ?? "").slice(0, 10);
+          return d >= windowStart && d <= windowEnd;
+        });
+      });
+      const skippedPastWeeks = sortedWeeks.length - relevantWeeks.length;
+      if (skippedPastWeeks > 0) {
+        lines.push(`(${skippedPastWeeks} completed weeks not shown)`);
+      }
+
+      for (const wn of relevantWeeks) {
         const weekWorkouts = byWeek.get(wn)!;
         const weekFocus = String(weekWorkouts[0]?.week_focus ?? weekWorkouts[0]?.phase ?? "");
         const weekKm = weekWorkouts.reduce((s, w) => s + (Number(w.distance_km) || 0), 0);
@@ -759,18 +774,46 @@ ${conversationText}`;
     if (!useStream) {
       let text: string | null = null;
       let any429 = false;
-      // Groq first (fastest), then Gemini, then Claude
-      for (const GROQ_API_KEY of groqKeys) {
-        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      // Priority: Claude (primary) → Groq → Gemini
+      for (const key of anthropicKeys) {
+        const claudeMessages = chatMessages
+          .filter((m) => m.role !== "system")
+          .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+        const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
-          headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
-          body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: chatMessages, temperature: 0.6, max_tokens: 4096 }),
+          headers: {
+            "x-api-key": key,
+            "anthropic-version": "2023-06-01",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "claude-sonnet-4-5",
+            max_tokens: 4096,
+            system: systemPrompt,
+            messages: claudeMessages,
+          }),
         });
-        if (groqRes.status === 429) any429 = true;
-        else if (groqRes.ok) {
-          const groqJson = await groqRes.json();
-          text = groqJson.choices?.[0]?.message?.content?.trim() ?? null;
+        if (claudeRes.status === 429) any429 = true;
+        else if (claudeRes.ok) {
+          const claudeJson = await claudeRes.json();
+          const block = (claudeJson.content ?? []).find((b: { type: string }) => b.type === "text");
+          text = block?.text?.trim() ?? null;
           if (text) break;
+        }
+      }
+      if (!text) {
+        for (const GROQ_API_KEY of groqKeys) {
+          const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+            body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: chatMessages, temperature: 0.6, max_tokens: 4096 }),
+          });
+          if (groqRes.status === 429) any429 = true;
+          else if (groqRes.ok) {
+            const groqJson = await groqRes.json();
+            text = groqJson.choices?.[0]?.message?.content?.trim() ?? null;
+            if (text) break;
+          }
         }
       }
       if (!text) {
@@ -799,38 +842,10 @@ ${conversationText}`;
         }
       }
       if (!text) {
-        for (const key of anthropicKeys) {
-          const claudeMessages = chatMessages
-            .filter((m) => m.role !== "system")
-            .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-          const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-            method: "POST",
-            headers: {
-              "x-api-key": key,
-              "anthropic-version": "2023-06-01",
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "claude-sonnet-4-5",
-              max_tokens: 4096,
-              system: systemPrompt,
-              messages: claudeMessages,
-            }),
-          });
-          if (claudeRes.status === 429) any429 = true;
-          else if (claudeRes.ok) {
-            const claudeJson = await claudeRes.json();
-            const block = (claudeJson.content ?? []).find((b: { type: string }) => b.type === "text");
-            text = block?.text?.trim() ?? null;
-            if (text) break;
-          }
-        }
-      }
-      if (!text) {
         const rateLimit = any429;
         const errMsg = rateLimit
-          ? "Rate limit reached. Try again in 15–60 minutes, or upgrade your Groq/Gemini plan."
-          : "AI unavailable.";
+          ? "Rate limit reached. Try again in a few minutes."
+          : "AI unavailable. Set ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets.";
         return new Response(JSON.stringify({ error: errMsg }), {
           status: rateLimit ? 429 : 503,
           headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -1006,23 +1021,24 @@ ${conversationText}`;
       return { stream: res.body! };
     }
 
+    // Priority: Claude (primary) → Groq → Gemini
     let fallbackResult: { stream: ReadableStream<Uint8Array> | null; rateLimit?: boolean } | null = null;
     let anyRateLimit = false;
-    for (const k of groqKeys) {
-      fallbackResult = await tryGroq(k);
+    for (const k of anthropicKeys) {
+      fallbackResult = await tryClaude(k);
       if (fallbackResult?.rateLimit) anyRateLimit = true;
       if (fallbackResult?.stream) break;
     }
     if (!fallbackResult?.stream) {
-      for (const k of geminiKeys) {
-        fallbackResult = await tryGemini(k);
+      for (const k of groqKeys) {
+        fallbackResult = await tryGroq(k);
         if (fallbackResult?.rateLimit) anyRateLimit = true;
         if (fallbackResult?.stream) break;
       }
     }
     if (!fallbackResult?.stream) {
-      for (const k of anthropicKeys) {
-        fallbackResult = await tryClaude(k);
+      for (const k of geminiKeys) {
+        fallbackResult = await tryGemini(k);
         if (fallbackResult?.rateLimit) anyRateLimit = true;
         if (fallbackResult?.stream) break;
       }

@@ -82,7 +82,7 @@ export function Step9PlanGeneration({
               <h1 className="text-[32px] font-extrabold text-foreground tracking-tight">
                 Building your plan.
               </h1>
-              <p className="text-sm text-muted-foreground/70">This usually takes 10-15 seconds</p>
+              <p className="text-sm text-muted-foreground/70">This usually takes 30–60 seconds</p>
             </div>
 
             {/* Progress checklist */}

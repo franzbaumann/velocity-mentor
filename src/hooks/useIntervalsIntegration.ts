@@ -14,7 +14,8 @@ export function useIntervalsIntegration() {
   const { data: integration, isLoading } = useQuery({
     queryKey: ["intervals-integration"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return null;
       const { data, error } = await (supabase as any)
         .from("integrations")
@@ -29,7 +30,8 @@ export function useIntervalsIntegration() {
 
   const saveMutation = useMutation({
     mutationFn: async ({ athleteId, apiKey }: { athleteId: string; apiKey: string }) => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) throw new Error("Not authenticated");
       const { error } = await (supabase as any)
         .from("integrations")
@@ -51,7 +53,8 @@ export function useIntervalsIntegration() {
 
   const disconnectMutation = useMutation({
     mutationFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) throw new Error("Not authenticated");
       const { error } = await (supabase as any)
         .from("integrations")

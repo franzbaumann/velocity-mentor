@@ -135,7 +135,8 @@ export function useActivityStreamsSync(
     const arr = activities.filter(
       (a): a is Record<string, unknown> => typeof a === "object" && a !== null,
     );
-    supabase.auth.getUser().then(({ data: { user } }) => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      const user = session?.user ?? null;
       if (!user) return;
       syncStreamsForActivities(arr, user.id);
     });

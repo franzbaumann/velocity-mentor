@@ -337,10 +337,11 @@ serve(async (req) => {
     const contextStr = buildContextSummary(ctx);
     const prompt = short ? DASHBOARD_PROMPT : OPENING_PROMPT;
 
-    const groqResult = await callGroq(prompt, contextStr);
-    const geminiResult = groqResult?.ok ? null : await callGemini(prompt, contextStr);
-    const claudeResult = (groqResult ?? geminiResult)?.ok ? null : await callClaude(prompt, contextStr);
-    const result = groqResult ?? geminiResult ?? claudeResult;
+    // Priority: Claude (primary) → Groq → Gemini
+    const claudeResult = await callClaude(prompt, contextStr);
+    const groqResult = claudeResult?.ok ? null : await callGroq(prompt, contextStr);
+    const geminiResult = (claudeResult ?? groqResult)?.ok ? null : await callGemini(prompt, contextStr);
+    const result = claudeResult ?? groqResult ?? geminiResult;
 
     let finalMessage: string;
     let rateLimitHit = false;

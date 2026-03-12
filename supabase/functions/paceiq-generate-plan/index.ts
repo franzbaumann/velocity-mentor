@@ -87,7 +87,7 @@ async function callClaude(
       },
       body: JSON.stringify({
         model: "claude-sonnet-4-5",
-        max_tokens: 4000,
+        max_tokens: 8000,
         system: PLAN_PROMPT,
         messages: [{ role: "user", content: userContent }],
       }),
@@ -232,18 +232,15 @@ serve(async (req) => {
       ? Math.max(8, Math.ceil((new Date(raceDate).getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000)))
       : null;
 
-    const hasAny = anthropicKeys().length > 0 || groqKeys().length > 0 || geminiKeys().length > 0;
+    // Priority: Claude (primary) → Groq → Gemini
     const planRaw =
+      (await callClaude(answers, philosophy, raceDate, requiredWeeks)) ??
       (await callGroq(answers, philosophy, raceDate, requiredWeeks)) ??
-      (await callGemini(answers, philosophy, raceDate, requiredWeeks)) ??
-      (await callClaude(answers, philosophy, raceDate, requiredWeeks));
+      (await callGemini(answers, philosophy, raceDate, requiredWeeks));
     if (!planRaw || typeof planRaw !== "object") {
-      const reason = !hasAny
-        ? "No API keys in env"
-        : "All AI APIs failed. Check Supabase logs.";
-      console.error("paceiq-generate-plan AI failed:", reason);
+      console.error("paceiq-generate-plan: all AI providers failed");
       return new Response(
-        JSON.stringify({ error: "AI unavailable. Set GROQ_API_KEY or GEMINI_API_KEY in Supabase secrets." }),
+        JSON.stringify({ error: "AI unavailable. Set ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets." }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

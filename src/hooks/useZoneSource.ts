@@ -8,7 +8,8 @@ export function useZoneSource(): string {
   const { data: labSource } = useQuery({
     queryKey: ["zone-source-lab"],
     queryFn: async () => {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return null;
       const { data } = await supabase
         .from("athlete_profile")

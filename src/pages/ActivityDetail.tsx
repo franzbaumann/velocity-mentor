@@ -251,7 +251,8 @@ export default function ActivityDetail() {
     queryKey: ["personal-records-for-activity", actIdForPb, id],
     queryFn: async () => {
       if (!actIdForPb && !id) return [];
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return [];
       const ids = [actIdForPb, id].filter(Boolean) as string[];
       const { data } = await supabase
@@ -814,7 +815,8 @@ function ActivityNotes({
     if (!activityId) return;
     setSaving(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const { data: { session } } = await supabase.auth.getSession();
+      const user = session?.user ?? null;
       if (!user) return;
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(activityId);
       const query = supabase
