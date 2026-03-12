@@ -9,7 +9,14 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2, User } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { FunctionsHttpError } from "@supabase/supabase-js";
@@ -473,10 +480,31 @@ export default function SettingsPage() {
     queryKey: ["athlete_profile", user?.id],
     queryFn: async () => {
       if (!user) return null;
-      const { data } = await supabase.from("athlete_profile").select("max_hr, resting_hr").eq("user_id", user.id).maybeSingle();
+      const { data } = await supabase
+        .from("athlete_profile")
+        .select("max_hr, resting_hr, weight_kg, height_cm, training_philosophy, preferred_longrun_day, preferred_units")
+        .eq("user_id", user.id)
+        .maybeSingle();
       return data;
     },
     enabled: !!user,
+  });
+
+  const { data: latestWeight } = useQuery({
+    queryKey: ["latest_weight", user?.id],
+    queryFn: async () => {
+      if (!user) return null;
+      const { data } = await supabase
+        .from("daily_readiness")
+        .select("weight")
+        .eq("user_id", user.id)
+        .not("weight", "is", null)
+        .order("date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data?.weight ?? null;
+    },
+    enabled: !!user && !!isConnected,
   });
 
   const [clearing, setClearing] = useState(false);
@@ -513,13 +541,51 @@ export default function SettingsPage() {
   const [maxHr, setMaxHr] = useState("");
   const [restingHr, setRestingHr] = useState("");
   const [savingHr, setSavingHr] = useState(false);
+  const [weightKg, setWeightKg] = useState("");
+  const [heightCm, setHeightCm] = useState("");
+  const [philosophy, setPhilosophy] = useState<string>("jack_daniels");
+  const [longRunDay, setLongRunDay] = useState<string>("Saturday");
+  const [units, setUnits] = useState<string>("km");
+  const [savingProfile, setSavingProfile] = useState(false);
+  const [streamsSyncing, setStreamsSyncing] = useState(false);
+
+  const handleSyncStreams = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      toast.error("Not signed in");
+      return;
+    }
+    setStreamsSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("intervals-proxy", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { action: "sync_streams" },
+      });
+      if (error) throw error;
+      const res = data as { ok?: number; failed?: number; total?: number } | null;
+      const ok = res?.ok ?? 0;
+      const total = res?.total ?? 0;
+      toast.success(`Chart data synced for ${ok} of ${total} activities.`);
+      queryClient.invalidateQueries({ queryKey: ["activities"] });
+      queryClient.invalidateQueries({ queryKey: ["activity-detail"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to sync chart data");
+    } finally {
+      setStreamsSyncing(false);
+    }
+  };
 
   useEffect(() => {
     if (athleteProfile) {
       setMaxHr(athleteProfile.max_hr != null ? String(athleteProfile.max_hr) : "");
       setRestingHr(athleteProfile.resting_hr != null ? String(athleteProfile.resting_hr) : "");
+      setWeightKg(athleteProfile.weight_kg != null ? String(athleteProfile.weight_kg) : "");
+      setHeightCm(athleteProfile.height_cm != null ? String(athleteProfile.height_cm) : "");
+      setPhilosophy((athleteProfile.training_philosophy as string) ?? "jack_daniels");
+      setLongRunDay(athleteProfile.preferred_longrun_day ?? "Saturday");
+      setUnits(athleteProfile.preferred_units ?? "km");
     }
-  }, [athleteProfile?.max_hr, athleteProfile?.resting_hr]);
+  }, [athleteProfile]);
 
   const handleSaveHr = async () => {
     if (!user) return;
@@ -542,11 +608,47 @@ export default function SettingsPage() {
         : await supabase.from("athlete_profile").insert({ user_id: user.id, name: "Athlete", ...payload });
       if (error) throw error;
       queryClient.invalidateQueries({ queryKey: ["athlete_profile"] });
-      toast.success("Heart rate settings saved. Used for smart activity names (e.g. Easy vs Tempo).");
+      toast.success("Heart rate settings saved.");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSavingHr(false);
+    }
+  };
+
+  const handleSaveProfile = async () => {
+    if (!user) return;
+    const w = weightKg.trim() ? parseFloat(weightKg.trim()) : null;
+    const h = heightCm.trim() ? parseFloat(heightCm.trim()) : null;
+    if (w != null && (w < 30 || w > 200)) {
+      toast.error("Weight should be 30–200 kg");
+      return;
+    }
+    if (h != null && (h < 100 || h > 250)) {
+      toast.error("Height should be 100–250 cm");
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      const { data: existing } = await supabase.from("athlete_profile").select("id").eq("user_id", user.id).maybeSingle();
+      const payload = {
+        weight_kg: w,
+        height_cm: h,
+        training_philosophy: philosophy as "jack_daniels" | "pfitzinger" | "hansons" | "ai" | "80_20" | "lydiard",
+        preferred_longrun_day: longRunDay,
+        preferred_units: units,
+      };
+      const { error } = existing
+        ? await supabase.from("athlete_profile").update(payload).eq("user_id", user.id)
+        : await supabase.from("athlete_profile").insert({ user_id: user.id, name: "Athlete", ...payload });
+      if (error) throw error;
+      queryClient.invalidateQueries({ queryKey: ["athlete_profile"] });
+      queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+      toast.success("Profile saved.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save");
+    } finally {
+      setSavingProfile(false);
     }
   };
 
@@ -688,8 +790,17 @@ export default function SettingsPage() {
 
               {/* Garmin + Strava hidden — intervals.icu is the primary data source */}
               {activityCount > 0 && (
-                <div className="pl-11 ml-4 flex items-center gap-4 text-xs text-muted-foreground">
+                <div className="pl-11 ml-4 flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
                   <span>{activityCount} activities synced</span>
+                  <button
+                    type="button"
+                    onClick={handleSyncStreams}
+                    disabled={streamsSyncing}
+                    className="text-primary hover:underline flex items-center gap-1"
+                  >
+                    {streamsSyncing ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                    {streamsSyncing ? "Syncing chart data…" : "Sync chart data for all activities"}
+                  </button>
                   <button
                     type="button"
                     onClick={handleClearAllData}
@@ -706,9 +817,14 @@ export default function SettingsPage() {
           {/* Heart Rate */}
           <div className="glass-card p-5">
             <p className="section-header">Heart Rate</p>
-            <p className="text-sm text-muted-foreground mb-4">
-              Max HR is used for smart activity names (Easy vs Tempo) and zone calculations. Set if your device doesn&apos;t provide it.
+            <p className="text-sm text-muted-foreground mb-2">
+              Max HR is used for smart activity names (Easy vs Tempo) and zone calculations.
             </p>
+            {isConnected && (
+              <p className="text-xs text-muted-foreground mb-4">
+                Resting HR is synced from intervals.icu daily with your wellness data. Enter a value here only if you want to override it (e.g. your device doesn&apos;t report it).
+              </p>
+            )}
             <div className="flex flex-wrap items-end gap-4">
               <div className="space-y-1">
                 <label className="text-xs text-muted-foreground">Max HR (bpm)</label>
@@ -740,6 +856,46 @@ export default function SettingsPage() {
             </div>
           </div>
 
+          {/* Athlete Info */}
+          <div className="glass-card p-5">
+            <p className="section-header">Athlete Info</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              {isConnected
+                ? "Weight and height are synced from intervals.icu when available. Enter values here only if they're not coming through automatically — we use them for calorie estimates and VO2max calculations."
+                : "Enter your weight and height for calorie estimates and VO2max calculations. If you connect intervals.icu, we'll sync these when available."}
+            </p>
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Weight (kg)</label>
+                <Input
+                  type="number"
+                  min={30}
+                  max={200}
+                  step={0.1}
+                  placeholder={latestWeight != null && typeof latestWeight === "number" ? `${latestWeight.toFixed(1)} (from intervals)` : "e.g. 70"}
+                  value={weightKg}
+                  onChange={(e) => setWeightKg(e.target.value)}
+                  className="w-28 bg-secondary/50"
+                />
+              </div>
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Height (cm)</label>
+                <Input
+                  type="number"
+                  min={100}
+                  max={250}
+                  placeholder="e.g. 175"
+                  value={heightCm}
+                  onChange={(e) => setHeightCm(e.target.value)}
+                  className="w-24 bg-secondary/50"
+                />
+              </div>
+              <Button onClick={handleSaveProfile} size="sm" className="rounded-full" disabled={savingProfile}>
+                {savingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <><User className="w-4 h-4 mr-1" /> Save</>}
+              </Button>
+            </div>
+          </div>
+
           {/* Lab Test Upload */}
           <LabTestSection />
 
@@ -749,34 +905,54 @@ export default function SettingsPage() {
           {/* Training Preferences */}
           <div className="glass-card p-5">
             <p className="section-header">Training Preferences</p>
-            <div className="space-y-3 text-sm">
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Philosophy</span>
-                <span className="font-medium text-foreground">Jack Daniels</span>
+            <p className="text-sm text-muted-foreground mb-4">
+              These preferences shape how Kipcoachee designs your plan and describes workouts.
+            </p>
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <label className="text-xs text-muted-foreground">Philosophy</label>
+                <Select value={philosophy} onValueChange={setPhilosophy}>
+                  <SelectTrigger className="w-full max-w-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="jack_daniels">Jack Daniels</SelectItem>
+                    <SelectItem value="pfitzinger">Pfitzinger</SelectItem>
+                    <SelectItem value="hansons">Hansons</SelectItem>
+                    <SelectItem value="80_20">80/20</SelectItem>
+                    <SelectItem value="lydiard">Lydiard</SelectItem>
+                    <SelectItem value="ai">AI</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Units</span>
-                <span className="font-medium text-foreground">Kilometers</span>
+              <div className="space-y-2">
+                <label className="text-xs text-muted-foreground">Units</label>
+                <Select value={units} onValueChange={setUnits}>
+                  <SelectTrigger className="w-full max-w-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="km">Kilometers</SelectItem>
+                    <SelectItem value="mi">Miles</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
-              <div className="flex justify-between">
-                <span className="text-muted-foreground">Long run day</span>
-                <span className="font-medium text-foreground">Saturday</span>
+              <div className="space-y-2">
+                <label className="text-xs text-muted-foreground">Long run day</label>
+                <Select value={longRunDay} onValueChange={setLongRunDay}>
+                  <SelectTrigger className="w-full max-w-xs">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"].map((d) => (
+                      <SelectItem key={d} value={d}>{d}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
-            </div>
-          </div>
-
-          {/* Notifications */}
-          <div className="glass-card p-5">
-            <p className="section-header">Notifications</p>
-            <div className="space-y-3 text-sm">
-              {["Kipcoachee nudges", "Daily readiness summary", "Pre-workout reminder"].map((item) => (
-                <div key={item} className="flex items-center justify-between">
-                  <span className="text-muted-foreground">{item}</span>
-                  <div className="w-10 h-6 bg-primary rounded-full relative cursor-pointer">
-                    <div className="absolute right-0.5 top-0.5 w-5 h-5 bg-primary-foreground rounded-full" />
-                  </div>
-                </div>
-              ))}
+              <Button onClick={handleSaveProfile} size="sm" className="rounded-full" disabled={savingProfile}>
+                {savingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Check className="w-4 h-4 mr-1" /> Save preferences</>}
+              </Button>
             </div>
           </div>
         </div>

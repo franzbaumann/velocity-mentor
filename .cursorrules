@@ -8,7 +8,7 @@
 - Context is built by buildAthleteContext() in the edge function — never manually assemble context strings
 - Temperature: 0.6 for chat, 0.4 for plan generation and structured JSON outputs
 - Max tokens: 4096 for chat messages, 4000 for plan generation
-- Groq model: llama-3.3-70b-versatile (primary), Gemini 2.0 Flash (fallback)
+- Claude 3.5 Sonnet (primary), Groq llama-3.3-70b (fallback), Gemini 2.0 Flash-Lite (fallback)
 - Task-specific prompts (activity feedback, workout notes, philosophy) in other edge functions must still identify as "Kipcoachee — an elite AI running coach built into PaceIQ"
 
 ## Data

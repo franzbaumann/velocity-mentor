@@ -3,6 +3,9 @@ project_id = "yzrsmntqvonlccrlgtsy"
 [functions.coach-chat]
 verify_jwt = false
 
+[functions.coach-opening]
+verify_jwt = false
+
 [functions.intervals-proxy]
 verify_jwt = false
 

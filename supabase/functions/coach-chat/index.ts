@@ -472,11 +472,24 @@ serve(async (req) => {
   }
 
   try {
-    const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-    const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
-    if (!GEMINI_API_KEY && !GROQ_API_KEY) {
+    const anthropicKeys = [
+      Deno.env.get("ANTHROPIC_API_KEY"),
+      Deno.env.get("ANTHROPIC_API_KEY_2"),
+      Deno.env.get("ANTHROPIC_API_KEY_3"),
+    ].filter((k): k is string => !!k);
+    const groqKeys = [
+      Deno.env.get("GROQ_API_KEY"),
+      Deno.env.get("GROQ_API_KEY_2"),
+      Deno.env.get("GROQ_API_KEY_3"),
+    ].filter((k): k is string => !!k);
+    const geminiKeys = [
+      Deno.env.get("GEMINI_API_KEY"),
+      Deno.env.get("GEMINI_API_KEY_2"),
+      Deno.env.get("GEMINI_API_KEY_3"),
+    ].filter((k): k is string => !!k);
+    if (anthropicKeys.length === 0 && groqKeys.length === 0 && geminiKeys.length === 0) {
       return new Response(
-        JSON.stringify({ error: "Kipcoachee needs GEMINI_API_KEY or GROQ_API_KEY." }),
+        JSON.stringify({ error: "Kipcoachee needs ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY." }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -500,12 +513,14 @@ serve(async (req) => {
     let messages: { role: string; content: string }[] = [];
     let intakeAnswers: Record<string, string | string[]> | null = null;
     let intervalsContext: { wellness?: unknown[]; activities?: unknown[] } | null = null;
+    let useStream = true;
 
     try {
       const body = await req.json();
       messages = Array.isArray(body?.messages) ? body.messages : [];
       intakeAnswers = body?.intakeAnswers ?? null;
       intervalsContext = body?.intervalsContext ?? null;
+      useStream = body?.stream !== false;
     } catch {
       return new Response(JSON.stringify({ error: "Invalid request body" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
@@ -536,16 +551,163 @@ serve(async (req) => {
           onboarding_answers: null, readiness_history_text: "",
         });
 
+    // Truncate to last 12 messages to stay within free-tier token limits
+    const maxMessages = 12;
+    const truncated = messages.length > maxMessages ? messages.slice(-maxMessages) : messages;
+
     const chatMessages = [
       { role: "system" as const, content: systemPrompt },
-      ...messages.map((m) => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
+      ...truncated.map((m) => ({ role: m.role as "user" | "assistant" | "system", content: m.content })),
     ];
 
-    // Streaming: try Groq first (faster), fall back to Gemini
+    // Non-streaming fallback (avoids Supabase streaming buffering issues)
+    if (!useStream) {
+      let text: string | null = null;
+      let any429 = false;
+      // Groq first (fastest), then Gemini, then Claude
+      for (const GROQ_API_KEY of groqKeys) {
+        const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: chatMessages, temperature: 0.6, max_tokens: 4096 }),
+        });
+        if (groqRes.status === 429) any429 = true;
+        else if (groqRes.ok) {
+          const groqJson = await groqRes.json();
+          text = groqJson.choices?.[0]?.message?.content?.trim() ?? null;
+          if (text) break;
+        }
+      }
+      if (!text) {
+        for (const GEMINI_API_KEY of geminiKeys) {
+          const contents = chatMessages
+            .filter((m) => m.role !== "system")
+            .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
+          const gemRes = await fetch(
+            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents,
+                systemInstruction: { parts: [{ text: systemPrompt }] },
+                generationConfig: { temperature: 0.6, maxOutputTokens: 4096 },
+              }),
+            },
+          );
+          if (gemRes.status === 429) any429 = true;
+          else if (gemRes.ok) {
+            const gemJson = await gemRes.json();
+            text = gemJson.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? null;
+            if (text) break;
+          }
+        }
+      }
+      if (!text) {
+        for (const key of anthropicKeys) {
+          const claudeMessages = chatMessages
+            .filter((m) => m.role !== "system")
+            .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+          const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+            method: "POST",
+            headers: {
+              "x-api-key": key,
+              "anthropic-version": "2023-06-01",
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              model: "claude-sonnet-4-5",
+              max_tokens: 4096,
+              system: systemPrompt,
+              messages: claudeMessages,
+            }),
+          });
+          if (claudeRes.status === 429) any429 = true;
+          else if (claudeRes.ok) {
+            const claudeJson = await claudeRes.json();
+            const block = (claudeJson.content ?? []).find((b: { type: string }) => b.type === "text");
+            text = block?.text?.trim() ?? null;
+            if (text) break;
+          }
+        }
+      }
+      if (!text) {
+        const rateLimit = any429;
+        const errMsg = rateLimit
+          ? "Rate limit reached. Try again in 15–60 minutes, or upgrade your Groq/Gemini plan."
+          : "AI unavailable.";
+        return new Response(JSON.stringify({ error: errMsg }), {
+          status: rateLimit ? 429 : 503,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify({ message: text }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Streaming: try Groq first (fastest), then Gemini, then Claude
     let streamBody: ReadableStream<Uint8Array>;
 
-    async function tryGemini(): Promise<ReadableStream<Uint8Array> | null> {
-      if (!GEMINI_API_KEY) return null;
+    async function tryClaude(key: string): Promise<{ stream: ReadableStream<Uint8Array> | null; rateLimit?: boolean } | null> {
+      const claudeMessages = chatMessages
+        .filter((m) => m.role !== "system")
+        .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": key,
+          "anthropic-version": "2023-06-01",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-5",
+          max_tokens: 4096,
+          system: systemPrompt,
+          messages: claudeMessages,
+          stream: true,
+        }),
+      });
+      if (!res.ok) {
+        console.error("Claude API error:", res.status, await res.text());
+        return res.status === 429 ? { stream: null, rateLimit: true } : null;
+      }
+      const reader = res.body!.getReader();
+      const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
+      let buffer = "";
+      const stream = new ReadableStream({
+        async start(controller) {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split(/\n/);
+              buffer = lines.pop() ?? "";
+              for (const line of lines) {
+                if (line.startsWith("data: ")) {
+                  const raw = line.slice(6).trim();
+                  if (!raw || raw === "[DONE]") continue;
+                  try {
+                    const json = JSON.parse(raw);
+                    if (json.type === "content_block_delta" && json.delta?.type === "text_delta" && json.delta?.text) {
+                      controller.enqueue(encoder.encode(`data: ${JSON.stringify({ choices: [{ delta: { content: json.delta.text } }] })}\n\n`));
+                    }
+                  } catch { /* skip */ }
+                }
+              }
+            }
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          } finally {
+            controller.close();
+          }
+        },
+      });
+      return { stream };
+    }
+
+    async function tryGemini(key: string): Promise<{ stream: ReadableStream<Uint8Array> | null; rateLimit?: boolean } | null> {
       const contents = chatMessages
         .filter((m) => m.role !== "system")
         .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
@@ -553,7 +715,7 @@ serve(async (req) => {
 
       const geminiFetch = () =>
         fetch(
-          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:streamGenerateContent?key=${GEMINI_API_KEY}&alt=sse`,
+          `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:streamGenerateContent?key=${key}&alt=sse`,
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -572,7 +734,7 @@ serve(async (req) => {
       }
       if (!response.ok) {
         console.error("Gemini API error:", response.status, await response.text());
-        return null;
+        return response.status === 429 ? { stream: null, rateLimit: true } : null;
       }
 
       const reader = response.body!.getReader();
@@ -581,7 +743,7 @@ serve(async (req) => {
       let buffer = "";
       let chunkCount = 0;
 
-      return new ReadableStream({
+      const stream = new ReadableStream({
         async start(controller) {
           try {
             while (true) {
@@ -614,14 +776,14 @@ serve(async (req) => {
           }
         },
       });
+      return { stream };
     }
 
-    async function tryGroq(): Promise<ReadableStream<Uint8Array> | null> {
-      if (!GROQ_API_KEY) return null;
+    async function tryGroq(key: string): Promise<{ stream: ReadableStream<Uint8Array> | null; rateLimit?: boolean } | null> {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
         method: "POST",
         headers: {
-          Authorization: `Bearer ${GROQ_API_KEY}`,
+          Authorization: `Bearer ${key}`,
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
@@ -634,17 +796,43 @@ serve(async (req) => {
       });
       if (!res.ok) {
         console.error("Groq API error:", res.status, await res.text());
-        return null;
+        return res.status === 429 ? { stream: null, rateLimit: true } : null;
       }
-      return res.body!;
+      return { stream: res.body! };
     }
 
-    const stream = (await tryGroq()) ?? (await tryGemini());
+    let fallbackResult: { stream: ReadableStream<Uint8Array> | null; rateLimit?: boolean } | null = null;
+    let anyRateLimit = false;
+    for (const k of groqKeys) {
+      fallbackResult = await tryGroq(k);
+      if (fallbackResult?.rateLimit) anyRateLimit = true;
+      if (fallbackResult?.stream) break;
+    }
+    if (!fallbackResult?.stream) {
+      for (const k of geminiKeys) {
+        fallbackResult = await tryGemini(k);
+        if (fallbackResult?.rateLimit) anyRateLimit = true;
+        if (fallbackResult?.stream) break;
+      }
+    }
+    if (!fallbackResult?.stream) {
+      for (const k of anthropicKeys) {
+        fallbackResult = await tryClaude(k);
+        if (fallbackResult?.rateLimit) anyRateLimit = true;
+        if (fallbackResult?.stream) break;
+      }
+    }
+    const stream = fallbackResult?.stream ?? null;
+    const rateLimit = anyRateLimit || (fallbackResult?.rateLimit ?? false);
     if (!stream) {
-      return new Response(
-        JSON.stringify({ error: "AI unavailable. Gemini and Groq both failed." }),
-        { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
-      );
+      console.error("coach-chat: Claude, Groq, and Gemini all failed");
+      const errMsg = rateLimit
+        ? "Rate limit reached. Try again in 15–60 minutes, or upgrade your AI plan."
+        : "AI unavailable. Set ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets.";
+      return new Response(JSON.stringify({ error: errMsg }), {
+        status: rateLimit ? 429 : 503,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
     }
     streamBody = stream;
 

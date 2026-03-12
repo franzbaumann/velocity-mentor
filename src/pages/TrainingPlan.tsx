@@ -3,14 +3,14 @@ import { useTrainingPlan } from "@/hooks/use-training-plan";
 import { supabase } from "@/integrations/supabase/client";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, GripVertical, Check, MessageCircle, Sparkles } from "lucide-react";
+import { UnifiedCalendar } from "@/components/UnifiedCalendar";
 import { useState, useMemo, useEffect } from "react";
-import { format, parseISO, startOfMonth, endOfMonth, startOfWeek, endOfWeek, eachDayOfInterval, isSameMonth, isSameDay, addMonths, subMonths, isWithinInterval } from "date-fns";
+import { format, parseISO, startOfWeek, endOfWeek, isWithinInterval } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 /** Match app theme for session badges */
 const SESSION_COLORS: Record<string, string> = {
   easy: "bg-accent/15 text-accent",
@@ -44,7 +44,7 @@ function SessionCard({
 
   return (
     <div
-      className={`flex items-start gap-3 p-3 rounded-xl bg-card/60 border border-border hover:border-primary/20 transition-colors group cursor-pointer ${isDone ? "opacity-75" : ""}`}
+      className={`flex items-start gap-3 p-4 card-standard hover:border-primary/20 transition-colors group cursor-pointer ${isDone ? "opacity-75" : ""}`}
       onClick={() => onSessionClick?.(session)}
       role="button"
       tabIndex={0}
@@ -127,19 +127,6 @@ type SessionLike = {
   coach_note?: string | null;
   adjustment_notes?: string | null;
   supportsCoachNote?: boolean;
-};
-
-/** Match app theme: accent=green, primary=blue, warning=orange, destructive=red */
-const PILL_COLORS: Record<string, string> = {
-  easy: "bg-accent text-accent-foreground",
-  tempo: "bg-primary text-primary-foreground",
-  interval: "bg-destructive text-destructive-foreground",
-  intervals: "bg-destructive text-destructive-foreground",
-  long: "bg-warning text-warning-foreground",
-  rest: "bg-muted text-muted-foreground",
-  race: "bg-primary text-primary-foreground",
-  recovery: "bg-muted text-muted-foreground",
-  strides: "bg-accent text-accent-foreground",
 };
 
 function SessionDetailModal({
@@ -264,91 +251,6 @@ function SessionDetailModal({
   );
 }
 
-function CalendarView({
-  sessions,
-  selectedSession,
-  onSessionSelect,
-  onMarkDone,
-  onAskKipcoachee,
-}: {
-  sessions: SessionLike[];
-  selectedSession: SessionLike | null;
-  onSessionSelect: (s: SessionLike | null) => void;
-  onMarkDone: (args: { sessionId: string; done: boolean }) => void;
-  onAskKipcoachee?: (session: SessionLike) => void;
-}) {
-  const [currentMonth, setCurrentMonth] = useState(new Date());
-
-  const sessionsByDate = useMemo(() => {
-    const map = new Map<string, SessionLike[]>();
-    for (const s of sessions) {
-      if (!s.scheduled_date) continue;
-      const key = s.scheduled_date.slice(0, 10);
-      const arr = map.get(key) ?? [];
-      arr.push(s);
-      map.set(key, arr);
-    }
-    return map;
-  }, [sessions]);
-
-  const monthStart = startOfMonth(currentMonth);
-  const monthEnd = endOfMonth(currentMonth);
-  const calStart = startOfWeek(monthStart);
-  const calEnd = endOfWeek(monthEnd);
-  const days = eachDayOfInterval({ start: calStart, end: calEnd });
-
-  return (
-    <div className="w-full">
-      <div className="flex items-center justify-between mb-5">
-        <button onClick={() => setCurrentMonth(subMonths(currentMonth, 1))} className="text-sm text-muted-foreground hover:text-foreground px-3 py-2 rounded-lg hover:bg-secondary/50">
-          &larr; Prev
-        </button>
-        <h3 className="text-base font-semibold text-foreground tabular-nums">{format(currentMonth, "MMMM yyyy")}</h3>
-        <button onClick={() => setCurrentMonth(addMonths(currentMonth, 1))} className="text-sm text-muted-foreground hover:text-foreground px-3 py-2 rounded-lg hover:bg-secondary/50">
-          Next &rarr;
-        </button>
-      </div>
-      <div className="grid grid-cols-7 gap-2">
-        {DAY_NAMES.map((d) => (
-          <div key={d} className="text-center text-xs font-medium text-muted-foreground uppercase tracking-wider py-2">
-            {d}
-          </div>
-        ))}
-        {days.map((day) => {
-          const key = format(day, "yyyy-MM-dd");
-          const daySessions = sessionsByDate.get(key) ?? [];
-          const inMonth = isSameMonth(day, currentMonth);
-          return (
-            <div
-              key={key}
-              className={`bg-card rounded-xl border border-border min-h-[100px] sm:min-h-[120px] p-2.5 ${!inMonth ? "opacity-40" : ""}`}
-            >
-              <p className={`text-sm mb-2 font-medium ${isSameDay(day, new Date()) ? "font-bold text-primary" : "text-muted-foreground"}`}>
-                {format(day, "d")}
-              </p>
-              <div className="space-y-1">
-                {daySessions.map((s) => {
-                  const pill = PILL_COLORS[s.session_type] ?? "bg-primary/20 text-primary";
-                  return (
-                    <button
-                      key={s.id}
-                      onClick={() => onSessionSelect(s)}
-                      className={`w-full text-left text-xs px-2 py-1 rounded-lg truncate ${pill} ${s.completed_at ? "ring-2 ring-emerald-400" : ""}`}
-                    >
-                      {s.completed_at && <Check className="w-3 h-3 inline mr-1 shrink-0" />}
-                      {s.description.slice(0, 28)}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 export default function TrainingPlan() {
   const { plan, isLoading, rescheduleSession, markSessionDone } = useTrainingPlan();
   const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set([1]));
@@ -465,14 +367,8 @@ export default function TrainingPlan() {
         </div>
 
         {view === "calendar" ? (
-          <div className="glass-card p-6">
-            <CalendarView
-              sessions={weeks.flatMap((w) => w.sessions)}
-              selectedSession={selectedSession}
-              onSessionSelect={setSelectedSession}
-              onMarkDone={markSessionDone}
-              onAskKipcoachee={handleAskKipcoachee}
-            />
+          <div className="glass-card overflow-hidden">
+            <UnifiedCalendar defaultView="plan" />
           </div>
         ) : (
         <div className="space-y-3">

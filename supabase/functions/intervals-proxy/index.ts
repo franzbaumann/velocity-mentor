@@ -607,6 +607,184 @@ ${trkpts}
       return jsonOk(data ?? { stage: "idle", done: true });
     }
 
+    // ─── ACTION: quick_sync (yesterday + today only — fast for app load when data already synced) ───
+    if (action === "quick_sync") {
+      const today = todayStr();
+      const d = new Date(today);
+      d.setDate(d.getDate() - 2);
+      const oldest = d.toISOString().slice(0, 10);
+
+      await updateSyncProgress(supabaseAdmin, user.id, {
+        stage: "quick_sync",
+        detail: "Syncing yesterday and today...",
+        done: false,
+        error: null,
+      });
+
+      let activitiesUpserted = 0;
+      try {
+        const url = `https://intervals.icu/api/v1/athlete/${athleteId}/activities?oldest=${oldest}&newest=${today}&fields=${ACTIVITIES_FIELDS}`;
+        const res = await fetch(url, { headers });
+        if (res.ok) {
+          const data = await res.json();
+          const arr = Array.isArray(data) ? data : [];
+          for (const run of arr) {
+            const externalId = String(run.id ?? "");
+            if (!externalId) continue;
+            const dateRaw = run.start_date_local ?? run.startDate ?? run.date;
+            const dRun = new Date(String(dateRaw ?? ""));
+            const date = isNaN(dRun.getTime()) ? null : dRun.toISOString().slice(0, 10);
+            if (!date) continue;
+            const distM = Number(run.distance ?? 0);
+            const distKm = distM > 100 ? distM / 1000 : distM;
+            const movTime = Number(run.moving_time ?? run.elapsed_time ?? 0);
+            const avgSpeed = Number(run.average_speed ?? 0);
+            let avgPace: string | null = null;
+            if (avgSpeed > 0) {
+              const paceMin = 1000 / avgSpeed / 60;
+              if (paceMin >= 2 && paceMin <= 25) {
+                const m = Math.floor(paceMin);
+                const s = Math.round((paceMin - m) * 60);
+                avgPace = `${m}:${String(s).padStart(2, "0")}/km`;
+              }
+            }
+            const rawType = String(run.type ?? "").trim();
+            const KNOWN_TYPES = ["Run", "Ride", "Swim", "Walk", "Hike", "Yoga", "Strength", "VirtualRun", "TrailRun", "WeightTraining"];
+            const activityType = KNOWN_TYPES.includes(rawType) ? rawType : rawType.toLowerCase().includes("run") ? "Run" : rawType.toLowerCase().includes("ride") || rawType.toLowerCase().includes("cycl") ? "Ride" : rawType.toLowerCase().includes("walk") ? "Walk" : rawType || "Run";
+            const { error } = await supabaseAdmin.from("activity").upsert({
+              user_id: user.id,
+              date,
+              type: activityType,
+              name: String(run.name ?? "").trim() || null,
+              distance_km: distKm > 0 ? Math.round(distKm * 100) / 100 : null,
+              duration_seconds: movTime > 0 ? Math.round(movTime) : null,
+              avg_pace: avgPace,
+              avg_hr: run.average_heartrate != null ? Math.round(Number(run.average_heartrate)) : null,
+              max_hr: run.max_heartrate != null ? Math.round(Number(run.max_heartrate)) : null,
+              cadence: run.average_cadence != null ? Math.round(Number(run.average_cadence)) : null,
+              elevation_gain: run.total_elevation_gain != null ? Number(run.total_elevation_gain) : null,
+              source: "intervals_icu",
+              external_id: externalId,
+              description: run.description != null ? String(run.description).trim() || null : null,
+              icu_training_load: run.icu_training_load != null ? Number(run.icu_training_load) : null,
+              trimp: run.trimp != null ? Number(run.trimp) : null,
+              icu_hrss: run.icu_hrss != null ? Number(run.icu_hrss) : null,
+              icu_trimp: run.icu_trimp != null ? Number(run.icu_trimp) : null,
+              icu_efficiency_factor: run.icu_efficiency_factor != null ? Number(run.icu_efficiency_factor) : null,
+              icu_aerobic_decoupling: run.icu_aerobic_decoupling != null ? Number(run.icu_aerobic_decoupling) : run.icu_decoupling != null ? Number(run.icu_decoupling) : null,
+              icu_power_hr: run.icu_power_hr != null ? Number(run.icu_power_hr) : null,
+              icu_avg_hr_reserve: run.icu_avg_hr_reserve != null ? Number(run.icu_avg_hr_reserve) : null,
+              gap: run.gap != null ? Number(run.gap) : null,
+              workout_type: run.workout_type != null ? String(run.workout_type).trim() || null : null,
+              hr_zone_times: run.icu_hr_zone_times ?? run.icu_zone_times ?? null,
+              pace_zone_times: run.icu_pace_zone_times ?? null,
+              perceived_exertion: run.perceived_exertion != null ? Number(run.perceived_exertion) : null,
+              garmin_id: `icu_${externalId}`,
+            }, { onConflict: "user_id,garmin_id" });
+            if (!error) activitiesUpserted++;
+          }
+        }
+      } catch (e) {
+        console.error("quick_sync activities error:", e);
+      }
+
+      let wellnessDays = 0;
+      try {
+        const wUrl = `https://intervals.icu/api/v1/athlete/${athleteId}/wellness?oldest=${oldest}&newest=${today}`;
+        const wRes = await fetch(wUrl, { headers });
+        if (wRes.ok) {
+          const wData = await wRes.json();
+          const wArr = Array.isArray(wData) ? wData : [];
+          const batch = wArr.map((w: Record<string, unknown>) => {
+            const dateStr = String(w.id ?? w.date ?? w.calendarDate ?? "").slice(0, 10);
+            const ctlVal = w.ctl ?? w.ctLoad ?? null;
+            const atlVal = w.atl ?? w.atlLoad ?? null;
+            const tsbRaw = w.tsb ?? w.form ?? null;
+            const tsb = tsbRaw != null ? Number(tsbRaw) : (ctlVal != null && atlVal != null ? Number(ctlVal) - Number(atlVal) : null);
+            return {
+              user_id: user.id,
+              date: dateStr,
+              ctl: ctlVal != null ? Number(ctlVal) : null,
+              atl: atlVal != null ? Number(atlVal) : null,
+              tsb,
+              icu_ctl: ctlVal != null ? Number(ctlVal) : null,
+              icu_atl: atlVal != null ? Number(atlVal) : null,
+              icu_tsb: tsb,
+              icu_ramp_rate: w.rampRate ?? w.ramp_rate != null ? Number(w.rampRate ?? w.ramp_rate) : null,
+              icu_long_term_power: w.longTermPower ?? w.long_term_power != null ? Number(w.longTermPower ?? w.long_term_power) : null,
+              hrv: w.hrv ?? w.hrvSDNN ?? null,
+              hrv_rmssd: w.hrvRMSSD ?? w.hrv_rmssd != null ? Number(w.hrvRMSSD ?? w.hrv_rmssd) : null,
+              hrv_sdnn: w.hrvSDNN ?? w.hrv_sdnn != null ? Number(w.hrvSDNN ?? w.hrv_sdnn) : null,
+              resting_hr: w.restingHR ?? w.resting_hr ?? null,
+              sleep_hours: w.sleepSecs ? Number(w.sleepSecs) / 3600 : (w.sleepHours ?? null),
+              sleep_secs: w.sleepSecs ?? w.sleep_secs != null ? Number(w.sleepSecs ?? w.sleep_secs) : null,
+              sleep_score: w.sleepScore ?? w.sleep_score != null ? Number(w.sleepScore ?? w.sleep_score) : null,
+              weight: w.weight != null ? Number(w.weight) : null,
+              kcal: w.kcal ?? w.calories != null ? Math.round(Number(w.kcal ?? w.calories)) : null,
+              steps: w.steps != null ? Math.round(Number(w.steps)) : null,
+              stress_hrv: w.stressHrv ?? w.stress_hrv != null ? Number(w.stressHrv ?? w.stress_hrv) : null,
+              readiness: w.readiness != null ? Number(w.readiness) : null,
+              spo2: w.spo2 ?? w.spO2 != null ? Number(w.spo2 ?? w.spO2) : null,
+              respiration_rate: w.respirationRate ?? w.respiration_rate != null ? Number(w.respirationRate ?? w.respiration_rate) : null,
+            };
+          }).filter((r: Record<string, unknown>) => r.date && /^\d{4}-\d{2}-\d{2}$/.test(String(r.date)));
+          if (batch.length > 0) {
+            await supabaseAdmin.from("daily_readiness").upsert(batch, { onConflict: "user_id,date" });
+            wellnessDays = batch.length;
+          }
+        }
+      } catch (e) {
+        console.error("quick_sync wellness error:", e);
+      }
+
+      try {
+        const aUrl = `https://intervals.icu/api/v1/athlete/${athleteId}`;
+        const aRes = await fetch(aUrl, { headers });
+        if (aRes.ok) {
+          const ap = await aRes.json() as Record<string, unknown>;
+          const updates: Record<string, unknown> = {};
+          if (ap.resting_hr != null) updates.resting_hr = Number(ap.resting_hr);
+          if (ap.max_hr != null) updates.max_hr = Number(ap.max_hr);
+          if (ap.icu_lt_hr != null) updates.lactate_threshold_hr = Number(ap.icu_lt_hr);
+          if (Object.keys(updates).length > 0) {
+            await supabaseAdmin.from("athlete_profile").update(updates).eq("user_id", user.id);
+          }
+        }
+      } catch {
+        // best effort
+      }
+
+      const { data: latestReadiness } = await supabaseAdmin
+        .from("daily_readiness")
+        .select("ctl, atl, tsb")
+        .eq("user_id", user.id)
+        .order("date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      await updateSyncProgress(supabaseAdmin, user.id, {
+        stage: "done",
+        detail: `Quick sync — ${activitiesUpserted} activities, ${wellnessDays} wellness days`,
+        done: true,
+        error: null,
+        activities_upserted: activitiesUpserted,
+        wellness_days: wellnessDays,
+        ctl: latestReadiness?.ctl ?? null,
+        atl: latestReadiness?.atl ?? null,
+        tsb: latestReadiness?.tsb ?? null,
+      });
+
+      return jsonOk({
+        action: "quick_sync",
+        done: true,
+        activities: activitiesUpserted,
+        wellness: wellnessDays,
+        ctl: latestReadiness?.ctl ?? null,
+        atl: latestReadiness?.atl ?? null,
+        tsb: latestReadiness?.tsb ?? null,
+      });
+    }
+
     // ─── ACTION: start_sync (fire-and-forget full_sync, returns immediately) ───
     if (action === "start_sync") {
       try {
@@ -1252,10 +1430,11 @@ ${trkpts}
       }
       const isMarathonPb = pbDistances.some((d) => /marathon|42\.195|42\s/i.test(d));
 
-      const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-      const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
-      if (!GEMINI_API_KEY && !GROQ_API_KEY) {
-        return jsonErr("Set GEMINI_API_KEY or GROQ_API_KEY in Supabase secrets", 500);
+      const anthropicKeys = [Deno.env.get("ANTHROPIC_API_KEY"), Deno.env.get("ANTHROPIC_API_KEY_2"), Deno.env.get("ANTHROPIC_API_KEY_3")].filter((k): k is string => !!k);
+      const geminiKeys = [Deno.env.get("GEMINI_API_KEY"), Deno.env.get("GEMINI_API_KEY_2"), Deno.env.get("GEMINI_API_KEY_3")].filter((k): k is string => !!k);
+      const groqKeys = [Deno.env.get("GROQ_API_KEY"), Deno.env.get("GROQ_API_KEY_2"), Deno.env.get("GROQ_API_KEY_3")].filter((k): k is string => !!k);
+      if (anthropicKeys.length === 0 && geminiKeys.length === 0 && groqKeys.length === 0) {
+        return jsonErr("Set ANTHROPIC_API_KEY, GEMINI_API_KEY, or GROQ_API_KEY in Supabase secrets", 500);
       }
 
       // Rich context for personalized feedback
@@ -1371,70 +1550,104 @@ ${fitnessTrend || "No readiness data"}
 
 Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, personalized sentences.`;
 
-      async function tryGemini(): Promise<string | null> {
-        if (!GEMINI_API_KEY) return null;
-        try {
-          const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-            {
+      async function tryClaude(): Promise<string | null> {
+        for (const key of anthropicKeys) {
+          try {
+            const res = await fetch("https://api.anthropic.com/v1/messages", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "x-api-key": key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+              },
               body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { maxOutputTokens: 300, temperature: 0.6 },
+                model: "claude-sonnet-4-5",
+                max_tokens: 300,
+                messages: [{ role: "user", content: prompt }],
               }),
+            });
+            if (res.status === 429) continue;
+            if (!res.ok) {
+              console.error("Claude error:", res.status, await res.text());
+              return null;
             }
-          );
-          if (!res.ok) {
-            console.error("Gemini error:", res.status, await res.text());
-            return null;
+            const json = (await res.json()) as Record<string, unknown>;
+            const content = (json.content ?? []) as Array<{ type?: string; text?: string }>;
+            const block = content.find((b) => b.type === "text");
+            const text = block?.text?.trim();
+            if (text) return text;
+          } catch (e) {
+            console.error("Claude error:", e);
           }
-          const data = await res.json() as Record<string, unknown>;
-          const candidates = (data.candidates ?? []) as Array<Record<string, unknown>>;
-          const parts = ((candidates[0]?.content as Record<string, unknown>)?.parts ?? []) as Array<Record<string, unknown>>;
-          return String(parts[0]?.text ?? "").trim() || null;
-        } catch (e) {
-          console.error("Gemini error:", e);
-          return null;
         }
+        return null;
+      }
+
+      async function tryGemini(): Promise<string | null> {
+        for (const key of geminiKeys) {
+          try {
+            const res = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }],
+                  generationConfig: { maxOutputTokens: 300, temperature: 0.6 },
+                }),
+              }
+            );
+            if (res.status === 429) continue;
+            if (!res.ok) {
+              console.error("Gemini error:", res.status, await res.text());
+              return null;
+            }
+            const data = (await res.json()) as Record<string, unknown>;
+            const candidates = (data.candidates ?? []) as Array<Record<string, unknown>>;
+            const parts = ((candidates[0]?.content as Record<string, unknown>)?.parts ?? []) as Array<Record<string, unknown>>;
+            const text = String(parts[0]?.text ?? "").trim();
+            if (text) return text;
+          } catch (e) {
+            console.error("Gemini error:", e);
+          }
+        }
+        return null;
       }
 
       async function tryGroq(): Promise<string | null> {
-        if (!GROQ_API_KEY) return null;
-        try {
-          const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${GROQ_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "llama-3.1-8b-instant",
-              messages: [{ role: "user", content: prompt }],
-              stream: false,
-              temperature: 0.6,
-              max_tokens: 300,
-            }),
-          });
-          if (!res.ok) {
-            console.error("Groq error:", res.status, await res.text());
-            return null;
+        for (const key of groqKeys) {
+          try {
+            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: "llama-3.1-8b-instant",
+                messages: [{ role: "user", content: prompt }],
+                stream: false,
+                temperature: 0.6,
+                max_tokens: 300,
+              }),
+            });
+            if (res.status === 429) continue;
+            if (!res.ok) {
+              console.error("Groq error:", res.status, await res.text());
+              return null;
+            }
+            const data = (await res.json()) as Record<string, unknown>;
+            const choices = (data.choices ?? []) as Array<Record<string, unknown>>;
+            const text = (choices[0]?.message as Record<string, unknown>)?.content;
+            if (text) return String(text).trim();
+          } catch (e) {
+            console.error("Groq error:", e);
           }
-          const data = await res.json() as Record<string, unknown>;
-          const choices = (data.choices ?? []) as Array<Record<string, unknown>>;
-          const text = (choices[0]?.message as Record<string, unknown>)?.content;
-          return (text ? String(text).trim() : null) || null;
-        } catch (e) {
-          console.error("Groq error:", e);
-          return null;
         }
+        return null;
       }
 
       try {
-        // Try Groq first to avoid Gemini rate limits (429)
-        const note = (await tryGroq()) ?? (await tryGemini());
+        const note = (await tryGroq()) ?? (await tryGemini()) ?? (await tryClaude());
         if (!note) {
-          return jsonErr("AI generation failed. Check GEMINI_API_KEY or GROQ_API_KEY in Supabase secrets.", 500);
+          return jsonErr("AI generation failed. Check ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets.", 500);
         }
 
         if (isUuid) {
@@ -1483,10 +1696,11 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
         .eq("user_id", user.id)
         .maybeSingle();
 
-      const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-      const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
-      if (!GEMINI_API_KEY && !GROQ_API_KEY) {
-        return jsonErr("Set GEMINI_API_KEY or GROQ_API_KEY in Supabase secrets", 500);
+      const anthropicKeys = [Deno.env.get("ANTHROPIC_API_KEY"), Deno.env.get("ANTHROPIC_API_KEY_2"), Deno.env.get("ANTHROPIC_API_KEY_3")].filter((k): k is string => !!k);
+      const geminiKeys = [Deno.env.get("GEMINI_API_KEY"), Deno.env.get("GEMINI_API_KEY_2"), Deno.env.get("GEMINI_API_KEY_3")].filter((k): k is string => !!k);
+      const groqKeys = [Deno.env.get("GROQ_API_KEY"), Deno.env.get("GROQ_API_KEY_2"), Deno.env.get("GROQ_API_KEY_3")].filter((k): k is string => !!k);
+      if (anthropicKeys.length === 0 && geminiKeys.length === 0 && groqKeys.length === 0) {
+        return jsonErr("Set ANTHROPIC_API_KEY, GEMINI_API_KEY, or GROQ_API_KEY in Supabase secrets", 500);
       }
 
       // Fetch the week's other workouts for full context
@@ -1555,60 +1769,94 @@ ${readinessContext || "No readiness data"}
 
 Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, personalized sentences.`;
 
-      async function tryGemini(): Promise<string | null> {
-        if (!GEMINI_API_KEY) return null;
-        try {
-          const res = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${GEMINI_API_KEY}`,
-            {
+      async function tryClaude(): Promise<string | null> {
+        for (const key of anthropicKeys) {
+          try {
+            const res = await fetch("https://api.anthropic.com/v1/messages", {
               method: "POST",
-              headers: { "Content-Type": "application/json" },
+              headers: {
+                "x-api-key": key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+              },
               body: JSON.stringify({
-                contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { maxOutputTokens: 300, temperature: 0.6 },
+                model: "claude-sonnet-4-5",
+                max_tokens: 300,
+                messages: [{ role: "user", content: prompt }],
               }),
-            }
-          );
-          if (!res.ok) return null;
-          const data = (await res.json()) as Record<string, unknown>;
-          const candidates = (data.candidates ?? []) as Array<Record<string, unknown>>;
-          const parts = ((candidates[0]?.content as Record<string, unknown>)?.parts ?? []) as Array<Record<string, unknown>>;
-          return String(parts[0]?.text ?? "").trim() || null;
-        } catch {
-          return null;
+            });
+            if (res.status === 429) continue;
+            if (!res.ok) return null;
+            const json = (await res.json()) as Record<string, unknown>;
+            const content = (json.content ?? []) as Array<{ type?: string; text?: string }>;
+            const block = content.find((b) => b.type === "text");
+            const text = block?.text?.trim();
+            if (text) return text;
+          } catch {
+            // continue to next key
+          }
         }
+        return null;
+      }
+
+      async function tryGemini(): Promise<string | null> {
+        for (const key of geminiKeys) {
+          try {
+            const res = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: prompt }] }],
+                  generationConfig: { maxOutputTokens: 300, temperature: 0.6 },
+                }),
+              }
+            );
+            if (res.status === 429) continue;
+            if (!res.ok) return null;
+            const data = (await res.json()) as Record<string, unknown>;
+            const candidates = (data.candidates ?? []) as Array<Record<string, unknown>>;
+            const parts = ((candidates[0]?.content as Record<string, unknown>)?.parts ?? []) as Array<Record<string, unknown>>;
+            const text = String(parts[0]?.text ?? "").trim();
+            if (text) return text;
+          } catch {
+            // continue to next key
+          }
+        }
+        return null;
       }
 
       async function tryGroq(): Promise<string | null> {
-        if (!GROQ_API_KEY) return null;
-        try {
-          const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-            method: "POST",
-            headers: {
-              Authorization: `Bearer ${GROQ_API_KEY}`,
-              "Content-Type": "application/json",
-            },
-            body: JSON.stringify({
-              model: "llama-3.1-8b-instant",
-              messages: [{ role: "user", content: prompt }],
-              stream: false,
-              temperature: 0.6,
-              max_tokens: 300,
-            }),
-          });
-          if (!res.ok) return null;
-          const data = (await res.json()) as Record<string, unknown>;
-          const choices = (data.choices ?? []) as Array<Record<string, unknown>>;
-          const text = (choices[0]?.message as Record<string, unknown>)?.content;
-          return (text ? String(text).trim() : null) || null;
-        } catch {
-          return null;
+        for (const key of groqKeys) {
+          try {
+            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: "llama-3.1-8b-instant",
+                messages: [{ role: "user", content: prompt }],
+                stream: false,
+                temperature: 0.6,
+                max_tokens: 300,
+              }),
+            });
+            if (res.status === 429) continue;
+            if (!res.ok) return null;
+            const data = (await res.json()) as Record<string, unknown>;
+            const choices = (data.choices ?? []) as Array<Record<string, unknown>>;
+            const text = (choices[0]?.message as Record<string, unknown>)?.content;
+            if (text) return String(text).trim();
+          } catch {
+            // continue to next key
+          }
         }
+        return null;
       }
 
-      const note = (await tryGroq()) ?? (await tryGemini());
+      const note = (await tryGroq()) ?? (await tryGemini()) ?? (await tryClaude());
       if (!note) {
-        return jsonErr("AI generation failed. Check GEMINI_API_KEY or GROQ_API_KEY in Supabase secrets.", 500);
+        return jsonErr("AI generation failed. Check ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets.", 500);
       }
 
       await supabaseAdmin

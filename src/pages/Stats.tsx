@@ -3,6 +3,8 @@ import { useMergedActivities } from "@/hooks/useMergedIntervalsData";
 import { useMergedReadiness } from "@/hooks/useMergedIntervalsData";
 import { resolveCtlAtlTsb } from "@/hooks/useReadiness";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
+import { useAthleteProfile } from "@/hooks/useAthleteProfile";
+import { useTrainingPlan } from "@/hooks/use-training-plan";
 import {
   computeFitnessCurves,
   parsePaceToMinPerKm,
@@ -14,7 +16,7 @@ import {
 import { formatDuration, formatPaceFromMinPerKm } from "@/lib/format";
 import { Link2, ArrowRight, TrendingUp, BarChart3, Activity, Trophy, Heart, Moon, Zap, Wind, Info } from "lucide-react";
 import { useNavigate } from "react-router-dom";
-import { format, subDays, subWeeks, startOfWeek } from "date-fns";
+import { format, subDays, subWeeks, startOfWeek, subMonths } from "date-fns";
 import { useMemo, useState, useEffect } from "react";
 import {
   LineChart,
@@ -121,10 +123,10 @@ function ChartCard({
 }) {
   return (
     <div className="glass-card overflow-hidden">
-      <div className="px-5 py-3 border-b border-border bg-card/60 backdrop-blur-sm flex items-center justify-between gap-2">
+      <div className="px-6 py-4 border-b border-[#E5E7EB] dark:border-border bg-card/60 backdrop-blur-sm flex items-center justify-between gap-2">
         <div className="flex items-center gap-2 min-w-0">
           <Icon className="w-4 h-4 text-primary flex-shrink-0" />
-          <span className="text-sm font-semibold text-foreground truncate">{title}</span>
+          <span className="card-title truncate">{title}</span>
         </div>
         {info && STAT_INFO[info] && (
           <div className="relative group flex-shrink-0">
@@ -141,7 +143,7 @@ function ChartCard({
           </div>
         )}
       </div>
-      <div className="p-4">{children}</div>
+      <div className="p-6">{children}</div>
     </div>
   );
 }
@@ -150,6 +152,86 @@ function LoadingSkeleton() {
   return (
     <div className="h-[280px] animate-pulse flex items-center justify-center rounded-lg bg-secondary/30">
       <span className="text-sm text-muted-foreground">Loading…</span>
+    </div>
+  );
+}
+
+/** Parse "3:00:00" or "3:00" to seconds. Returns null if invalid. */
+function parseGoalTimeToSeconds(s: string | null | undefined): number | null {
+  if (!s || typeof s !== "string") return null;
+  const parts = s.trim().split(":").map((p) => parseInt(p, 10));
+  if (parts.some((n) => isNaN(n))) return null;
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  return null;
+}
+
+/** Get goal distance km from goal race type string */
+function goalRaceToKm(goalRace: string | null | undefined): number {
+  const t = String(goalRace || "").toLowerCase();
+  if (t.includes("marathon") && !t.includes("half")) return 42.195;
+  if (t.includes("half")) return 21.0975;
+  if (t.includes("10")) return 10;
+  if (t.includes("5")) return 5;
+  return 42.195;
+}
+
+function FitnessSummaryRow({
+  readiness,
+  vo2max,
+  hrv7dAvg,
+  hrvVsAvg,
+}: {
+  readiness: { ctl?: number | null; atl?: number | null; tsb?: number | null };
+  vo2max: number | null;
+  hrv7dAvg: number | null;
+  hrvVsAvg: "↑" | "↓" | "→" | null;
+}) {
+  const { ctl, atl, tsb } = resolveCtlAtlTsb(readiness);
+  const hasAny = ctl != null || atl != null || tsb != null || vo2max != null || hrv7dAvg != null;
+  if (!hasAny) return null;
+
+  const tsbColor =
+    tsb == null ? "" : tsb > 0 ? "border-emerald-500/40 bg-emerald-500/10" : tsb >= -10 ? "border-amber-500/40 bg-amber-500/10" : "border-red-500/40 bg-red-500/10";
+
+  return (
+    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-4">
+      {ctl != null && (
+        <div className="card-standard">
+          <p className="text-2xl font-bold tabular-nums text-foreground">{Math.round(ctl)}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">CTL · Fitness</p>
+        </div>
+      )}
+      {atl != null && (
+        <div className="card-standard">
+          <p className="text-2xl font-bold tabular-nums text-foreground">{Math.round(atl)}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">ATL · Fatigue</p>
+        </div>
+      )}
+      {tsb != null && (
+        <div className={`card-standard ${tsbColor ? `border ${tsbColor}` : ""}`}>
+          <p className="text-2xl font-bold tabular-nums text-foreground">
+            {tsb >= 0 ? "+" : ""}{Math.round(tsb)}
+            {tsb > 5 && <span className="ml-1 text-emerald-500 text-lg">✓</span>}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">TSB · Form</p>
+        </div>
+      )}
+      {vo2max != null && (
+        <div className="card-standard">
+          <p className="text-2xl font-bold tabular-nums text-foreground">~{vo2max.toFixed(0)}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">VO2max est.</p>
+        </div>
+      )}
+      {hrv7dAvg != null && (
+        <div className="card-standard">
+          <p className="text-2xl font-bold tabular-nums text-foreground">
+            {Math.round(hrv7dAvg)}
+            {hrvVsAvg && <span className="ml-1 text-muted-foreground text-sm">vs avg {hrvVsAvg}</span>}
+          </p>
+          <p className="text-xs text-muted-foreground mt-0.5">7-day HRV</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -370,8 +452,18 @@ function PaceProgressionChart({ activities }: { activities: { date: string; type
 }
 
 // ── 4. Personal Records Table (running only) ──
-function PersonalRecordsTable({ activities }: { activities: { id: string; date: string; type: string | null; distance_km: number | null; duration_seconds: number | null; splits: unknown }[] }) {
+function PersonalRecordsTable({
+  activities,
+  goalPaceMinPerKm,
+}: {
+  activities: { id: string; date: string; type: string | null; distance_km: number | null; duration_seconds: number | null; splits: unknown }[];
+  goalPaceMinPerKm: number | null;
+}) {
+  const navigate = useNavigate();
   const runningOnly = useMemo(() => activities.filter((a) => isRunningActivity(a.type)), [activities]);
+  const threeMonthsAgo = fmt(subMonths(now, 3));
+  const twelveMonthsAgo = fmt(subMonths(now, 12));
+
   const prs = useMemo(() => {
     return PR_DISTANCES.map(({ key, km, label }) => {
       const best = findBestForDistance(runningOnly, km);
@@ -395,6 +487,15 @@ function PersonalRecordsTable({ activities }: { activities: { id: string; date: 
 
   if (prs.every((p) => !p.best)) return <EmptyState message="No PRs yet" sub="Run race distances to see records" />;
 
+  function formatVsGoal(prPace: number): string {
+    if (goalPaceMinPerKm == null) return "—";
+    const diff = prPace - goalPaceMinPerKm;
+    const diffMin = Math.floor(Math.abs(diff));
+    const diffSec = Math.round((Math.abs(diff) - diffMin) * 60);
+    const diffStr = `${diffMin}:${String(diffSec).padStart(2, "0")}/km`;
+    return diff > 0 ? `+${diffStr} behind goal pace` : `−${diffStr} ahead of goal pace`;
+  }
+
   return (
     <div className="overflow-x-auto">
       <table className="w-full text-sm">
@@ -403,6 +504,7 @@ function PersonalRecordsTable({ activities }: { activities: { id: string; date: 
             <th className="text-left py-2 font-medium text-muted-foreground">Distance</th>
             <th className="text-left py-2 font-medium text-muted-foreground">Best Time</th>
             <th className="text-left py-2 font-medium text-muted-foreground">Pace</th>
+            {goalPaceMinPerKm != null && <th className="text-left py-2 font-medium text-muted-foreground">vs goal pace</th>}
             <th className="text-left py-2 font-medium text-muted-foreground">Date</th>
           </tr>
         </thead>
@@ -412,6 +514,8 @@ function PersonalRecordsTable({ activities }: { activities: { id: string; date: 
             const timeStr = formatDuration(p.best.timeSec);
             const paceStr = formatPaceFromMinPerKm(p.best.pace);
             const isLatest = p.best.date === latestDate;
+            const isRecent = p.best.date >= threeMonthsAgo;
+            const isStale = p.best.date < twelveMonthsAgo;
             return (
               <tr
                 key={p.key}
@@ -424,9 +528,14 @@ function PersonalRecordsTable({ activities }: { activities: { id: string; date: 
                 <td className="py-2 font-medium text-foreground">{p.label}</td>
                 <td className="py-2 text-foreground">{timeStr}</td>
                 <td className="py-2 text-muted-foreground">{paceStr}</td>
-                <td className="py-2 text-muted-foreground flex items-center gap-1">
+                {goalPaceMinPerKm != null && (
+                  <td className="py-2 text-muted-foreground text-xs">{formatVsGoal(p.best.pace)}</td>
+                )}
+                <td className="py-2 text-muted-foreground flex items-center gap-1 flex-wrap">
                   {format(new Date(p.best.date), "MMM d, yyyy")}
                   {isLatest && <span className="text-xs px-1.5 py-0.5 rounded-full bg-accent/20 text-accent">Latest</span>}
+                  {isRecent && !isLatest && <span className="text-xs px-1.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">Recent</span>}
+                  {isStale && <span className="text-xs px-1.5 py-0.5 rounded-full bg-muted text-muted-foreground">Stale</span>}
                 </td>
               </tr>
             );
@@ -439,8 +548,8 @@ function PersonalRecordsTable({ activities }: { activities: { id: string; date: 
 
 // ── 5. HR Efficiency Trend ──
 function HREfficiencyChart({ activities }: { activities: { date: string; avg_hr: number | null; avg_pace: string | null }[] }) {
-  const chartData = useMemo(() => {
-    return activities
+  const { chartData, trend } = useMemo(() => {
+    const data = activities
       .filter((a) => {
         const pace = parsePaceToMinPerKm(a.avg_pace);
         return a.avg_hr != null && a.avg_hr >= 140 && a.avg_hr <= 150 && pace != null && pace >= 2 && pace <= 25;
@@ -448,6 +557,12 @@ function HREfficiencyChart({ activities }: { activities: { date: string; avg_hr:
       .map((a) => ({ date: a.date, pace: parsePaceToMinPerKm(a.avg_pace)!, hr: a.avg_hr }))
       .slice(-12 * 7)
       .sort((a, b) => a.date.localeCompare(b.date));
+    const recent = data.slice(-4);
+    const older = data.slice(-8, -4);
+    const recentAvg = recent.length ? recent.reduce((s, d) => s + d.pace, 0) / recent.length : 0;
+    const olderAvg = older.length ? older.reduce((s, d) => s + d.pace, 0) / older.length : 0;
+    const trendDir = recentAvg > 0 && olderAvg > 0 ? (recentAvg < olderAvg ? "↓" : recentAvg > olderAvg ? "↑" : "→") : "→";
+    return { chartData: data, trend: trendDir };
   }, [activities]);
 
   if (!chartData.length) return <EmptyState message="No aerobic HR runs yet" sub="Runs with avg HR 140–150 bpm" />;
@@ -456,18 +571,24 @@ function HREfficiencyChart({ activities }: { activities: { date: string; avg_hr:
   const yMin = validPaces.length ? Math.max(2, Math.floor(Math.min(...validPaces) * 10) / 10 - 0.2) : 4;
   const yMax = validPaces.length ? Math.min(25, Math.ceil(Math.max(...validPaces) * 10) / 10 + 0.2) : 8;
 
+  const trendText = trend === "↓" ? "improving" : trend === "↑" ? "slowing" : "stable";
+
   return (
-    <div className="h-[240px]">
-      <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
-          <YAxis tick={{ fontSize: 11 }} domain={[yMin, yMax]} tickFormatter={formatPaceTick} reversed />
-          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [formatPaceFromMinPerKm(val), "Pace"]} />
-          <Line type="monotone" dataKey="pace" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={{ r: 3 }} connectNulls />
-        </LineChart>
-      </ResponsiveContainer>
-      <p className="text-xs text-muted-foreground mt-2">Pace at aerobic HR (140–150 bpm). Faster over time = improved aerobic fitness.</p>
+    <div>
+      <p className="text-xs text-muted-foreground mb-3">
+        Pace at aerobic HR (140–150 bpm) over time. A downward trend (faster pace, same HR) means your aerobic engine is improving. Yours is trending {trend} — {trendText}.
+      </p>
+      <div className="h-[240px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
+            <YAxis tick={{ fontSize: 11 }} domain={[yMin, yMax]} tickFormatter={formatPaceTick} reversed />
+            <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [formatPaceFromMinPerKm(val), "Pace"]} />
+            <Line type="monotone" dataKey="pace" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+          </LineChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -633,9 +754,11 @@ type StatsTab = "runs" | "wellness";
 function RunningStatsSection({
   activities,
   readiness,
+  goalPaceMinPerKm,
 }: {
   activities: { date: string; type: string | null; distance_km: number | null; duration_seconds: number | null; avg_hr: number | null; avg_pace: string | null; id: string; splits: unknown }[];
-  readiness: { date: string; ctl: number | null; atl: number | null; tsb: number | null }[];
+  readiness: { date: string; ctl?: number | null; atl?: number | null; tsb?: number | null; vo2max?: number | null }[];
+  goalPaceMinPerKm: number | null;
 }) {
   const runningActivities = useMemo(
     () => activities.filter((a) => isRunningActivity(a.type) && (a.distance_km ?? 0) <= 150),
@@ -643,20 +766,20 @@ function RunningStatsSection({
   );
   return (
     <>
+      <ChartCard icon={Trophy} title="Personal Records (runs only)" info="prs">
+        <PersonalRecordsTable activities={runningActivities} goalPaceMinPerKm={goalPaceMinPerKm} />
+      </ChartCard>
       <ChartCard icon={TrendingUp} title="Fitness & Fatigue (CTL / ATL / TSB) — 16 weeks" info="fitness">
         <FitnessChart activities={runningActivities} readiness={readiness} />
+      </ChartCard>
+      <ChartCard icon={Heart} title="HR Efficiency Trend — aerobic pace (140–150 bpm)" info="hrEfficiency">
+        <HREfficiencyChart activities={runningActivities} />
       </ChartCard>
       <ChartCard icon={BarChart3} title="Weekly Mileage — 16 weeks (runs only)" info="mileage">
         <WeeklyMileageChartSimple activities={runningActivities} />
       </ChartCard>
       <ChartCard icon={Activity} title="Pace Progression (runs only)" info="pace">
         <PaceProgressionChart activities={runningActivities} />
-      </ChartCard>
-      <ChartCard icon={Trophy} title="Personal Records (runs only)" info="prs">
-        <PersonalRecordsTable activities={runningActivities} />
-      </ChartCard>
-      <ChartCard icon={Heart} title="HR Efficiency Trend — aerobic pace (140–150 bpm)" info="hrEfficiency">
-        <HREfficiencyChart activities={runningActivities} />
       </ChartCard>
     </>
   );
@@ -669,6 +792,9 @@ export default function Stats() {
   const { isConnected: intervalsConnected, isLoading: intervalsLoading } = useIntervalsIntegration();
   const { data: activities = [], isLoading: activitiesLoading } = useMergedActivities(730);
   const { data: readiness = [], isLoading: readinessLoading } = useMergedReadiness(730);
+  const { profile: athleteProfile } = useAthleteProfile();
+  const { plan: planData } = useTrainingPlan();
+
   useEffect(() => {
     if (readiness.length > 0 && activities.length === 0) setTab("wellness");
   }, [readiness.length, activities.length]);
@@ -676,11 +802,38 @@ export default function Stats() {
   const isLoading = intervalsLoading || activitiesLoading || readinessLoading;
   const hasData = activities.length > 0 || readiness.length > 0;
 
+  const goalPaceMinPerKm = useMemo(() => {
+    const plan = planData?.plan as { goal_time?: string; goal_race?: string } | undefined;
+    const profile = athleteProfile as { goal_time?: string; goal_race?: string; goal_race_name?: string; goal_distance?: string } | null | undefined;
+    const goalTimeStr = plan?.goal_time ?? profile?.goal_time;
+    const goalRace = plan?.goal_race ?? profile?.goal_race ?? profile?.goal_race_name ?? profile?.goal_distance;
+    const sec = parseGoalTimeToSeconds(goalTimeStr);
+    const km = goalRaceToKm(typeof goalRace === "string" ? goalRace : (goalRace as { type?: string })?.type ?? "");
+    if (sec == null || sec <= 0 || km <= 0) return null;
+    return sec / 60 / km;
+  }, [planData, athleteProfile]);
+
+  const fitnessSummary = useMemo(() => {
+    const latest = readiness.length > 0 ? readiness[readiness.length - 1] : null;
+    const vo2max = (latest as { vo2max?: number | null })?.vo2max ?? (athleteProfile as { vo2max?: number | null })?.vo2max ?? null;
+    const hrvVals = readiness.map((r) => r.hrv).filter((v): v is number => v != null).slice(-7);
+    const hrv7dAvg = hrvVals.length ? hrvVals.reduce((a, b) => a + b, 0) / hrvVals.length : null;
+    const hrvToday = latest?.hrv ?? null;
+    const hrvVsAvg =
+      hrvToday != null && hrv7dAvg != null ? (hrvToday > hrv7dAvg ? "↑" : hrvToday < hrv7dAvg ? "↓" : "→") : null;
+    return {
+      readiness: latest ?? {},
+      vo2max,
+      hrv7dAvg,
+      hrvVsAvg,
+    };
+  }, [readiness, athleteProfile]);
+
   if (isLoading && !hasData) {
     return (
       <AppLayout>
         <div className="animate-fade-in space-y-6">
-          <h1 className="text-2xl font-semibold text-foreground">Stats & Analytics</h1>
+          <h1 className="page-title text-foreground">Stats & Analytics</h1>
           <div className="space-y-5">
             <ChartCard icon={TrendingUp} title="Fitness & Fatigue"><LoadingSkeleton /></ChartCard>
             <ChartCard icon={BarChart3} title="Weekly Mileage"><LoadingSkeleton /></ChartCard>
@@ -694,8 +847,8 @@ export default function Stats() {
     return (
       <AppLayout>
         <div className="animate-fade-in space-y-6">
-          <h1 className="text-2xl font-semibold text-foreground">Stats & Analytics</h1>
-          <div className="glass-card p-12 text-center">
+          <h1 className="page-title text-foreground">Stats & Analytics</h1>
+          <div className="glass-card p-6 text-center">
             <div className="w-14 h-14 rounded-2xl bg-primary/10 flex items-center justify-center mx-auto mb-5">
               <Link2 className="w-7 h-7 text-primary" />
             </div>
@@ -715,42 +868,43 @@ export default function Stats() {
 
   return (
     <AppLayout>
-      <div className="animate-fade-in space-y-5">
+      <div className="animate-fade-in flex flex-col gap-6">
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-          <h1 className="text-2xl font-semibold text-foreground">Stats & Analytics</h1>
-          <div className="flex rounded-lg bg-muted/60 p-1">
+          <h1 className="page-title text-foreground">Stats & Analytics</h1>
+          <div className="flex rounded-full bg-muted/60 p-1 gap-0.5">
             <button
               onClick={() => setTab("runs")}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === "runs" ? "bg-background text-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${tab === "runs" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
               Runs & Fitness
             </button>
             <button
               onClick={() => setTab("wellness")}
-              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${tab === "wellness" ? "bg-background text-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
+              className={`px-4 py-2 rounded-full text-sm font-medium transition-colors ${tab === "wellness" ? "bg-primary text-primary-foreground" : "text-muted-foreground hover:text-foreground"}`}
             >
               Wellness
             </button>
           </div>
         </div>
 
+        <FitnessSummaryRow
+          readiness={fitnessSummary.readiness}
+          vo2max={fitnessSummary.vo2max}
+          hrv7dAvg={fitnessSummary.hrv7dAvg}
+          hrvVsAvg={fitnessSummary.hrvVsAvg}
+        />
+
         {tab === "runs" && (
-          <div className="space-y-5">
-            <RunningStatsSection activities={activities} readiness={readiness} />
+          <div className="flex flex-col gap-4">
+            <RunningStatsSection activities={activities} readiness={readiness} goalPaceMinPerKm={goalPaceMinPerKm} />
           </div>
         )}
 
         {tab === "wellness" && (
-          <div className="space-y-4">
-            <div className="space-y-3">
-              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Fitness & fatigue</h2>
-              <ChartCard icon={TrendingUp} title="CTL / ATL / TSB" info="fitness">
-                <FitnessChart activities={activities.filter((a) => isRunningActivity(a.type))} readiness={readiness} />
-              </ChartCard>
-            </div>
-            <div className="space-y-3">
-              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Wellness scores</h2>
-              <div className="grid gap-3 sm:grid-cols-2">
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col gap-3">
+              <h2 className="section-header">Wellness scores</h2>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <ChartCard icon={Activity} title="Readiness Score" info="readiness">
                   <ReadinessScoreChart readiness={readiness} />
                 </ChartCard>
@@ -759,9 +913,9 @@ export default function Stats() {
                 </ChartCard>
               </div>
             </div>
-            <div className="space-y-3">
-              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">HR & recovery</h2>
-              <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-3">
+              <h2 className="section-header">HR & recovery</h2>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <ChartCard icon={Zap} title="HRV Trend" info="hrv">
                   <HRVChart readiness={readiness} />
                 </ChartCard>
@@ -770,9 +924,9 @@ export default function Stats() {
                 </ChartCard>
               </div>
             </div>
-            <div className="space-y-3">
-              <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider">Fitness metrics</h2>
-              <div className="grid gap-3 sm:grid-cols-2">
+            <div className="flex flex-col gap-3">
+              <h2 className="section-header">Fitness metrics</h2>
+              <div className="grid gap-4 sm:grid-cols-2">
                 <ChartCard icon={Wind} title="VO2max" info="vo2max">
                   <VO2maxChart readiness={readiness} />
                 </ChartCard>

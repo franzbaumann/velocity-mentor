@@ -56,42 +56,87 @@ function buildPlanUserPrompt(
   return prompt;
 }
 
+const anthropicKeys = () =>
+  [Deno.env.get("ANTHROPIC_API_KEY"), Deno.env.get("ANTHROPIC_API_KEY_2"), Deno.env.get("ANTHROPIC_API_KEY_3")].filter(
+    (k): k is string => !!k
+  );
+const groqKeys = () =>
+  [Deno.env.get("GROQ_API_KEY"), Deno.env.get("GROQ_API_KEY_2"), Deno.env.get("GROQ_API_KEY_3")].filter(
+    (k): k is string => !!k
+  );
+const geminiKeys = () =>
+  [Deno.env.get("GEMINI_API_KEY"), Deno.env.get("GEMINI_API_KEY_2"), Deno.env.get("GEMINI_API_KEY_3")].filter(
+    (k): k is string => !!k
+  );
+
+async function callClaude(
+  answers: Record<string, unknown>,
+  philosophy: string,
+  raceDate: string | null,
+  requiredWeeks: number | null
+): Promise<unknown> {
+  const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks);
+  const prompt = `${PLAN_PROMPT}\n\n${userContent}`;
+  for (const key of anthropicKeys()) {
+    const res = await fetch("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: {
+        "x-api-key": key,
+        "anthropic-version": "2023-06-01",
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-5",
+        max_tokens: 4000,
+        system: PLAN_PROMPT,
+        messages: [{ role: "user", content: userContent }],
+      }),
+    });
+    if (res.status === 429) continue;
+    if (!res.ok) {
+      console.error("Claude error:", res.status, await res.text());
+      return null;
+    }
+    const json = await res.json();
+    const block = (json.content ?? []).find((b: { type: string }) => b.type === "text");
+    const content = block?.text ?? "";
+    const parsed = parsePlanJson(content);
+    if (parsed) return parsed;
+  }
+  return null;
+}
+
 async function callGroq(
   answers: Record<string, unknown>,
   philosophy: string,
   raceDate: string | null,
   requiredWeeks: number | null
 ): Promise<unknown> {
-  const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
-  if (!GROQ_API_KEY) return null;
-  console.log("paceiq-generate-plan: trying Groq...");
   const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks);
-  const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${GROQ_API_KEY}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: "llama-3.3-70b-versatile",
-      messages: [
-        { role: "system", content: PLAN_PROMPT },
-        { role: "user", content: userContent },
-      ],
-      temperature: 0.4,
-      max_tokens: 4000,
-      response_format: { type: "json_object" },
-    }),
-  });
-  if (!res.ok) {
-    console.error("Groq error:", res.status, await res.text());
-    return null;
+  for (const key of groqKeys()) {
+    console.log("paceiq-generate-plan: trying Groq...");
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "system", content: PLAN_PROMPT }, { role: "user", content: userContent }],
+        temperature: 0.4,
+        max_tokens: 4000,
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (res.status === 429) continue;
+    if (!res.ok) {
+      console.error("Groq error:", res.status, await res.text());
+      return null;
+    }
+    const json = await res.json();
+    const content = json.choices?.[0]?.message?.content ?? "";
+    const parsed = parsePlanJson(content);
+    if (parsed) return parsed;
   }
-  const json = await res.json();
-  const content = json.choices?.[0]?.message?.content ?? "";
-  const parsed = parsePlanJson(content);
-  if (!parsed) console.error("Groq returned ok but parsePlanJson failed (malformed JSON)");
-  return parsed;
+  return null;
 }
 
 async function callGemini(
@@ -100,28 +145,31 @@ async function callGemini(
   raceDate: string | null,
   requiredWeeks: number | null
 ): Promise<unknown> {
-  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
-  if (!GEMINI_API_KEY) return null;
   const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks);
   const prompt = `${PLAN_PROMPT}\n\n${userContent}`;
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.4, maxOutputTokens: 4000 },
-      }),
+  for (const key of geminiKeys()) {
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.4, maxOutputTokens: 4000 },
+        }),
+      }
+    );
+    if (res.status === 429) continue;
+    if (!res.ok) {
+      console.error("Gemini error:", res.status, await res.text());
+      return null;
     }
-  );
-  if (!res.ok) {
-    console.error("Gemini error:", res.status, await res.text());
-    return null;
+    const json = await res.json();
+    const content = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    const parsed = parsePlanJson(content);
+    if (parsed) return parsed;
   }
-  const json = await res.json();
-  const content = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
-  return parsePlanJson(content);
+  return null;
 }
 
 function parsePlanJson(content: string): Record<string, unknown> | null {
@@ -177,19 +225,22 @@ serve(async (req) => {
     const answers = body?.answers ?? body?.onboardingAnswers ?? {};
     const philosophy = body?.philosophy ?? "80_20_polarized";
 
-    const raceDate = (answers as { raceDate?: string }).raceDate ?? null;
+    const rawRaceDate = (answers as { raceDate?: string }).raceDate;
+    const raceDate = (typeof rawRaceDate === "string" && rawRaceDate.trim()) ? rawRaceDate.trim() : null;
     const startDate = getNextMonday();
     const requiredWeeks = raceDate
       ? Math.max(8, Math.ceil((new Date(raceDate).getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000)))
       : null;
 
-    const hasGroq = !!Deno.env.get("GROQ_API_KEY");
-    const hasGemini = !!Deno.env.get("GEMINI_API_KEY");
-    const planRaw = (await callGroq(answers, philosophy, raceDate, requiredWeeks)) ?? (await callGemini(answers, philosophy, raceDate, requiredWeeks));
+    const hasAny = anthropicKeys().length > 0 || groqKeys().length > 0 || geminiKeys().length > 0;
+    const planRaw =
+      (await callGroq(answers, philosophy, raceDate, requiredWeeks)) ??
+      (await callGemini(answers, philosophy, raceDate, requiredWeeks)) ??
+      (await callClaude(answers, philosophy, raceDate, requiredWeeks));
     if (!planRaw || typeof planRaw !== "object") {
-      const reason = !hasGroq && !hasGemini
+      const reason = !hasAny
         ? "No API keys in env"
-        : `Both APIs failed (keys present: groq=${hasGroq} gemini=${hasGemini}). Check Supabase logs.`;
+        : "All AI APIs failed. Check Supabase logs.";
       console.error("paceiq-generate-plan AI failed:", reason);
       return new Response(
         JSON.stringify({ error: "AI unavailable. Set GROQ_API_KEY or GEMINI_API_KEY in Supabase secrets." }),
@@ -250,7 +301,7 @@ serve(async (req) => {
         start_date: startDate.toISOString().slice(0, 10),
         end_date: endDate.toISOString().slice(0, 10),
         goal_race: goalDistance ?? null,
-        goal_date: raceDate,
+        goal_date: raceDate || null,
         goal_time: goalTime,
         total_weeks: totalWeeks,
         peak_weekly_km: plan.peak_weekly_km ?? null,
