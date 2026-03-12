@@ -23,6 +23,7 @@ import { useActivityById } from "../hooks/useActivities";
 import { LapScroll } from "../components/activity/LapScroll";
 import { StreamChart } from "../components/activity/StreamChart";
 import { HRAnalysisCharts } from "../components/activity/HRAnalysisCharts";
+import { HeartRateZones } from "../components/activity/HeartRateZones";
 import { formatDistance, formatDuration } from "../lib/format";
 import { isNonDistanceActivity } from "../lib/analytics";
 import { supabase } from "../shared/supabase";
@@ -489,12 +490,10 @@ export const ActivityDetailScreen: FC = () => {
               {hasHrZones && (
                 <View style={styles.zoneCard}>
                   <Text style={styles.zoneTitle}>Heart rate zones</Text>
-                  {renderZoneRows(
-                    hrZoneTimes,
-                    activity.max_hr ?? null,
-                    HR_ZONE_NAMES,
-                    HR_ZONE_COLORS,
-                  )}
+                  <HeartRateZones
+                    times={hrZoneTimes}
+                    maxHr={activity.max_hr ?? null}
+                  />
                 </View>
               )}
               {hasPaceZones && (

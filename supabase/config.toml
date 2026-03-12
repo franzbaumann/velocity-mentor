@@ -7,7 +7,7 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.coach-generate-plan]
-verify_jwt = true
+verify_jwt = false
 
 [functions.strava-oauth]
 verify_jwt = false

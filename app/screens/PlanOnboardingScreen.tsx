@@ -64,28 +64,7 @@ const INJURY_OPTIONS = [
 
 type IntakeStep = 0 | 1 | 2 | 3 | 4 | 5;
 
-const PHILOSOPHY_URL = `${SUPABASE_URL}/functions/v1/paceiq-philosophy`;
-const GENERATE_PLAN_V2_URL = `${SUPABASE_URL}/functions/v1/paceiq-generate-plan`;
-
-type OnboardingV2Answers = {
-  goal: string;
-  goalDetail: string;
-  raceName: string;
-  raceDate: string;
-  raceDistance: string;
-  goalTime: string;
-  weeklyKm: number;
-  recentRaceType: string;
-  recentRaceTime: string;
-  currentFitnessNote: string;
-  daysPerWeek: number;
-  sessionLength: string;
-  schedulingNote: string;
-  injuries: string[];
-  injuryDetail: string;
-  experienceLevel: string;
-  trainingHistoryNote: string;
-};
+const COACH_GENERATE_PLAN_URL = `${SUPABASE_URL}/functions/v1/coach-generate-plan`;
 
 export const PlanOnboardingScreen: FC = () => {
   const { colors } = useTheme();
@@ -280,77 +259,32 @@ export const PlanOnboardingScreen: FC = () => {
         return;
       }
 
-      const v2Answers: OnboardingV2Answers = {
-        goal:
-          payload.main_goal === "first_marathon"
-            ? "first_marathon"
-            : payload.main_goal === "shorter_distances"
-            ? "shorter_faster"
-            : payload.main_goal === "return_from_injury"
-            ? "return_injury"
-            : payload.main_goal ?? "",
-        goalDetail: "",
-        raceName: "",
-        raceDate: "",
-        raceDistance: "",
-        goalTime: "",
-        weeklyKm: payload.weekly_volume_km ?? 0,
-        recentRaceType: payload.recent_race ?? "none",
-        recentRaceTime: "",
-        currentFitnessNote: "",
-        daysPerWeek: payload.weekly_days ?? 0,
-        sessionLength:
-          payload.longest_day_minutes === 45
-            ? "45"
-            : payload.longest_day_minutes === 60
-            ? "60"
-            : payload.longest_day_minutes === 90
-            ? "90"
-            : payload.longest_day_minutes === 120
-            ? "120"
-            : "",
-        schedulingNote: "",
-        injuries: payload.injuries ?? [],
-        injuryDetail: "",
-        experienceLevel: payload.experience ?? "",
-        trainingHistoryNote: "",
-      };
-
       const headers: Record<string, string> = {
         "Content-Type": "application/json",
         ...(SUPABASE_ANON_KEY ? { apikey: SUPABASE_ANON_KEY } : {}),
+        Authorization: `Bearer ${token}`,
       };
-      if (token) {
-        headers.Authorization = `Bearer ${token}`;
-      }
 
-      // Step 1: philosophy recommendation
-      const philoRes = await fetch(PHILOSOPHY_URL, {
+      const planRes = await fetch(COACH_GENERATE_PLAN_URL, {
         method: "POST",
         headers,
-        body: JSON.stringify({ answers: v2Answers }),
+        body: JSON.stringify({
+          intakeAnswers: payload,
+          conversationContext: [],
+        }),
       });
-      const philoData = await philoRes.json().catch(() => ({}));
-      if (!philoRes.ok || !philoData?.primary?.philosophy) {
-        const msg = philoData?.error ?? "Failed to pick training philosophy";
+      const planData = await planRes.json().catch(() => ({}));
+      if (!planRes.ok) {
+        const msg =
+          planData?.error ?? `Failed to generate plan (status ${planRes.status})`;
+        console.warn("[PlanOnboarding] generate-plan error", planRes.status, planData);
         setSubmitError(msg);
         Alert.alert("Plan error", msg);
         return;
       }
-      const philosophy: string = philoData.primary.philosophy;
-
-      // Step 2: generate plan
-      const planRes = await fetch(GENERATE_PLAN_V2_URL, {
-        method: "POST",
-        headers,
-        body: JSON.stringify({
-          answers: v2Answers,
-          philosophy,
-        }),
-      });
-      const planData = await planRes.json().catch(() => ({}));
-      if (!planRes.ok || planData?.error) {
-        const msg = planData?.error ?? "Failed to generate plan";
+      if (planData?.error) {
+        const msg = planData.error as string;
+        console.warn("[PlanOnboarding] generate-plan app error", msg);
         setSubmitError(msg);
         Alert.alert("Plan error", msg);
         return;

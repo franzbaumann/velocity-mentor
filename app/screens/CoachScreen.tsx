@@ -503,10 +503,7 @@ export const CoachScreen: FC = () => {
         const _finalContent = assistantSoFar;
       } catch (e) {
         console.error("[Kipcoachee] fetch error", e);
-        Alert.alert(
-          "Error",
-          "Failed to reach Kipcoachee. Check connection and that GROQ_API_KEY or GEMINI_API_KEY is set in Supabase.",
-        );
+        Alert.alert("Error", "Failed to reach Kipcoachee. Check connection and that ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY is set in Supabase.");
         setIsLoading(false);
       }
     },

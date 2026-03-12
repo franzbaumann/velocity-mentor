@@ -9,6 +9,7 @@ import { useActivitiesList, type ActivityListItem } from "../hooks/useActivities
 import { useIntervalsIntegration } from "../hooks/useIntervalsIntegration";
 import { dailyTSSFromActivities } from "../lib/analytics";
 import type { ActivitiesStackParamList } from "../navigation/RootNavigator";
+import { useTrainingPlan, type TrainingPlanSession } from "../hooks/useTrainingPlan";
 import {
   addDays,
   addMonths,
@@ -43,6 +44,7 @@ export const ActivitiesScreen: FC = () => {
   const { colors } = useTheme();
   const { isConnected } = useIntervalsIntegration();
   const { items, isLoading, isEmpty, isRefetching, refetch } = useActivitiesList(730);
+  const { plan } = useTrainingPlan();
   const navigation = useNavigation<ActivitiesNav>();
   const [viewMonth, setViewMonth] = useState(() => new Date());
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
@@ -96,6 +98,21 @@ export const ActivitiesScreen: FC = () => {
     }
     return weeks;
   }, [viewMonth]);
+
+  const planSessionsByDate = useMemo(() => {
+    const map = new Map<string, TrainingPlanSession[]>();
+    const weeks = plan?.weeks ?? [];
+    for (const w of weeks) {
+      for (const s of w.sessions) {
+        if (!s.scheduled_date) continue;
+        const key = s.scheduled_date.slice(0, 10);
+        const list = map.get(key) ?? [];
+        list.push(s);
+        map.set(key, list);
+      }
+    }
+    return map;
+  }, [plan]);
 
   const goToSettings = () => {
     (navigation.getParent() as { getParent?: () => { navigate: (name: string) => void } })?.getParent?.()?.navigate("Settings");
@@ -176,6 +193,27 @@ export const ActivitiesScreen: FC = () => {
           paddingVertical: 12,
           borderTopWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
+        },
+        moreCountText: {
+          fontSize: 9,
+          color: colors.mutedForeground,
+        },
+        planPillRow: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          justifyContent: "center",
+          marginTop: 2,
+          gap: 4,
+        },
+        planPill: {
+          borderRadius: 999,
+          paddingHorizontal: 6,
+          paddingVertical: 2,
+        },
+        planPillText: {
+          fontSize: 9,
+          fontWeight: "500",
+          textTransform: "capitalize",
         },
         dayModalBackdrop: {
           flex: 1,
@@ -336,7 +374,10 @@ export const ActivitiesScreen: FC = () => {
                   const dayActivities = activitiesByDate.get(key) ?? [];
                   const tss = dailyTSS.get(key) ?? 0;
                   const intensity = maxTSS > 0 ? Math.min(1, tss / maxTSS) : 0;
-                  const hasAny = dayActivities.length > 0;
+                  const planSessions = planSessionsByDate.get(key) ?? [];
+                  const hasActivities = dayActivities.length > 0;
+                  const hasPlan = planSessions.length > 0;
+                  const hasAny = hasActivities || hasPlan;
 
                   return (
                     <TouchableOpacity
@@ -345,15 +386,15 @@ export const ActivitiesScreen: FC = () => {
                         styles.dayCell,
                         {
                           backgroundColor:
-                            hasAny && inMonth
+                            hasActivities && inMonth
                               ? colors.primary + Math.round(0x12 * (0.4 + 0.6 * intensity)).toString(16).padStart(2, "0")
                               : "transparent",
                           borderColor: today ? colors.primary : "transparent",
                           opacity: inMonth ? 1 : 0.4,
                         },
                       ]}
-                      activeOpacity={hasAny ? 0.8 : 1}
-                      onPress={hasAny ? () => setSelectedDayKey(key) : undefined}
+                      activeOpacity={hasActivities ? 0.8 : 1}
+                      onPress={hasActivities ? () => setSelectedDayKey(key) : undefined}
                     >
                       <Text
                         style={[
@@ -363,7 +404,7 @@ export const ActivitiesScreen: FC = () => {
                       >
                         {format(day, "d")}
                       </Text>
-                      {hasAny && (
+                      {hasActivities && (
                         <View style={styles.dotRow}>
                           {dayActivities.slice(0, 4).map((a) => (
                             <View
@@ -378,9 +419,45 @@ export const ActivitiesScreen: FC = () => {
                             />
                           ))}
                           {dayActivities.length > 4 && (
-                            <Text style={[styles.dayHint, { marginTop: 0, padding: 0, fontSize: 9 }]}>
-                              +{dayActivities.length - 4}
-                            </Text>
+                            <Text style={styles.moreCountText}>+{dayActivities.length - 4}</Text>
+                          )}
+                        </View>
+                      )}
+                      {hasPlan && (
+                        <View style={styles.planPillRow}>
+                          {planSessions.slice(0, 2).map((s) => {
+                            const st = s.session_type?.toLowerCase() ?? "";
+                            let bg = colors.muted;
+                            if (st.includes("easy") || st.includes("recovery")) bg = colors.accent;
+                            else if (st.includes("tempo") || st.includes("threshold")) bg = colors.primary;
+                            else if (st.includes("interval") || st.includes("vo2")) bg = colors.destructive;
+                            else if (st.includes("long")) bg = "#f97316";
+                            return (
+                              <View
+                                key={s.id}
+                                style={[
+                                  styles.planPill,
+                                  {
+                                    backgroundColor: bg,
+                                  },
+                                ]}
+                              >
+                                <Text
+                                  style={[
+                                    styles.planPillText,
+                                    {
+                                      color: colors.background,
+                                    },
+                                  ]}
+                                  numberOfLines={1}
+                                >
+                                  {s.session_type}
+                                </Text>
+                              </View>
+                            );
+                          })}
+                          {planSessions.length > 2 && (
+                            <Text style={styles.planPillText}>+{planSessions.length - 2}</Text>
                           )}
                         </View>
                       )}

@@ -89,10 +89,12 @@ serve(async (req) => {
   try {
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
     const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
-    if (!GEMINI_API_KEY && !GROQ_API_KEY) {
+    const ANTHROPIC_API_KEY = Deno.env.get("ANTHROPIC_API_KEY");
+    if (!GEMINI_API_KEY && !GROQ_API_KEY && !ANTHROPIC_API_KEY) {
       return new Response(
         JSON.stringify({
-          error: "Kipcoachee needs GEMINI_API_KEY or GROQ_API_KEY. Set one: supabase secrets set GEMINI_API_KEY=... (free at aistudio.google.com) or GROQ_API_KEY=... (free at console.groq.com)",
+          error:
+            "Kipcoachee needs GEMINI_API_KEY, GROQ_API_KEY, or ANTHROPIC_API_KEY. Set one: supabase secrets set GEMINI_API_KEY=... (free at aistudio.google.com), GROQ_API_KEY=... (free at console.groq.com), or ANTHROPIC_API_KEY=... (console.anthropic.com).",
         }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -211,6 +213,105 @@ serve(async (req) => {
 
     let streamBody: ReadableStream<Uint8Array>;
 
+    async function tryAnthropic(): Promise<ReadableStream<Uint8Array> | null> {
+      if (!ANTHROPIC_API_KEY) return null;
+
+      const systemInstruction = chatMessages.find((m) => m.role === "system")
+        ?.content ?? SYSTEM_PROMPT;
+      const anthropicMessages = chatMessages
+        .filter((m) => m.role !== "system")
+        .map((m) => ({
+          role: m.role === "assistant" ? "assistant" : "user",
+          content: m.content,
+        }));
+
+      const anthropicFetch = () =>
+        fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "x-api-key": ANTHROPIC_API_KEY,
+            "anthropic-version": "2023-06-01",
+            "content-type": "application/json",
+          },
+          body: JSON.stringify({
+            model: "claude-3-5-sonnet-latest",
+            system: systemInstruction,
+            messages: anthropicMessages,
+            max_tokens: 8192,
+            temperature: 0.7,
+            stream: true,
+          }),
+        });
+
+      let response = await anthropicFetch();
+      for (
+        let retry = 0;
+        retry < 3 && !response.ok && response.status === 429;
+        retry++
+      ) {
+        await new Promise((r) =>
+          setTimeout(r, (5 + retry * 5) * 1000)
+        );
+        response = await anthropicFetch();
+      }
+
+      if (!response.ok) {
+        console.error("Anthropic API error:", response.status, await response.text());
+        return null;
+      }
+
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+      const encoder = new TextEncoder();
+      let buffer = "";
+
+      return new ReadableStream({
+        async start(controller) {
+          try {
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              buffer += decoder.decode(value, { stream: true });
+              const lines = buffer.split(/\n/);
+              buffer = lines.pop() ?? "";
+              for (const line of lines) {
+                if (!line.startsWith("data:")) continue;
+                const raw = line.slice(5).trim();
+                if (!raw || raw === "[DONE]") continue;
+                try {
+                  const json = JSON.parse(raw);
+                  const type = json.type ?? json.event;
+                  if (type === "content_block_delta") {
+                    const delta = json.delta;
+                    const text =
+                      typeof delta?.text === "string"
+                        ? delta.text
+                        : delta?.text_delta?.text;
+                    if (text) {
+                      controller.enqueue(
+                        encoder.encode(
+                          `data: ${
+                            JSON.stringify({
+                              choices: [{ delta: { content: text } }],
+                            })
+                          }\n\n`,
+                        ),
+                      );
+                    }
+                  }
+                } catch {
+                  // ignore malformed event
+                }
+              }
+            }
+            controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+          } finally {
+            controller.close();
+          }
+        },
+      });
+    }
+
     async function tryGemini(): Promise<ReadableStream<Uint8Array> | null> {
       if (!GEMINI_API_KEY) return null;
       const contents = chatMessages
@@ -308,11 +409,14 @@ serve(async (req) => {
       return res.body!;
     }
 
-    const stream = (await tryGroq()) ?? (await tryGemini());
+    const stream = (await tryAnthropic()) ??
+      (await tryGroq()) ??
+      (await tryGemini());
     if (!stream) {
       return new Response(
         JSON.stringify({
-          error: "AI unavailable. Gemini and Groq both failed. Check keys and logs. Set GEMINI_API_KEY (aistudio.google.com) or GROQ_API_KEY (console.groq.com).",
+          error:
+            "AI unavailable. Anthropic, Groq, and Gemini all failed. Check Supabase secrets: ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY.",
         }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
