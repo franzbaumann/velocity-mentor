@@ -34,11 +34,21 @@ interface PlanSummary {
   peak_km: number | null;
 }
 
+interface CoachingMemory {
+  id: string;
+  category: "preference" | "goal" | "injury" | "lifestyle" | "race" | "personality" | "other";
+  content: string;
+  importance: number;
+  created_at: string;
+  expires_at: string | null;
+}
+
 interface AthleteContext {
   name: string;
   ctl: number | null;
   atl: number | null;
   tsb: number | null;
+  ramp_rate: number | null;
   hrv_today: number | null;
   hrv_7d_avg: number | null;
   hrv_trend: "rising" | "falling" | "stable" | "unknown";
@@ -58,6 +68,7 @@ interface AthleteContext {
   plan_workouts_text: string;
   onboarding_answers: Record<string, unknown> | null;
   readiness_history_text: string;
+  memories: CoachingMemory[];
 }
 
 // ---------------------------------------------------------------------------
@@ -229,11 +240,38 @@ async function buildAthleteContext(
     ? p.onboarding_answers as Record<string, unknown>
     : intakeAnswers;
 
+  // Ramp rate from latest readiness
+  const rampRate = (today.ramp_rate ?? today.icu_ramp_rate ?? null) as number | null;
+
+  // Coaching memories (top 15 by importance, non-expired)
+  let memories: CoachingMemory[] = [];
+  if (userId) {
+    const { data: memRows } = await supabaseAdmin
+      .from("coaching_memory")
+      .select("id, category, content, importance, created_at, expires_at")
+      .eq("user_id", userId)
+      .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+      .order("importance", { ascending: false })
+      .order("created_at", { ascending: false })
+      .limit(15);
+    if (memRows) {
+      memories = (memRows as Record<string, unknown>[]).map((m) => ({
+        id: String(m.id),
+        category: String(m.category ?? "other") as CoachingMemory["category"],
+        content: String(m.content ?? ""),
+        importance: Number(m.importance ?? 5),
+        created_at: String(m.created_at ?? ""),
+        expires_at: m.expires_at ? String(m.expires_at) : null,
+      }));
+    }
+  }
+
   return {
     name: String(p?.name ?? "there").split(" ")[0],
     ctl: resolveCtlAtlTsb(today).ctl,
     atl: resolveCtlAtlTsb(today).atl,
     tsb: resolveCtlAtlTsb(today).tsb,
+    ramp_rate: rampRate,
     hrv_today: hrvToday,
     hrv_7d_avg: hrv7dAvg,
     hrv_trend: hrvTrend,
@@ -253,6 +291,7 @@ async function buildAthleteContext(
     plan_workouts_text: planWorkoutsText,
     onboarding_answers: onboarding,
     readiness_history_text: readinessHistoryText,
+    memories,
   };
 }
 
@@ -260,6 +299,25 @@ async function buildAthleteContext(
 // System Prompt Builder — canonical version lives in src/lib/kipcoachee/system-prompt.ts
 // This is the Deno-compatible copy used by the edge function.
 // ---------------------------------------------------------------------------
+
+function buildPhilosophyDetail(philosophy: string | null): string {
+  switch (philosophy) {
+    case "80_20":
+      return `   - 80/20 Polarized: 80% easy (zone 1-2), 20% moderate-hard (zone 3-5). Never suggest hard sessions if already at the 20% intensity quota for the week. Easy runs should feel genuinely easy — conversational pace. Quality sessions are tempo, cruise intervals, or VO2max intervals. No "moderate" pace runs — they violate the polarized model. Recovery runs are part of the 80%.`;
+    case "jack_daniels":
+      return `   - Jack Daniels / VDOT: All paces derived from VDOT tables — Easy, Marathon, Threshold, Interval, Repetition. Reference VDOT paces specifically when prescribing workouts. Phases: Foundation → Early Quality → Transition Quality → Final Quality. Threshold work = cruise intervals or tempo runs at T pace. Interval work at I pace (VO2max). R pace for speed/economy. Never exceed 10% of weekly volume at I pace. E pace is the backbone.`;
+    case "lydiard":
+      return `   - Lydiard: Periodization is everything — Base → Hills → Anaerobic → Integration → Taper. The base phase is LONG (often 10-12 weeks) with high aerobic volume at comfortable pace. No hard anaerobic work during base. Hill phase builds power and strength before sharpening. The anaerobic phase is short and intense (4-6 weeks). Time trials replace traditional racing during prep. Long runs are a staple throughout all phases.`;
+    case "hansons":
+      return `   - Hansons: Cumulative fatigue is the training stimulus. Back-to-back quality days are intentional — they teach the body to perform on tired legs. Long run cap at ~26km (16mi) because it's run on fatigued legs. No single run dominates the week. Something of Quality (SOS) days are Tuesday/Thursday/Sunday. Easy days are truly easy. Weekly volume is high. The marathon long run doesn't need to be 32km+ because you're always running on cumulative fatigue.`;
+    case "pfitzinger":
+      return `   - Pfitzinger: High volume with structured quality. Medium-long runs (MLR) are a distinguishing feature — they build endurance without the recovery cost of a full long run. Lactate threshold runs are bread-and-butter quality. General aerobic runs (GA) at moderate effort fill the week. VO2max work comes in the late build phase. Plans are 12-18 weeks. Recovery runs are very short and slow. Back-to-back long efforts (long run then MLR next day) are a key stress.`;
+    case "kenyan":
+      return `   - Kenyan / East African model: Very high aerobic volume, fartlek-heavy, group-driven intensity. Easy runs are truly easy, often very slow. Hard days are very hard — long fartleks, hill repeats, track work. Training is feel-based more than data-driven, but structured around a weekly pattern: long run, fartlek, track, tempo. Double days are common. Rest and sleep are prioritized fiercely. Diet and altitude matter. The athlete should learn to run by feel and not be enslaved to the watch.`;
+    default:
+      return `   - Use your best coaching judgment. Pull from multiple philosophies based on what fits this athlete's profile, experience, and goals. Explain your reasoning when recommending specific approaches.`;
+  }
+}
 
 function buildKipcoacheeSystemPrompt(ctx: AthleteContext): string {
   const v = (val: unknown, fallback = "unknown") =>
@@ -276,6 +334,15 @@ function buildKipcoacheeSystemPrompt(ctx: AthleteContext): string {
     ctx.prs.length > 0
       ? ctx.prs.map((pr) => `${pr.distance}: ${pr.time}`).join(", ")
       : "none recorded";
+
+  const memoriesBlock =
+    ctx.memories && ctx.memories.length > 0
+      ? ctx.memories
+          .map((m) => `- [${m.category}] ${m.content}`)
+          .join("\n")
+      : "";
+
+  const philosophyDetail = buildPhilosophyDetail(ctx.philosophy);
 
   return `You are Kipcoachee — an elite AI running coach built into PaceIQ.
 
@@ -295,6 +362,7 @@ Name: ${v(ctx.name, "Athlete")}
 CTL (fitness): ${v(ctx.ctl)}
 ATL (fatigue): ${v(ctx.atl)}
 TSB (form): ${v(ctx.tsb)}
+Ramp rate: ${v(ctx.ramp_rate)}${ctx.ramp_rate != null ? " CTL pts/week" : ""}
 HRV today: ${v(ctx.hrv_today)}${ctx.hrv_today != null ? "ms" : ""}
 HRV 7-day average: ${v(ctx.hrv_7d_avg)}${ctx.hrv_7d_avg != null ? "ms" : ""}
 HRV trend: ${v(ctx.hrv_trend)}
@@ -328,6 +396,10 @@ ${ctx.readiness_history_text}` : ""}
 ${ctx.onboarding_answers ? `ONBOARDING ANSWERS (athlete's self-reported context)
 ${JSON.stringify(ctx.onboarding_answers, null, 2)}` : ""}
 
+${memoriesBlock ? `WHAT I REMEMBER ABOUT THIS ATHLETE
+These are coaching memories from previous conversations. Use them to personalize advice, avoid re-asking known information, and show continuity. Reference memories naturally — don't announce "I remember that...". Just use the knowledge.
+${memoriesBlock}` : ""}
+
 HOW YOU THINK — DECISION FRAMEWORK
 
 Before every response, silently run through this:
@@ -340,6 +412,7 @@ Before every response, silently run through this:
 
 2. LOAD CHECK
    - Is CTL rising too fast (>5 points/week)? → Injury risk, flag it
+   - Is ramp rate > 5? → Too aggressive, consider pulling back
    - Has athlete missed sessions this week? → Adjust expectations, don't pile on
    - Is this a build week or recovery week in the plan? → Respond accordingly
 
@@ -350,9 +423,7 @@ Before every response, silently run through this:
 
 4. PHILOSOPHY CHECK
    - What philosophy is this athlete on? → All advice must be consistent with it
-   - 80/20: never suggest hard sessions if already at 20% intensity quota
-   - Jack Daniels: reference VDOT paces specifically
-   - Pfitzinger: high volume is expected, MLR runs are core
+${philosophyDetail}
 
 HOW YOU COMMUNICATE
 
@@ -404,7 +475,15 @@ When data is missing:
 Be transparent: "I don't have your HRV data yet — once you sync intervals.icu I can give you more precise guidance. Based on what I can see..."
 
 INTAKE CONVERSATION (only when athlete is genuinely new — no profile data exists):
-Conduct a DEEP conversation to gather the athlete's full history. Ask one or two questions at a time. Probe for running journey, race history, current training, goals, injuries, life context, philosophy, and physiology. Let them tell their story. Follow up on every detail. Extract specifics: paces, distances, dates, feelings.
+Conduct a DEEP conversation to gather the athlete's full history. Ask one or two questions at a time. Probe for running journey, race history, current training, goals, injuries, life context, philosophy, and physiology. Let them tell their story. Follow up on every detail. Extract specifics: paces, distances, dates, feelings. Don't rush — a thorough intake leads to better coaching. Cover:
+- Running background: how long, how far, any breaks
+- Race history: PRs, recent results, DNFs and why
+- Current volume: weekly km, long run, sessions per week
+- Goals: target race, target time, and why that goal
+- Injuries: past and present, what treatment, what lingered
+- Life context: job, family, stress, sleep patterns, schedule constraints
+- Training preferences: solo or group, morning or evening, treadmill tolerance
+- Strengths and weaknesses: speed vs endurance, hills, heat, mental game
 
 TONE BY SITUATION
 
@@ -514,6 +593,7 @@ serve(async (req) => {
     let intakeAnswers: Record<string, string | string[]> | null = null;
     let intervalsContext: { wellness?: unknown[]; activities?: unknown[] } | null = null;
     let useStream = true;
+    let action: string | null = null;
 
     try {
       const body = await req.json();
@@ -521,9 +601,124 @@ serve(async (req) => {
       intakeAnswers = body?.intakeAnswers ?? null;
       intervalsContext = body?.intervalsContext ?? null;
       useStream = body?.stream !== false;
+      action = body?.action ?? null;
     } catch {
       return new Response(JSON.stringify({ error: "Invalid request body" }), {
         status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Memory extraction action — runs after conversation ends
+    if (action === "extract_memories" && user) {
+      const userMsgCount = messages.filter((m) => m.role === "user").length;
+      if (userMsgCount < 3) {
+        return new Response(JSON.stringify({ extracted: 0 }), {
+          status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
+        });
+      }
+
+      const conversationText = messages
+        .map((m) => `${m.role === "user" ? "Athlete" : "Coach"}: ${m.content}`)
+        .join("\n\n");
+
+      const { data: existing } = await supabaseAdmin
+        .from("coaching_memory")
+        .select("content")
+        .eq("user_id", user.id)
+        .limit(50);
+      const existingContents = (existing ?? []).map((r: Record<string, unknown>) => String(r.content ?? "").toLowerCase());
+
+      const extractionPrompt = `You are a memory extractor for an AI running coach. Analyze this conversation and extract key facts worth remembering about this athlete for future sessions.
+
+Extract ONLY concrete, specific facts — not opinions or vague statements. Each memory should be a single sentence.
+
+Categories: preference, goal, injury, lifestyle, race, personality, other
+Importance: 1-10 (10 = critical for coaching, like injury or race goal; 1 = minor preference)
+
+Return JSON array only. No explanation. Example:
+[{"category":"injury","content":"Has recurring left Achilles tendinitis, flares up above 60km/week","importance":9},{"category":"goal","content":"Targeting sub-3:30 marathon in October 2026","importance":8}]
+
+If nothing worth extracting, return [].
+
+Already known (do not duplicate):
+${existingContents.slice(0, 20).map((c) => `- ${c}`).join("\n") || "(none)"}
+
+Conversation:
+${conversationText}`;
+
+      let extracted: { category: string; content: string; importance: number }[] = [];
+
+      for (const key of groqKeys) {
+        try {
+          const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            method: "POST",
+            headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: "llama-3.3-70b-versatile",
+              messages: [{ role: "user", content: extractionPrompt }],
+              temperature: 0.2,
+              max_tokens: 400,
+            }),
+          });
+          if (res.ok) {
+            const json = await res.json();
+            const text = json.choices?.[0]?.message?.content?.trim() ?? "";
+            const match = text.match(/\[[\s\S]*\]/);
+            if (match) extracted = JSON.parse(match[0]);
+            break;
+          }
+        } catch { /* try next key */ }
+      }
+
+      if (extracted.length === 0) {
+        for (const key of geminiKeys) {
+          try {
+            const res = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
+              {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  contents: [{ parts: [{ text: extractionPrompt }] }],
+                  generationConfig: { temperature: 0.2, maxOutputTokens: 400 },
+                }),
+              },
+            );
+            if (res.ok) {
+              const json = await res.json();
+              const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
+              const match = text.match(/\[[\s\S]*\]/);
+              if (match) extracted = JSON.parse(match[0]);
+              break;
+            }
+          } catch { /* try next key */ }
+        }
+      }
+
+      // Deduplicate against existing memories
+      const validCategories = new Set(["preference", "goal", "injury", "lifestyle", "race", "personality", "other"]);
+      const newMemories = extracted.filter((m) => {
+        if (!m.content || m.content.length < 5) return false;
+        if (!validCategories.has(m.category)) m.category = "other";
+        m.importance = Math.max(1, Math.min(10, Math.round(m.importance ?? 5)));
+        const lower = m.content.toLowerCase();
+        return !existingContents.some((e) => e.includes(lower) || lower.includes(e));
+      });
+
+      if (newMemories.length > 0) {
+        await supabaseAdmin.from("coaching_memory").insert(
+          newMemories.map((m) => ({
+            user_id: user.id,
+            category: m.category,
+            content: m.content,
+            importance: m.importance,
+            source: "conversation",
+          })),
+        );
+      }
+
+      return new Response(JSON.stringify({ extracted: newMemories.length }), {
+        status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
 
@@ -542,13 +737,13 @@ serve(async (req) => {
       ? buildKipcoacheeSystemPrompt(athleteContext)
       : buildKipcoacheeSystemPrompt({
           name: "there",
-          ctl: null, atl: null, tsb: null,
+          ctl: null, atl: null, tsb: null, ramp_rate: null,
           hrv_today: null, hrv_7d_avg: null, hrv_trend: "unknown",
           resting_hr: null, philosophy: null,
           goal: null, goal_time: null, race_date: null, weeks_to_race: null,
           injuries: null, recent_activities: [], this_week_km: 0, planned_week_km: 0,
           four_week_avg_km: 0, prs: [], plan: null, plan_workouts_text: "",
-          onboarding_answers: null, readiness_history_text: "",
+          onboarding_answers: null, readiness_history_text: "", memories: [],
         });
 
     // Truncate to last 12 messages to stay within free-tier token limits
@@ -641,6 +836,16 @@ serve(async (req) => {
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
+      // Store assistant message
+      if (user && text) {
+        supabaseAdmin.from("coach_message").insert({
+          user_id: user.id,
+          role: "assistant",
+          content: text,
+          triggered_by: "chat",
+        }).then(() => {});
+      }
+
       return new Response(JSON.stringify({ message: text }), {
         status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

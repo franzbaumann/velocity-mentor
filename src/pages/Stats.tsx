@@ -1,7 +1,7 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useMergedActivities } from "@/hooks/useMergedIntervalsData";
 import { useMergedReadiness } from "@/hooks/useMergedIntervalsData";
-import { resolveCtlAtlTsb } from "@/hooks/useReadiness";
+import { resolveCtlAtlTsb, type ReadinessRow } from "@/hooks/useReadiness";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useAthleteProfile } from "@/hooks/useAthleteProfile";
 import { useTrainingPlan } from "@/hooks/use-training-plan";
@@ -12,11 +12,10 @@ import {
   PR_DISTANCES,
   findBestForDistance,
   classifyRunByHr,
-  computeLongRunThresholdKm,
   type PaceProgressionFilter,
 } from "@/lib/analytics";
 import { formatDuration, formatPaceFromMinPerKm } from "@/lib/format";
-import { Link2, ArrowRight, TrendingUp, BarChart3, Activity, Trophy, Heart, Moon, Zap, Wind, Info } from "lucide-react";
+import { Link2, ArrowRight, TrendingUp, BarChart3, Activity, Trophy, Heart, Moon, Zap, Wind, Info, Scale, Footprints, Smile, Battery, AlertCircle } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { format, subDays, subWeeks, startOfWeek, subMonths } from "date-fns";
 import { useMemo, useState, useEffect } from "react";
@@ -59,7 +58,7 @@ const STAT_INFO: Record<string, React.ReactNode> = {
   pace: (
     <>
       <p className="font-semibold text-foreground mb-1">Pace Progression</p>
-      <p className="text-muted-foreground text-xs">Pace per run. Dashed line = 4-week average. Easy = Zone 2 (60–70% max HR), LT1 = 75–82%, LT2 = 85–92%, Long = distance-based (8–38 km).</p>
+      <p className="text-muted-foreground text-xs">Pace per run. Dashed line = 4-week average. Easy = Zone 2 (60–70% max HR), LT1 = 75–82%, LT2 = 85–92%.</p>
     </>
   ),
   prs: (
@@ -396,7 +395,6 @@ const PACE_FILTER_LABELS: Record<PaceProgressionFilter, string> = {
   easy: "Easy (Z2)",
   lt1: "LT1",
   lt2: "LT2",
-  long: "Long",
 };
 
 function PaceProgressionChart({
@@ -409,11 +407,6 @@ function PaceProgressionChart({
   const runningOnly = useMemo(() => activities.filter((a) => isRunningActivity(a.type)), [activities]);
   const [filter, setFilter] = useState<PaceProgressionFilter>("all");
 
-  const longRunThresholdKm = useMemo(
-    () => computeLongRunThresholdKm(runningOnly),
-    [runningOnly]
-  );
-
   const { points, trendline } = useMemo(() => {
     const pts = runningOnly
       .filter((a) => {
@@ -424,7 +417,6 @@ function PaceProgressionChart({
           const hrType = classifyRunByHr(a.avg_hr, maxHr);
           return hrType === filter;
         }
-        if (filter === "long") return (a.distance_km ?? 0) >= longRunThresholdKm;
         return true;
       })
       .map((a) => ({
@@ -442,7 +434,7 @@ function PaceProgressionChart({
     });
 
     return { points: pts, trendline: trend };
-  }, [runningOnly, filter, maxHr, longRunThresholdKm]);
+  }, [runningOnly, filter, maxHr]);
 
   if (!points.length) {
     const needsMaxHr = (filter === "easy" || filter === "lt1" || filter === "lt2") && !maxHr;
@@ -450,7 +442,7 @@ function PaceProgressionChart({
     return (
       <EmptyState
         message={needsMaxHr ? "Set max HR in Settings" : hasRuns ? "No runs match this filter" : "No pace data yet"}
-        sub={needsMaxHr ? "HR-based filters (Easy, LT1, LT2) require max HR" : hasRuns ? "Try All or Long, or record HR on runs" : "Connect intervals.icu to sync runs with pace data"}
+        sub={needsMaxHr ? "HR-based filters (Easy, LT1, LT2) require max HR" : hasRuns ? "Try All, or record HR on runs" : "Connect intervals.icu to sync runs with pace data"}
       />
     );
   }
@@ -458,7 +450,7 @@ function PaceProgressionChart({
   return (
     <div>
       <div className="flex gap-2 mb-4 flex-wrap items-center">
-        {(["all", "easy", "lt1", "lt2", "long"] as const).map((f) => (
+        {(["all", "easy", "lt1", "lt2"] as const).map((f) => (
           <button
             key={f}
             onClick={() => setFilter(f)}
@@ -467,9 +459,6 @@ function PaceProgressionChart({
             {PACE_FILTER_LABELS[f]}
           </button>
         ))}
-        {filter === "long" && (
-          <span className="text-xs text-muted-foreground ml-1">≥{longRunThresholdKm} km</span>
-        )}
       </div>
       <div className="h-[260px]">
         <ResponsiveContainer width="100%" height="100%">
@@ -652,16 +641,16 @@ function HRVChart({ readiness }: { readiness: { date: string; hrv: number | null
   );
 }
 
-// ── 7. Readiness Score (from score, or derived from TSB/CTL when available) ──
-function ReadinessScoreChart({ readiness }: { readiness: { date: string; score?: number | null; tsb?: number | null; ctl?: number | null; atl?: number | null; icu_ctl?: number | null; icu_atl?: number | null; icu_tsb?: number | null }[] }) {
+// ── 7. Readiness Score (from score/readiness, or derived from TSB/CTL when available) ──
+function ReadinessScoreChart({ readiness }: { readiness: { date: string; score?: number | null; readiness?: number | null; tsb?: number | null; ctl?: number | null; atl?: number | null; icu_ctl?: number | null; icu_atl?: number | null; icu_tsb?: number | null }[] }) {
   const chartData = readiness
     .filter((r) => {
       const { ctl, tsb } = resolveCtlAtlTsb(r);
-      return r.score != null || tsb != null || ctl != null;
+      return r.score != null || r.readiness != null || tsb != null || ctl != null;
     })
     .map((r) => {
       const { ctl, tsb } = resolveCtlAtlTsb(r);
-      const score = r.score ?? (tsb != null ? Math.round(Math.min(100, Math.max(0, 50 + tsb * 2.5))) : (ctl != null ? Math.round(Math.min(100, Math.max(0, ctl))) : null));
+      const score = r.score ?? r.readiness ?? (tsb != null ? Math.round(Math.min(100, Math.max(0, 50 + tsb * 2.5))) : (ctl != null ? Math.round(Math.min(100, Math.max(0, ctl))) : null));
       return { date: r.date, score: score ?? 0 };
     })
     .filter((r) => r.score > 0)
@@ -752,7 +741,90 @@ function SleepScoreChart({ readiness }: { readiness: { date: string; sleep_score
   );
 }
 
-// ── 11. Sleep & Resting HR (from daily_readiness) ──
+// ── 11. Weight (from intervals.icu wellness) ──
+function WeightChart({ readiness }: { readiness: { date: string; weight?: number | null }[] }) {
+  const chartData = readiness
+    .filter((r) => r.weight != null)
+    .map((r) => ({ date: r.date, weight: r.weight }))
+    .slice(-120)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!chartData.length) return <EmptyState message="No weight data yet" sub="Connect intervals.icu to sync weight from wellness" />;
+  return (
+    <div className="h-[240px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
+          <YAxis tick={{ fontSize: 11 }} domain={["dataMin - 1", "dataMax + 1"]} unit=" kg" tickFormatter={(v) => Number(v).toFixed(1)} />
+          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [`${Number(val).toFixed(1)} kg`, "Weight"]} />
+          <Line type="natural" dataKey="weight" stroke="hsl(25 95% 53%)" strokeWidth={2} dot={false} name="Weight" />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── 12. Steps (from intervals.icu wellness) ──
+function StepsChart({ readiness }: { readiness: { date: string; steps?: number | null }[] }) {
+  const chartData = readiness
+    .filter((r) => r.steps != null && r.steps > 0)
+    .map((r) => ({ date: r.date, steps: r.steps }))
+    .slice(-120)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!chartData.length) return <EmptyState message="No steps data yet" sub="Connect intervals.icu to sync steps from wellness" />;
+  return (
+    <div className="h-[240px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
+          <YAxis tick={{ fontSize: 11 }} unit="" tickFormatter={(v) => (Number(v) >= 1000 ? `${Number(v) / 1000}k` : String(v))} />
+          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [`${Math.round(val).toLocaleString()}`, "Steps"]} />
+          <Bar dataKey="steps" fill="hsl(142 71% 45%)" radius={[4, 4, 0, 0]} name="Steps" />
+        </BarChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── 13. Stress / Mood / Energy / Soreness (from intervals.icu wellness) ──
+const WELLNESS_LABELS = {
+  stress_score: { label: "Stress", scale: ["None", "Low", "Avg", "High", "Extreme"], color: "hsl(0 70% 55%)" },
+  mood: { label: "Mood", scale: ["", "Excellent", "Good", "Avg", "Poor"], color: "hsl(280 70% 55%)" },
+  energy: { label: "Energy", scale: ["", "High", "Good", "Avg", "Low"], color: "hsl(45 93% 47%)" },
+  muscle_soreness: { label: "Soreness", scale: ["None", "Low", "Avg", "High", "Extreme"], color: "hsl(25 95% 53%)" },
+} as const;
+
+function WellnessCheckChart({
+  readiness,
+  field,
+}: {
+  readiness: { date: string; [k: string]: unknown }[];
+  field: "stress_score" | "mood" | "energy" | "muscle_soreness";
+}) {
+  const meta = WELLNESS_LABELS[field];
+  const chartData = readiness
+    .filter((r) => r[field] != null)
+    .map((r) => ({ date: r.date, value: r[field] as number }))
+    .slice(-60)
+    .sort((a, b) => a.date.localeCompare(b.date));
+  if (!chartData.length) return <EmptyState message={`No ${meta.label.toLowerCase()} data yet`} sub="Log in intervals.icu wellness" />;
+  return (
+    <div className="h-[200px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <LineChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <XAxis dataKey="date" tick={{ fontSize: 10 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
+          <YAxis tick={{ fontSize: 10 }} domain={[0, 4]} ticks={[0, 1, 2, 3, 4]} tickFormatter={(v) => meta.scale[Number(v)] || String(v)} />
+          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [meta.scale[Math.round(val)] ?? val, meta.label]} />
+          <Line type="stepAfter" dataKey="value" stroke={meta.color} strokeWidth={2} dot={{ r: 2 }} name={meta.label} />
+        </LineChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
+
+// ── 14. Sleep & Resting HR (from daily_readiness) ──
 function SleepRestingChart({ readiness }: { readiness: { date: string; sleep_hours: number | null; resting_hr: number | null }[] }) {
   const chartData = readiness
     .filter((r) => r.sleep_hours != null || r.resting_hr != null)
@@ -781,6 +853,91 @@ function SleepRestingChart({ readiness }: { readiness: { date: string; sleep_hou
           <Line yAxisId="right" type="natural" dataKey="restingHr" stroke="hsl(0 70% 55%)" strokeWidth={2} dot={false} name="Resting HR" />
         </LineChart>
       </ResponsiveContainer>
+    </div>
+  );
+}
+
+function WellnessSection({ readiness }: { readiness: ReadinessRow[] }) {
+  const has = useMemo(() => {
+    const check = (fn: (r: ReadinessRow) => boolean) => readiness.some(fn);
+    const rd = readiness as Array<ReadinessRow & Record<string, unknown>>;
+    return {
+      readinessScore: check((r) => {
+        const { ctl, tsb } = resolveCtlAtlTsb(r);
+        return r.score != null || r.readiness != null || tsb != null || ctl != null;
+      }),
+      sleepScore: check((r) => r.sleep_score != null),
+      hrv: check((r) => r.hrv != null),
+      sleepResting: check((r) => r.sleep_hours != null || r.resting_hr != null),
+      vo2max: rd.some((r) => r.vo2max != null),
+      rampRate: rd.some((r) => r.ramp_rate != null || r.icu_ramp_rate != null),
+      weight: rd.some((r) => r.weight != null),
+      steps: rd.some((r) => r.steps != null && Number(r.steps) > 0),
+      stress: rd.some((r) => r.stress_score != null),
+      mood: rd.some((r) => r.mood != null),
+      energy: rd.some((r) => r.energy != null),
+      soreness: rd.some((r) => r.muscle_soreness != null),
+    };
+  }, [readiness]);
+
+  const hasScores = has.readinessScore || has.sleepScore;
+  const hasRecovery = has.hrv || has.sleepResting;
+  const hasFitness = has.vo2max || has.rampRate;
+  const hasBody = has.weight || has.steps;
+  const hasWellnessCheck = has.stress || has.mood || has.energy || has.soreness;
+  const hasAny = hasScores || hasRecovery || hasFitness || hasBody || hasWellnessCheck;
+
+  if (!hasAny) {
+    return (
+      <div className="glass-card p-12 text-center">
+        <p className="text-muted-foreground">No wellness data yet</p>
+        <p className="text-xs text-muted-foreground mt-1">Sync intervals.icu in Settings to see wellness metrics</p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex flex-col gap-6">
+      {hasScores && (
+        <div className="flex flex-col gap-3">
+          <h2 className="section-header">Wellness scores</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {has.readinessScore && <ChartCard icon={Activity} title="Readiness Score" info="readiness"><ReadinessScoreChart readiness={readiness} /></ChartCard>}
+            {has.sleepScore && <ChartCard icon={Moon} title="Sleep Score" info="sleep"><SleepScoreChart readiness={readiness} /></ChartCard>}
+          </div>
+        </div>
+      )}
+      {hasRecovery && (
+        <div className="flex flex-col gap-3">
+          <h2 className="section-header">HR & recovery</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {has.hrv && <ChartCard icon={Zap} title="HRV Trend" info="hrv"><HRVChart readiness={readiness} /></ChartCard>}
+            {has.sleepResting && <ChartCard icon={Heart} title="Sleep & Resting HR" info="sleepResting"><SleepRestingChart readiness={readiness} /></ChartCard>}
+          </div>
+        </div>
+      )}
+      {(hasFitness || hasBody) && (
+        <div className="flex flex-col gap-3">
+          <h2 className="section-header">{hasFitness && hasBody ? "Fitness & body" : hasFitness ? "Fitness metrics" : "Body & activity"}</h2>
+          <div className="grid gap-4 sm:grid-cols-2 sm:grid-flow-dense">
+            {has.vo2max && <ChartCard icon={Wind} title="VO2max" info="vo2max"><VO2maxChart readiness={readiness} /></ChartCard>}
+            {has.rampRate && <ChartCard icon={BarChart3} title="Ramp Rate" info="rampRate"><RampRateChart readiness={readiness} /></ChartCard>}
+            {has.steps && <ChartCard icon={Footprints} title="Steps" info="steps"><StepsChart readiness={readiness} /></ChartCard>}
+            {has.weight && <ChartCard icon={Scale} title="Weight" info="weight"><WeightChart readiness={readiness} /></ChartCard>}
+          </div>
+        </div>
+      )}
+      {hasWellnessCheck && (
+        <div className="flex flex-col gap-3">
+          <h2 className="section-header">Wellness check</h2>
+          <div className="grid gap-4 sm:grid-cols-2">
+            {has.stress && <ChartCard icon={AlertCircle} title="Stress" info="stress"><WellnessCheckChart readiness={readiness} field="stress_score" /></ChartCard>}
+            {has.mood && <ChartCard icon={Smile} title="Mood" info="mood"><WellnessCheckChart readiness={readiness} field="mood" /></ChartCard>}
+            {has.energy && <ChartCard icon={Battery} title="Energy" info="energy"><WellnessCheckChart readiness={readiness} field="energy" /></ChartCard>}
+            {has.soreness && <ChartCard icon={Activity} title="Muscle soreness" info="soreness"><WellnessCheckChart readiness={readiness} field="muscle_soreness" /></ChartCard>}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -948,41 +1105,7 @@ export default function Stats() {
         )}
 
         {tab === "wellness" && (
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-col gap-3">
-              <h2 className="section-header">Wellness scores</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <ChartCard icon={Activity} title="Readiness Score" info="readiness">
-                  <ReadinessScoreChart readiness={readiness} />
-                </ChartCard>
-                <ChartCard icon={Moon} title="Sleep Score" info="sleep">
-                  <SleepScoreChart readiness={readiness} />
-                </ChartCard>
-              </div>
-            </div>
-            <div className="flex flex-col gap-3">
-              <h2 className="section-header">HR & recovery</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <ChartCard icon={Zap} title="HRV Trend" info="hrv">
-                  <HRVChart readiness={readiness} />
-                </ChartCard>
-                <ChartCard icon={Heart} title="Sleep & Resting HR" info="sleepResting">
-                  <SleepRestingChart readiness={readiness} />
-                </ChartCard>
-              </div>
-            </div>
-            <div className="flex flex-col gap-3">
-              <h2 className="section-header">Fitness metrics</h2>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <ChartCard icon={Wind} title="VO2max" info="vo2max">
-                  <VO2maxChart readiness={readiness} />
-                </ChartCard>
-                <ChartCard icon={BarChart3} title="Ramp Rate" info="rampRate">
-                  <RampRateChart readiness={readiness} />
-                </ChartCard>
-              </div>
-            </div>
-          </div>
+          <WellnessSection readiness={readiness} />
         )}
       </div>
     </AppLayout>

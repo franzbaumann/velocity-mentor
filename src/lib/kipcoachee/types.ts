@@ -21,11 +21,21 @@ export interface PlanSummary {
   peak_km: number | null;
 }
 
+export interface CoachingMemory {
+  id: string;
+  category: "preference" | "goal" | "injury" | "lifestyle" | "race" | "personality" | "other";
+  content: string;
+  importance: number;
+  created_at: string;
+  expires_at: string | null;
+}
+
 export interface AthleteContext {
   name: string;
   ctl: number | null;
   atl: number | null;
   tsb: number | null;
+  ramp_rate: number | null;
   hrv_today: number | null;
   hrv_7d_avg: number | null;
   hrv_trend: "rising" | "falling" | "stable" | "unknown";
@@ -45,4 +55,5 @@ export interface AthleteContext {
   plan_workouts_text: string;
   onboarding_answers: Record<string, unknown> | null;
   readiness_history_text: string;
+  memories: CoachingMemory[];
 }

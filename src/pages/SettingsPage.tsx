@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2, User } from "lucide-react";
+import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2, User, Brain, X } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { FunctionsHttpError } from "@supabase/supabase-js";
@@ -461,6 +461,117 @@ function LabTestSection() {
   );
 }
 
+const MEMORY_CATEGORY_COLORS: Record<string, string> = {
+  preference: "bg-blue-500/20 text-blue-600 dark:text-blue-400",
+  goal: "bg-emerald-500/20 text-emerald-600 dark:text-emerald-400",
+  injury: "bg-red-500/20 text-red-600 dark:text-red-400",
+  lifestyle: "bg-purple-500/20 text-purple-600 dark:text-purple-400",
+  race: "bg-amber-500/20 text-amber-600 dark:text-amber-400",
+  personality: "bg-pink-500/20 text-pink-600 dark:text-pink-400",
+  other: "bg-gray-500/20 text-gray-600 dark:text-gray-400",
+};
+
+function CoachingMemorySection() {
+  const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const [clearingAll, setClearingAll] = useState(false);
+
+  const { data: memories = [], isLoading } = useQuery({
+    queryKey: ["coaching_memory", user?.id],
+    queryFn: async () => {
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from("coaching_memory")
+        .select("id, category, content, importance, created_at, expires_at")
+        .eq("user_id", user.id)
+        .order("importance", { ascending: false })
+        .order("created_at", { ascending: false });
+      if (error) return [];
+      return data as { id: string; category: string; content: string; importance: number; created_at: string; expires_at: string | null }[];
+    },
+    enabled: !!user,
+  });
+
+  const handleDelete = async (id: string) => {
+    if (!user) return;
+    await supabase.from("coaching_memory").delete().eq("id", id).eq("user_id", user.id);
+    queryClient.invalidateQueries({ queryKey: ["coaching_memory"] });
+  };
+
+  const handleClearAll = async () => {
+    if (!user || !confirm("Clear all coaching memories? Kipcoachee will lose all context from past conversations.")) return;
+    setClearingAll(true);
+    try {
+      await supabase.from("coaching_memory").delete().eq("user_id", user.id);
+      queryClient.invalidateQueries({ queryKey: ["coaching_memory"] });
+      toast.success("All coaching memories cleared.");
+    } catch {
+      toast.error("Failed to clear memories");
+    } finally {
+      setClearingAll(false);
+    }
+  };
+
+  return (
+    <div className="glass-card p-5">
+      <div className="flex items-center justify-between mb-2">
+        <p className="section-header flex items-center gap-2">
+          <Brain className="w-4 h-4" /> Coaching Memory
+        </p>
+        {memories.length > 0 && (
+          <Button
+            variant="outline"
+            size="sm"
+            className="rounded-full text-xs text-destructive hover:text-destructive"
+            onClick={handleClearAll}
+            disabled={clearingAll}
+          >
+            {clearingAll ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : <Trash2 className="w-3 h-3 mr-1" />}
+            Clear all
+          </Button>
+        )}
+      </div>
+      <p className="text-sm text-muted-foreground mb-4">
+        Kipcoachee remembers key facts from your conversations to personalize coaching across sessions.
+      </p>
+      {isLoading ? (
+        <div className="flex items-center gap-2 text-muted-foreground text-sm">
+          <Loader2 className="w-4 h-4 animate-spin" /> Loading memories…
+        </div>
+      ) : memories.length === 0 ? (
+        <p className="text-sm text-muted-foreground italic">
+          No memories yet. Chat with Kipcoachee and memories will be extracted automatically.
+        </p>
+      ) : (
+        <div className="space-y-2 max-h-80 overflow-y-auto">
+          {memories.map((m) => (
+            <div key={m.id} className="flex items-start gap-2 group">
+              <div className="flex-1 rounded-lg bg-secondary/50 px-3 py-2">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${MEMORY_CATEGORY_COLORS[m.category] ?? MEMORY_CATEGORY_COLORS.other}`}>
+                    {m.category}
+                  </span>
+                  <span className="text-[10px] text-muted-foreground">
+                    {format(new Date(m.created_at), "MMM d, yyyy")}
+                  </span>
+                </div>
+                <p className="text-sm text-foreground">{m.content}</p>
+              </div>
+              <button
+                onClick={() => handleDelete(m.id)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity p-1 rounded-md hover:bg-destructive/10 text-muted-foreground hover:text-destructive"
+                title="Delete memory"
+              >
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function SettingsPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
@@ -548,6 +659,47 @@ export default function SettingsPage() {
   const [units, setUnits] = useState<string>("km");
   const [savingProfile, setSavingProfile] = useState(false);
   const [streamsSyncing, setStreamsSyncing] = useState(false);
+  const [pbsSyncing, setPbsSyncing] = useState(false);
+
+  const { data: syncStatus } = useQuery({
+    queryKey: ["sync_progress", user?.id],
+    queryFn: async () => {
+      if (!user?.id) return null;
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return null;
+      const { data } = await supabase.functions.invoke("intervals-proxy", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { action: "get_sync_progress" },
+      });
+      const row = data as { updated_at?: string; done?: boolean } | null;
+      return row ? { updated_at: row.updated_at, done: row.done } : null;
+    },
+    enabled: !!user?.id && isConnected,
+  });
+
+  const handleSyncPRs = async () => {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) {
+      toast.error("Not signed in");
+      return;
+    }
+    setPbsSyncing(true);
+    try {
+      const { data, error } = await supabase.functions.invoke("intervals-proxy", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { action: "sync_pbs" },
+      });
+      if (error) throw error;
+      const res = data as { pbs?: number } | null;
+      toast.success(`Synced ${res?.pbs ?? 0} personal records.`);
+      queryClient.invalidateQueries({ queryKey: ["personal_records"] });
+      queryClient.invalidateQueries({ queryKey: ["sync_progress"] });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to sync PRs");
+    } finally {
+      setPbsSyncing(false);
+    }
+  };
 
   const handleSyncStreams = async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -768,22 +920,66 @@ export default function SettingsPage() {
                     </Button>
                   </div>
                 )}
-                {isConnected && syncProgress && (
-                  <div className="pl-11 ml-4 mt-2">
-                    <div className={`text-xs px-3 py-2 rounded-lg ${syncProgress.done && syncProgress.stage !== "error" ? "bg-emerald-500/10 text-emerald-600" : syncProgress.stage === "error" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"}`}>
-                      {syncProgress.stage === "error" ? syncProgress.detail : (
-                        <>
-                          {syncProgress.done ? (
-                            <span>{syncProgress.detail}</span>
-                          ) : (
-                            <span className="flex items-center gap-2">
-                              <Loader2 className="w-3 h-3 animate-spin" />
-                              {syncProgress.detail}
-                            </span>
-                          )}
-                        </>
-                      )}
+                {isConnected && (
+                  <div className="pl-11 ml-4 mt-2 space-y-2">
+                    {syncStatus?.updated_at && syncStatus?.done && (
+                      <p className="text-xs text-muted-foreground">
+                        Last synced: {format(new Date(syncStatus.updated_at), "MMM d, yyyy 'at' HH:mm")}
+                      </p>
+                    )}
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={handleSyncStreams} size="sm" variant="outline" className="rounded-full px-4 text-xs" disabled={streamsSyncing || intervalsSyncing}>
+                        {streamsSyncing ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                        Sync Streams
+                      </Button>
+                      <Button onClick={handleSyncPRs} size="sm" variant="outline" className="rounded-full px-4 text-xs" disabled={pbsSyncing || intervalsSyncing}>
+                        {pbsSyncing ? <Loader2 className="w-3 h-3 animate-spin mr-1" /> : null}
+                        Sync PRs
+                      </Button>
                     </div>
+                    {syncProgress && (
+                      <div className={`text-xs px-3 py-2 rounded-lg ${syncProgress.done && syncProgress.stage !== "error" ? "bg-emerald-500/10 text-emerald-600" : syncProgress.stage === "error" ? "bg-destructive/10 text-destructive" : "bg-primary/10 text-primary"}`}>
+                        {syncProgress.stage === "error" ? syncProgress.detail : (
+                          <>
+                            {syncProgress.done ? (
+                              <div className="space-y-1">
+                                <p className="font-medium">Sync complete</p>
+                                <p>{syncProgress.detail}</p>
+                                {syncProgress.yearsCompleted && Object.keys(syncProgress.yearsCompleted).length > 0 && (
+                                  <p className="text-muted-foreground mt-1">
+                                    {Object.entries(syncProgress.yearsCompleted)
+                                      .sort(([a], [b]) => a.localeCompare(b))
+                                      .map(([yr, n]) => `✓ ${yr} — ${n} runs`)
+                                      .join(" · ")}
+                                  </p>
+                                )}
+                                {(syncProgress.ctl != null || syncProgress.pbsCount != null) && (
+                                  <p className="text-muted-foreground text-[11px]">
+                                    {syncProgress.ctl != null && `CTL: ${Math.round(syncProgress.ctl)}`}
+                                    {syncProgress.pbsCount != null && ` · PRs: ${syncProgress.pbsCount} distances`}
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <span className="flex items-center gap-2">
+                                <Loader2 className="w-3 h-3 animate-spin shrink-0" />
+                                {syncProgress.yearsCompleted && Object.keys(syncProgress.yearsCompleted).length > 0 ? (
+                                  <>
+                                    {Object.entries(syncProgress.yearsCompleted)
+                                      .sort(([a], [b]) => a.localeCompare(b))
+                                      .map(([yr, n]) => `✓ ${yr} — ${n} runs`)
+                                      .join(" · ")}
+                                    {syncProgress.streamsProgress && ` · Streams ${syncProgress.streamsProgress.done}/${syncProgress.streamsProgress.total}`}
+                                  </>
+                                ) : (
+                                  syncProgress.detail
+                                )}
+                              </span>
+                            )}
+                          </>
+                        )}
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -792,15 +988,6 @@ export default function SettingsPage() {
               {activityCount > 0 && (
                 <div className="pl-11 ml-4 flex items-center gap-4 text-xs text-muted-foreground flex-wrap">
                   <span>{activityCount} activities synced</span>
-                  <button
-                    type="button"
-                    onClick={handleSyncStreams}
-                    disabled={streamsSyncing}
-                    className="text-primary hover:underline flex items-center gap-1"
-                  >
-                    {streamsSyncing ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
-                    {streamsSyncing ? "Syncing chart data…" : "Sync chart data for all activities"}
-                  </button>
                   <button
                     type="button"
                     onClick={handleClearAllData}
@@ -901,6 +1088,9 @@ export default function SettingsPage() {
 
           {/* Training Plan */}
           <TrainingPlanSection queryClient={queryClient} />
+
+          {/* Coaching Memory */}
+          <CoachingMemorySection />
 
           {/* Training Preferences */}
           <div className="glass-card p-5">

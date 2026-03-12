@@ -7,18 +7,40 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const OPENING_PROMPT = `You are Kipcoachee — an elite AI running coach. Generate a dynamic opening message for this athlete using their real data.
+const OPENING_PROMPT = `You are Kipcoachee — an elite AI running coach built into PaceIQ. Generate a dynamic opening message for this athlete.
 
-Structure (max 3 sentences, no bullet points):
-1. One observation about current state — HRV, readiness, CTL/TSB trend, or recovery
-2. One observation about load — weekly volume vs target, accumulation, or training consistency
-3. One specific recommendation for today — rest, easy run, key session, or what to focus on
+PRIORITY SYSTEM — address the HIGHEST applicable priority first:
 
-Be conversational, direct, like a real coach. No markdown headers (##). No filler. Reference specific numbers.`;
+**CRITICAL** (always mention if present):
+- Injury or pain reported in memories → ask for update, suggest caution
+- Ramp rate > 7 → flag overtraining risk immediately
+- TSB < -25 → serious fatigue warning
+
+**HIGH** (mention if no critical):
+- Days since last session > 7 → welcome back, acknowledge the break
+- HRV dropped >20% vs 7d average → flag recovery concern
+- Race in < 3 weeks → race prep focus
+- Activities since last session that look unusual (very high/low volume)
+
+**MEDIUM** (default coaching):
+- One observation about current state (CTL trend, TSB, HRV, readiness)
+- One observation about load (weekly volume vs target, consistency)
+- One specific recommendation for today
+
+**LOW** (if nothing else):
+- Acknowledge consistency and progress
+- Forward-looking encouragement tied to data
+
+RULES:
+- Max 3 sentences, no bullet points
+- Be conversational, direct, like a real coach
+- No markdown headers (##). No filler. Reference specific numbers.
+- Use athlete's name if available
+- If you have memories about this athlete, weave them in naturally`;
 
 const DASHBOARD_PROMPT = `You are Kipcoachee — an elite AI running coach. Generate a very short coaching snippet for the dashboard (max 2 sentences).
 
-Include: one observation about current state (HRV, TSB, readiness) and one specific recommendation for today. Be direct. No markdown. No filler.`;
+Include: one observation about current state (HRV, TSB, readiness) and one specific recommendation for today. Be direct. No markdown. No filler. Reference actual numbers.`;
 
 type ApiResult = { ok: string } | { rateLimit: true } | null;
 
@@ -131,13 +153,34 @@ async function callGemini(systemPrompt: string, userContent: string): Promise<Ap
 function buildContextSummary(ctx: Record<string, unknown>): string {
   const v = (val: unknown, fallback = "?") => (val != null && val !== "" ? String(val) : fallback);
   const lines: string[] = [
+    `Athlete: ${v(ctx.name, "Athlete")}`,
     `CTL: ${v(ctx.ctl)} | ATL: ${v(ctx.atl)} | TSB: ${v(ctx.tsb)}`,
+    `Ramp rate: ${v(ctx.ramp_rate)} CTL pts/week`,
     `HRV today: ${v(ctx.hrv_today)}ms | HRV 7d avg: ${v(ctx.hrv_7d_avg)}ms | HRV trend: ${v(ctx.hrv_trend)}`,
     `This week: ${v(ctx.this_week_km)}km done / ${v(ctx.planned_week_km)}km planned`,
+    `Days since last coaching session: ${v(ctx.days_since_last_session)}`,
     `Last activity: ${(ctx.recent_activities as unknown[])?.[0] ? JSON.stringify((ctx.recent_activities as unknown[])[0]) : "none"}`,
     `Next planned workout: ${v(ctx.next_workout)}`,
     `Weeks to race: ${v(ctx.weeks_to_race)}`,
   ];
+
+  const memories = ctx.memories as { category: string; content: string }[] | undefined;
+  if (memories && memories.length > 0) {
+    lines.push("", "What I remember about this athlete:");
+    for (const m of memories) {
+      lines.push(`- [${m.category}] ${m.content}`);
+    }
+  }
+
+  const newActivities = ctx.activities_since_last_session as unknown[] | undefined;
+  if (newActivities && newActivities.length > 0) {
+    lines.push("", `Activities since last session (${newActivities.length}):`);
+    for (const a of newActivities.slice(0, 5)) {
+      const act = a as Record<string, unknown>;
+      lines.push(`- ${act.date}: ${act.type ?? "Run"} ${act.distance_km ?? 0}km`);
+    }
+  }
+
   return lines.join("\n");
 }
 
@@ -170,11 +213,9 @@ serve(async (req) => {
 
     const supabaseAdmin = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
-    let intervalsContext: { wellness?: unknown[]; activities?: unknown[] } | null = null;
     let short = false;
     try {
       const body = await req.json().catch(() => ({}));
-      intervalsContext = body?.intervalsContext ?? null;
       short = body?.short === true;
     } catch {
       // optional
@@ -197,13 +238,18 @@ serve(async (req) => {
     const monStr = mon.toISOString().slice(0, 10);
     const sunStr = sun.toISOString().slice(0, 10);
 
-    const [readinessRes, activitiesRes, planRes, workoutsRes, weekWorkoutsRes, profileRes] = await Promise.all([
+    const [readinessRes, activitiesRes, planRes, workoutsRes, weekWorkoutsRes, profileRes, memoriesRes, lastMsgRes] = await Promise.all([
       supabaseAdmin.from("daily_readiness").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(14),
       supabaseAdmin.from("activity").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
       supabaseAdmin.from("training_plan").select("*").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }).limit(1).maybeSingle(),
       supabaseAdmin.from("training_plan_workout").select("*").eq("user_id", user.id).gte("date", todayStr).order("date", { ascending: true }).limit(10),
       supabaseAdmin.from("training_plan_workout").select("*").eq("user_id", user.id).gte("date", monStr).lte("date", sunStr),
       supabaseAdmin.from("athlete_profile").select("*").eq("user_id", user.id).maybeSingle(),
+      supabaseAdmin.from("coaching_memory").select("category, content, importance").eq("user_id", user.id)
+        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+        .order("importance", { ascending: false }).limit(10),
+      supabaseAdmin.from("coach_message").select("created_at").eq("user_id", user.id).eq("role", "user")
+        .order("created_at", { ascending: false }).limit(1),
     ]);
 
     const readiness = (readinessRes?.data ?? []) as Record<string, unknown>[];
@@ -212,6 +258,20 @@ serve(async (req) => {
     const workouts = (workoutsRes?.data ?? []) as Record<string, unknown>[];
     const weekWorkouts = (weekWorkoutsRes?.data ?? []) as Record<string, unknown>[];
     const profile = profileRes?.data as Record<string, unknown> | null;
+    const memories = (memoriesRes?.data ?? []) as { category: string; content: string; importance: number }[];
+    const lastMsg = (lastMsgRes?.data?.[0] as { created_at?: string } | undefined);
+
+    // Days since last session
+    const daysSinceLastSession = lastMsg?.created_at
+      ? Math.floor((Date.now() - new Date(lastMsg.created_at).getTime()) / (1000 * 60 * 60 * 24))
+      : null;
+
+    // Activities since last session
+    let activitiesSinceLastSession: Record<string, unknown>[] = [];
+    if (lastMsg?.created_at) {
+      const sinceDate = new Date(lastMsg.created_at).toISOString().slice(0, 10);
+      activitiesSinceLastSession = activities.filter((a) => String(a.date ?? "") >= sinceDate);
+    }
 
     const todayReadiness = readiness.find((r) => String(r.date ?? "").slice(0, 10) === todayStr) ?? readiness[0] ?? {};
     const { ctl, atl, tsb } = (() => {
@@ -220,6 +280,8 @@ serve(async (req) => {
       const t = (todayReadiness.tsb ?? todayReadiness.icu_tsb ?? null) as number | null;
       return { ctl: c, atl: a, tsb: t ?? (c != null && a != null ? c - a : null) };
     })();
+
+    const rampRate = (todayReadiness.ramp_rate ?? todayReadiness.icu_ramp_rate ?? null) as number | null;
 
     const hrvToday = (todayReadiness.hrv ?? todayReadiness.hrv_rmssd ?? null) as number | null;
     const hrvVals = readiness.map((r) => (r.hrv ?? r.hrv_rmssd ?? null) as number | null).filter((v): v is number => v != null);
@@ -251,16 +313,14 @@ serve(async (req) => {
       plannedWeekKm = weekPlanWorkouts.reduce((s, w) => s + (Number(w.distance_km) || 0), 0);
     }
 
-    const lastAct = activities[0] as { date?: string; type?: string; distance_km?: number } | undefined;
-    const lastActivityText = lastAct
-      ? `${lastAct.date}: ${lastAct.type ?? "run"} ${lastAct.distance_km ?? 0}km`
-      : "none";
-
     const raceDate = profile?.goal_race_date ? String(profile.goal_race_date) : null;
     const weeksToRace = raceDate ? Math.ceil((new Date(raceDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 7)) : null;
+    const athleteName = profile?.name ? String(profile.name).split(" ")[0] : null;
 
     const ctx = {
+      name: athleteName,
       ctl, atl, tsb,
+      ramp_rate: rampRate,
       hrv_today: hrvToday,
       hrv_7d_avg: hrv7dAvg != null ? Math.round(hrv7dAvg * 10) / 10 : null,
       hrv_trend: hrvTrend,
@@ -269,7 +329,9 @@ serve(async (req) => {
       recent_activities: activities.slice(0, 3),
       next_workout: nextWorkout || "none planned",
       weeks_to_race: weeksToRace,
-      last_activity: lastActivityText,
+      days_since_last_session: daysSinceLastSession,
+      activities_since_last_session: activitiesSinceLastSession.slice(0, 5),
+      memories,
     };
 
     const contextStr = buildContextSummary(ctx);

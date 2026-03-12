@@ -1,11 +1,12 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useSearchParams } from "react-router-dom";
-import { Send, Loader2 } from "lucide-react";
+import { Send, Loader2, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ReactMarkdown from "react-markdown";
 import { OnboardingFlow } from "@/components/OnboardingFlow";
 import { lazy, Suspense } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 const OnboardingV2 = lazy(() => import("@/components/onboarding-v2/OnboardingV2"));
 const USE_NEW_ONBOARDING = import.meta.env.VITE_NEW_ONBOARDING === "true";
@@ -16,13 +17,21 @@ import { useActivities } from "@/hooks/useActivities";
 import { useReadiness, resolveCtlAtlTsb } from "@/hooks/useReadiness";
 import { useAthleteProfile } from "@/hooks/useAthleteProfile";
 import { useTrainingPlan } from "@/hooks/use-training-plan";
-import { useQueryClient } from "@tanstack/react-query";
 import { format, addDays, isToday, startOfWeek } from "date-fns";
 import { isRunningActivity } from "@/lib/analytics";
 import { formatDistance } from "@/lib/format";
 import { ChatStatCharts } from "@/components/ChatStatChart";
 
 type Msg = { role: "user" | "assistant"; content: string };
+type StoredMsg = {
+  id: string;
+  role: "user" | "assistant";
+  content: string;
+  message_type: string;
+  activity_id: string | null;
+  created_at: string;
+};
+type ChatFilter = "all" | "analyses" | "chat";
 
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/coach-chat`;
 const GENERATE_PLAN_FN = "coach-generate-plan";
@@ -155,6 +164,7 @@ function buildDynamicPills({
   weeksToRace,
   todayWorkout,
   keySessionDesc,
+  rampRate,
 }: {
   lastRun: { km: number; type: string } | null;
   hasPlan: boolean;
@@ -164,20 +174,27 @@ function buildDynamicPills({
   weeksToRace: number | null;
   todayWorkout: string | null;
   keySessionDesc: string;
+  rampRate: number | null;
 }): string[] {
   const prompts: string[] = [];
 
+  if (rampRate != null && rampRate > 5) {
+    prompts.push("My ramp rate looks high — should I back off?");
+  }
   if (hrvDropPct != null && hrvDropPct > 10) {
     prompts.push("Why is my HRV lower this week?");
   }
   if (weeklyVolumePct != null && weeklyVolumePct > 120) {
-    prompts.push("Am I overtraining?");
+    prompts.push("Am I overtraining this week?");
   }
   if (tsb != null && tsb < -20) {
     prompts.push("Should I take an extra rest day?");
   }
   if (tsb != null && tsb > 15 && weeksToRace != null && weeksToRace <= 4) {
     prompts.push("Am I ready to race?");
+  }
+  if (weeksToRace != null && weeksToRace > 0 && weeksToRace <= 8 && !prompts.some((p) => p.includes("race"))) {
+    prompts.push(`${weeksToRace} weeks to race — how should I prepare?`);
   }
   if (lastRun) {
     prompts.push(`How was my last run? (${lastRun.km}km ${lastRun.type?.toLowerCase() || "run"})`);
@@ -543,6 +560,39 @@ async function applyAdjustmentToExistingPlan(
   return true;
 }
 
+function PostWorkoutAnalysisCard({ content, date }: { content: string; date: string }) {
+  return (
+    <div className="flex gap-3 max-w-lg">
+      <div className="w-8 h-8 rounded-full bg-emerald-500/10 flex items-center justify-center flex-shrink-0">
+        <Activity className="w-4 h-4 text-emerald-500" />
+      </div>
+      <div className="rounded-2xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm leading-relaxed flex-1">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-600 dark:text-emerald-400">
+            Post-workout analysis
+          </span>
+          <span className="text-[10px] text-muted-foreground">{date}</span>
+        </div>
+        <ReactMarkdown components={markdownComponents}>{content}</ReactMarkdown>
+      </div>
+    </div>
+  );
+}
+
+async function extractMemories(msgs: Msg[]) {
+  const userMsgCount = msgs.filter((m) => m.role === "user").length;
+  if (userMsgCount < 3) return;
+  try {
+    const { data: { session } } = await supabase.auth.getSession();
+    if (!session?.access_token) return;
+    await supabase.functions.invoke("coach-chat", {
+      body: { action: "extract_memories", messages: msgs },
+    });
+  } catch {
+    // silent — memory extraction is best-effort
+  }
+}
+
 export default function Coach() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [message, setMessage] = useState("");
@@ -560,6 +610,38 @@ export default function Coach() {
   });
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [chatFilter, setChatFilter] = useState<ChatFilter>("all");
+  const messagesRef = useRef<Msg[]>([]);
+  messagesRef.current = messages;
+
+  // Load chat history (analyses + recent messages)
+  const { data: chatHistory = [] } = useQuery({
+    queryKey: ["coach_history"],
+    queryFn: async () => {
+      const { data: { user: u } } = await supabase.auth.getUser();
+      if (!u) return [];
+      const { data, error } = await supabase
+        .from("coach_message")
+        .select("id, role, content, message_type, activity_id, created_at")
+        .eq("user_id", u.id)
+        .order("created_at", { ascending: false })
+        .limit(50);
+      if (error) return [];
+      return (data ?? []) as StoredMsg[];
+    },
+  });
+
+  const analyses = useMemo(
+    () => chatHistory.filter((m) => m.message_type === "post_workout_analysis"),
+    [chatHistory],
+  );
+
+  // Extract coaching memories when leaving the page
+  useEffect(() => {
+    return () => {
+      extractMemories(messagesRef.current);
+    };
+  }, []);
 
   const queryClient = useQueryClient();
   const { onboardingComplete, update: updateProfile, profile: athleteProfile } = useAthleteProfile();
@@ -583,6 +665,16 @@ export default function Coach() {
 
   useEffect(() => {
     if (messages.length > 0 || sessionParam) return;
+    const OPENING_COOLDOWN_MS = 30 * 60 * 1000;
+    const cacheKey = "kipcoachee_opening";
+    try {
+      const cached = JSON.parse(localStorage.getItem(cacheKey) || "null") as { msg: string; ts: number } | null;
+      if (cached && Date.now() - cached.ts < OPENING_COOLDOWN_MS) {
+        setOpeningMessage(cached.msg);
+        return;
+      }
+    } catch { /* ignore corrupt cache */ }
+
     setOpeningLoading(true);
     (async () => {
       try {
@@ -596,6 +688,7 @@ export default function Coach() {
         });
         if (!error && data?.message) {
           setOpeningMessage(data.message);
+          try { localStorage.setItem(cacheKey, JSON.stringify({ msg: data.message, ts: Date.now() })); } catch { /* ignore */ }
           if (data.rateLimitHit) toast.error("AI rate limit reached. Try again in a few minutes or upgrade your Groq/Gemini plan.");
         }
       } catch {
@@ -687,6 +780,9 @@ export default function Coach() {
     const raceDate = plan?.goal_date ?? plan?.goal_race_date ?? profile?.goal_race_date;
     const weeksToRace = raceDate ? Math.ceil((new Date(raceDate).getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000)) : null;
 
+    const latestRamp = latest?.ramp_rate ?? (latest as Record<string, unknown> | undefined)?.icu_ramp_rate;
+    const rampRate = latestRamp != null ? Number(latestRamp) : null;
+
     return buildDynamicPills({
       lastRun: lastRunInfo,
       hasPlan,
@@ -696,6 +792,7 @@ export default function Coach() {
       weeksToRace: weeksToRace ?? null,
       todayWorkout,
       keySessionDesc: keySessionDesc || "key session",
+      rampRate,
     });
   }, [activitiesData, planData, wellnessData, athleteProfile]);
 
@@ -884,7 +981,10 @@ export default function Coach() {
   };
 
   const handleStartFresh = () => {
+    extractMemories(messagesRef.current);
     setMessages([]);
+    setChatFilter("all");
+    try { localStorage.removeItem("kipcoachee_opening"); } catch { /* ignore */ }
     toast.success("Started a fresh conversation.");
   };
 
@@ -970,11 +1070,11 @@ export default function Coach() {
   }, [intakeAnswers, messages]);
 
   const hasPlan = !!planData?.plan;
+  const fromPlan = searchParams.get("from") === "plan";
   const showOnboarding =
     !planLoading &&
     !hasPlan &&
-    !onboardingComplete &&
-    onboardingPhase !== "done";
+    ((!onboardingComplete && onboardingPhase !== "done") || fromPlan);
 
   if (showOnboarding) {
     if (USE_NEW_ONBOARDING) {
@@ -1005,6 +1105,23 @@ export default function Coach() {
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-semibold text-foreground">Kipcoachee</h1>
           <div className="flex items-center gap-2">
+            {analyses.length > 0 && messages.length === 0 && (
+              <div className="flex items-center gap-1 bg-secondary rounded-full p-0.5">
+                {([["all", "All"], ["analyses", "Analyses"], ["chat", "Chat"]] as [ChatFilter, string][]).map(([key, label]) => (
+                  <button
+                    key={key}
+                    onClick={() => setChatFilter(key)}
+                    className={`px-3 py-1 text-xs rounded-full transition-colors ${
+                      chatFilter === key
+                        ? "bg-primary text-primary-foreground"
+                        : "text-muted-foreground hover:text-foreground"
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
             {messages.length > 0 && (
               <button
                 onClick={handleStartFresh}
@@ -1079,21 +1196,41 @@ export default function Coach() {
           {/* Messages */}
           <div ref={scrollRef} className="flex-1 p-6 overflow-y-auto space-y-4">
             {messages.length === 0 && (
-              <div className="flex gap-3 max-w-lg">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-xs font-semibold text-primary">K</span>
-                </div>
-                <div className="glass-card p-4 text-sm text-foreground leading-relaxed">
-                  {openingLoading ? (
-                    <div className="flex items-center gap-2 text-muted-foreground">
-                      <Loader2 className="w-4 h-4 animate-spin" />
-                      <span>Kipcoachee is reading your data…</span>
+              <>
+                {chatFilter !== "analyses" && (
+                  <div className="flex gap-3 max-w-lg">
+                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
+                      <span className="text-xs font-semibold text-primary">K</span>
                     </div>
-                  ) : (
-                    <ReactMarkdown components={markdownComponents}>{displayOpener}</ReactMarkdown>
-                  )}
-                </div>
-              </div>
+                    <div className="glass-card p-4 text-sm text-foreground leading-relaxed">
+                      {openingLoading ? (
+                        <div className="flex items-center gap-2 text-muted-foreground">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <span>Kipcoachee is reading your data…</span>
+                        </div>
+                      ) : (
+                        <ReactMarkdown components={markdownComponents}>{displayOpener}</ReactMarkdown>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Post-workout analyses */}
+                {(chatFilter === "all" || chatFilter === "analyses") && analyses.length > 0 && (
+                  <div className="space-y-3 mt-2">
+                    {chatFilter === "all" && analyses.length > 0 && (
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Recent analyses</p>
+                    )}
+                    {analyses.slice(0, chatFilter === "analyses" ? 20 : 5).map((a) => (
+                      <PostWorkoutAnalysisCard
+                        key={a.id}
+                        content={a.content}
+                        date={format(new Date(a.created_at), "MMM d, HH:mm")}
+                      />
+                    ))}
+                  </div>
+                )}
+              </>
             )}
 
             {messages.map((msg, i) => {

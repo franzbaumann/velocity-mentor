@@ -12,9 +12,12 @@ export interface SyncProgress {
   runsCount: number;
   wellnessDays: number;
   streamsProgress?: { done: number; total: number };
+  yearsCompleted?: Record<string, number>;
+  updatedAt?: string;
   ctl?: number;
   atl?: number;
   tsb?: number;
+  pbsCount?: number;
 }
 
 interface SyncProgressRow {
@@ -29,6 +32,8 @@ interface SyncProgressRow {
   intervals_count?: number;
   wellness_days?: number;
   pbs_count?: number;
+  years_completed?: Record<string, number>;
+  updated_at?: string;
   ctl?: number;
   atl?: number;
   tsb?: number;
@@ -145,6 +150,7 @@ export function useIntervalsSync() {
             queryClient.invalidateQueries({ queryKey: ["athlete_profile"], ...refetchOpts }),
             queryClient.invalidateQueries({ queryKey: ["activityCount"], ...refetchOpts }),
             queryClient.invalidateQueries({ queryKey: ["personal_records"], ...refetchOpts }),
+            queryClient.invalidateQueries({ queryKey: ["sync_progress"], ...refetchOpts }),
           ]);
         }
       };
@@ -176,7 +182,7 @@ export function useIntervalsSync() {
     setSyncing(true);
     setProgress({
       stage: "quick_sync",
-      detail: "Syncing yesterday and today...",
+      detail: "Syncing last 30 days...",
       done: false,
       runsCount: 0,
       wellnessDays: 0,

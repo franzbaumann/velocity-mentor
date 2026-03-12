@@ -1,22 +1,42 @@
 import { useEffect, useRef } from "react";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
-import { useIntervalsSync } from "@/hooks/useIntervalsSync";
+import { supabase } from "@/integrations/supabase/client";
+
+const LAST_QUICK_SYNC_KEY = "lastQuickSync";
+const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Triggers intervals.icu quick sync on app load/refresh when connected.
- * Only fetches yesterday + today (fast when you've already synced all historical data).
- * Use "Sync Now" in Settings for a full sync.
+ * Triggers a silent intervals.icu quick sync on app load when connected.
+ * Runs at most once per 24 hours (tracked via localStorage).
+ * No loading UI, no notifications. Use "Sync Now" in Settings for a full sync.
  */
 export function IntervalsAutoSync() {
   const { isConnected } = useIntervalsIntegration();
-  const { runQuickSync } = useIntervalsSync();
   const hasRun = useRef(false);
 
   useEffect(() => {
     if (!isConnected || hasRun.current) return;
     hasRun.current = true;
-    runQuickSync();
-  }, [isConnected, runQuickSync]);
+
+    const lastSync = localStorage.getItem(LAST_QUICK_SYNC_KEY);
+    const oneDayAgo = Date.now() - ONE_DAY_MS;
+    if (lastSync && parseInt(lastSync, 10) >= oneDayAgo) return;
+
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (!session?.access_token) return;
+      supabase.functions
+        .invoke("intervals-proxy", {
+          headers: { Authorization: `Bearer ${session.access_token}` },
+          body: { action: "quick_sync" },
+        })
+        .then(() => {
+          localStorage.setItem(LAST_QUICK_SYNC_KEY, String(Date.now()));
+        })
+        .catch(() => {
+          // Silent fail — no toast, no UI
+        });
+    });
+  }, [isConnected]);
 
   return null;
 }

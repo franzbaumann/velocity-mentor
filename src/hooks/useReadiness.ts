@@ -16,6 +16,8 @@ export interface ReadinessRow {
   ctl: number | null;
   atl: number | null;
   tsb: number | null;
+  /** intervals.icu readiness (0–100) when score is null */
+  readiness?: number | null;
   /** intervals.icu fallbacks when main columns are null */
   icu_ctl?: number | null;
   icu_atl?: number | null;
@@ -24,6 +26,20 @@ export interface ReadinessRow {
   vo2max?: number | null;
   /** Ramp rate (fitness change rate) from intervals wellness */
   ramp_rate?: number | null;
+  /** icu_ramp_rate — select and map to ramp_rate for charts */
+  icu_ramp_rate?: number | null;
+  /** Weight (kg) from intervals.icu wellness */
+  weight?: number | null;
+  /** Steps from intervals.icu wellness */
+  steps?: number | null;
+  /** Stress (0–4: None→Extreme) from intervals.icu */
+  stress_score?: number | null;
+  /** Mood (1–4: Poor→Excellent) from intervals.icu */
+  mood?: number | null;
+  /** Energy (1–4) from intervals.icu */
+  energy?: number | null;
+  /** Muscle soreness (0–4: None→Extreme) from intervals.icu */
+  muscle_soreness?: number | null;
 }
 
 /** Resolve CTL/ATL/TSB with icu_* fallbacks and derive TSB = CTL - ATL when null */
@@ -50,12 +66,39 @@ export function useReadiness(days = 1095) {
       const oldest = subDays(new Date(), days);
       const { data, error } = await supabase
         .from("daily_readiness")
-        .select("id, date, score, hrv, hrv_baseline, sleep_hours, sleep_quality, sleep_score, resting_hr, ctl, atl, tsb, icu_ctl, icu_atl, icu_tsb")
+        .select("*")
         .eq("user_id", user.id)
         .gte("date", oldest.toISOString().slice(0, 10))
         .order("date", { ascending: true });
       if (error) throw error;
-      return (data ?? []) as ReadinessRow[];
+      const rows = (data ?? []) as Record<string, unknown>[];
+      return rows.map((r) => ({
+        id: String(r.id ?? ""),
+        date: String(r.date ?? ""),
+        score: r.score != null ? Number(r.score) : null,
+        readiness: r.readiness != null ? Number(r.readiness) : null,
+        hrv: r.hrv != null ? Number(r.hrv) : null,
+        hrv_baseline: r.hrv_baseline != null ? Number(r.hrv_baseline) : null,
+        sleep_hours: r.sleep_hours != null ? Number(r.sleep_hours) : null,
+        sleep_quality: r.sleep_quality != null ? Number(r.sleep_quality) : null,
+        sleep_score: r.sleep_score != null ? Number(r.sleep_score) : null,
+        resting_hr: r.resting_hr != null ? Number(r.resting_hr) : null,
+        ctl: r.ctl != null ? Number(r.ctl) : null,
+        atl: r.atl != null ? Number(r.atl) : null,
+        tsb: r.tsb != null ? Number(r.tsb) : null,
+        icu_ctl: r.icu_ctl != null ? Number(r.icu_ctl) : null,
+        icu_atl: r.icu_atl != null ? Number(r.icu_atl) : null,
+        icu_tsb: r.icu_tsb != null ? Number(r.icu_tsb) : null,
+        icu_ramp_rate: r.icu_ramp_rate != null ? Number(r.icu_ramp_rate) : null,
+        ramp_rate: r.icu_ramp_rate != null ? Number(r.icu_ramp_rate) : null,
+        vo2max: r.vo2max != null ? Number(r.vo2max) : null,
+        weight: r.weight != null ? Number(r.weight) : null,
+        steps: r.steps != null ? Number(r.steps) : null,
+        stress_score: r.stress_score != null ? Number(r.stress_score) : null,
+        mood: r.mood != null ? Number(r.mood) : null,
+        energy: r.energy != null ? Number(r.energy) : null,
+        muscle_soreness: r.muscle_soreness != null ? Number(r.muscle_soreness) : null,
+      } as ReadinessRow));
     },
     staleTime: 2 * 60 * 1000,
     refetchOnMount: "always",

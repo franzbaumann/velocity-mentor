@@ -58,6 +58,8 @@ type ChartPoint = {
   hr: number;
   altitude: number;
   cadence: number;
+  temperature: number;
+  respiration_rate: number;
 };
 
 /** Clamp outlier pace values and interpolate from neighbours (red light stops, GPS glitches) */
@@ -110,8 +112,8 @@ function rollingAvg(arr: number[], window: number): number[] {
 }
 
 function buildChartData(streams: ActivityStreams): ChartPoint[] {
-  const { time, heartrate, altitude, cadence, pace, velocity_smooth } = streams;
-  const n = Math.max(time.length, heartrate.length, altitude.length, 1);
+  const { time, heartrate, altitude, cadence, pace, velocity_smooth, temperature, respiration_rate } = streams;
+  const n = Math.max(time.length, heartrate.length, altitude.length, (temperature?.length ?? 0), (respiration_rate?.length ?? 0), 1);
 
   const rawPace: number[] = [];
   for (let i = 0; i < n; i++) {
@@ -129,6 +131,8 @@ function buildChartData(streams: ActivityStreams): ChartPoint[] {
   const smoothedPace = rollingAvg(cleanPace, 15);
   const smoothedHr = rollingAvg(heartrate.length ? heartrate.map(Number) : [], 10);
   const smoothedCad = rollingAvg(cadence.length ? cadence.map(Number) : [], 10);
+  const smoothedTemp = rollingAvg(temperature?.length ? temperature.map(Number) : [], 5);
+  const smoothedResp = rollingAvg(respiration_rate?.length ? respiration_rate.map(Number) : [], 5);
 
   const distArr = streams.distance ?? [];
   const data: ChartPoint[] = [];
@@ -143,6 +147,8 @@ function buildChartData(streams: ActivityStreams): ChartPoint[] {
       hr: smoothedHr[i] ?? 0,
       altitude: altitude[i] ?? 0,
       cadence: smoothedCad[i] ?? 0,
+      temperature: smoothedTemp[i] ?? 0,
+      respiration_rate: smoothedResp[i] ?? 0,
     });
   }
   return data;
@@ -168,6 +174,8 @@ const PACE_COLOR = "hsl(211 100% 52%)";
 const HR_COLOR = "hsl(0 84% 60%)";
 const ELEV_COLOR = "hsl(142 71% 45%)";
 const CAD_COLOR = "hsl(280 70% 55%)";
+const TEMP_COLOR = "hsl(25 95% 53%)";
+const RESP_COLOR = "hsl(180 70% 45%)";
 
 const HR_ZONE_COLORS = [
   "#94a3b8", // Z1 Recovery - grey
@@ -264,7 +272,9 @@ export default function ActivityDetail() {
       (activity.streams.heartrate?.length ?? 0) > 0 ||
       (activity.streams.altitude?.length ?? 0) > 0 ||
       (activity.streams.pace?.length ?? 0) > 0 ||
-      (activity.streams.velocity_smooth?.length ?? 0) > 0;
+      (activity.streams.velocity_smooth?.length ?? 0) > 0 ||
+      (activity.streams.temperature?.length ?? 0) > 0 ||
+      (activity.streams.respiration_rate?.length ?? 0) > 0;
     if (!hasAny) return [];
     const raw = buildChartData(activity.streams);
     return downsample(raw, 350);
@@ -274,7 +284,9 @@ export default function ActivityDetail() {
   const hasHr = chartData.some((d) => d.hr > 0);
   const hasAlt = chartData.some((d) => d.altitude > 0);
   const hasCad = chartData.some((d) => d.cadence > 0);
-  const hasGraphs = hasPace || hasHr || hasAlt;
+  const hasTemp = chartData.some((d) => d.temperature > 0);
+  const hasResp = chartData.some((d) => d.respiration_rate > 0);
+  const hasGraphs = hasPace || hasHr || hasAlt || hasTemp || hasResp;
 
   if (isLoading) {
     return (
@@ -504,7 +516,7 @@ export default function ActivityDetail() {
                 )}
 
                 {hasAlt && (
-                  <div className="px-2 pb-2">
+                  <div className={`px-2 ${hasTemp || hasResp ? "pb-0" : "pb-2"}`}>
                     <div className="flex items-center gap-2 px-3 mb-1">
                       <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: ELEV_COLOR }}>Altitude</span>
                     </div>
@@ -518,7 +530,7 @@ export default function ActivityDetail() {
                             </linearGradient>
                           </defs>
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                          <XAxis dataKey="timeLabel" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} interval="preserveStartEnd" tickLine={false} axisLine={false} />
+                          <XAxis dataKey="timeLabel" tick={false} tickLine={false} axisLine={false} height={0} />
                           <YAxis domain={["dataMin - 5", "dataMax + 5"]} tick={{ fontSize: 9, fill: ELEV_COLOR }} tickFormatter={(v: number) => String(Math.round(v))} tickLine={false} axisLine={false} width={42} />
                           <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} formatter={(v: number) => [`${Math.round(v)} m`, "Elevation"]} labelFormatter={(l) => String(l)} />
                           <Area type="natural" dataKey="altitude" fill="url(#elevGrad)" stroke={ELEV_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} />
@@ -528,7 +540,57 @@ export default function ActivityDetail() {
                   </div>
                 )}
 
-                {!hasAlt && (
+                {hasTemp && (
+                  <div className={`px-2 ${hasResp ? "pb-0" : "pb-2"}`}>
+                    <div className="flex items-center gap-2 px-3 mb-1">
+                      <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: TEMP_COLOR }}>Temperature</span>
+                    </div>
+                    <div className="h-[90px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData} margin={{ top: 4, right: 44, left: -4, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="tempGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={TEMP_COLOR} stopOpacity={0.25} />
+                              <stop offset="100%" stopColor={TEMP_COLOR} stopOpacity={0.02} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                          <XAxis dataKey="timeLabel" tick={false} tickLine={false} axisLine={false} height={0} />
+                          <YAxis domain={["dataMin - 1", "dataMax + 1"]} tick={{ fontSize: 9, fill: TEMP_COLOR }} tickFormatter={(v: number) => `${Math.round(v)}°`} tickLine={false} axisLine={false} width={42} />
+                          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} formatter={(v: number) => [`${Number(v).toFixed(1)}°C`, "Temp"]} labelFormatter={(l) => String(l)} />
+                          <Area type="natural" dataKey="temperature" fill="url(#tempGrad)" stroke={TEMP_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
+                {hasResp && (
+                  <div className="px-2 pb-2">
+                    <div className="flex items-center gap-2 px-3 mb-1">
+                      <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: RESP_COLOR }}>Respiration</span>
+                    </div>
+                    <div className="h-[90px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData} margin={{ top: 4, right: 44, left: -4, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="respGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={RESP_COLOR} stopOpacity={0.25} />
+                              <stop offset="100%" stopColor={RESP_COLOR} stopOpacity={0.02} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                          <XAxis dataKey="timeLabel" tick={false} tickLine={false} axisLine={false} height={0} />
+                          <YAxis domain={["dataMin - 2", "dataMax + 2"]} tick={{ fontSize: 9, fill: RESP_COLOR }} tickFormatter={(v: number) => `${Math.round(v)}`} tickLine={false} axisLine={false} width={42} />
+                          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} formatter={(v: number) => [`${Number(v).toFixed(1)} rpm`, "Respiration"]} labelFormatter={(l) => String(l)} />
+                          <Area type="natural" dataKey="respiration_rate" fill="url(#respGrad)" stroke={RESP_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
+                {!hasAlt && !hasTemp && !hasResp && (
                   <div className="px-2 pb-2">
                     <div className="h-[20px]">
                       <ResponsiveContainer width="100%" height="100%">

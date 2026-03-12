@@ -15,8 +15,9 @@ const ACTIVITIES_FIELDS =
   "icu_hr_zone_times,icu_pace_zone_times," +
   "icu_weighted_avg_watts,icu_ftp,icu_efficiency_factor,icu_power_hr," +
   "icu_decoupling,icu_aerobic_decoupling,icu_avg_hr_reserve," +
+  "icu_vo2max_estimate,icu_lactate_threshold_hr,icu_lactate_threshold_pace," +
   "perceived_exertion,athlete_max_hr,workout_type,description," +
-  "gap,gap_model,use_gap,icu_zone_times";
+  "gap,gap_model,use_gap,icu_zone_times,tss,intensity_factor";
 
 const STREAM_TYPES =
   "heartrate,fixed_heartrate,cadence,altitude,distance,pace,latlng,time," +
@@ -387,6 +388,11 @@ ${trkpts}
           hr_zone_times: run.icu_hr_zone_times ?? run.icu_zone_times ?? null,
           pace_zone_times: run.icu_pace_zone_times ?? null,
           perceived_exertion: run.perceived_exertion != null ? Number(run.perceived_exertion) : null,
+          icu_vo2max_estimate: run.icu_vo2max_estimate != null ? Number(run.icu_vo2max_estimate) : null,
+          icu_lactate_threshold_hr: run.icu_lactate_threshold_hr != null ? Number(run.icu_lactate_threshold_hr) : null,
+          icu_lactate_threshold_pace: run.icu_lactate_threshold_pace != null ? String(run.icu_lactate_threshold_pace) : null,
+          tss: run.tss != null ? Number(run.tss) : null,
+          intensity_factor: run.intensity_factor != null ? Number(run.intensity_factor) : null,
           garmin_id: `icu_${externalId}`,
         }, { onConflict: "user_id,garmin_id" });
         if (!error) upserted++;
@@ -534,9 +540,11 @@ ${trkpts}
           const atlVal = w.atl ?? w.atlLoad ?? null;
           const tsbRaw = w.tsb ?? w.form ?? null;
           const tsb = tsbRaw != null ? Number(tsbRaw) : (ctlVal != null && atlVal != null ? Number(ctlVal) - Number(atlVal) : null);
+          const readinessVal = w.readiness ?? w.readinessScore ?? w.score ?? null;
           return {
             user_id: user.id,
             date: dateStr,
+            score: readinessVal != null ? Number(readinessVal) : null,
             ctl: ctlVal != null ? Number(ctlVal) : null,
             atl: atlVal != null ? Number(atlVal) : null,
             tsb,
@@ -556,9 +564,14 @@ ${trkpts}
             kcal: w.kcal ?? w.calories != null ? Math.round(Number(w.kcal ?? w.calories)) : null,
             steps: w.steps != null ? Math.round(Number(w.steps)) : null,
             stress_hrv: w.stressHrv ?? w.stress_hrv != null ? Number(w.stressHrv ?? w.stress_hrv) : null,
-            readiness: w.readiness != null ? Number(w.readiness) : null,
+            stress_score: w.stress != null ? Number(w.stress) : null,
+            mood: w.mood != null ? Number(w.mood) : null,
+            energy: w.energy != null ? Number(w.energy) : null,
+            muscle_soreness: w.soreness != null ? Number(w.soreness) : null,
+            readiness: readinessVal != null ? Number(readinessVal) : null,
             spo2: w.spo2 ?? w.spO2 != null ? Number(w.spo2 ?? w.spO2) : null,
             respiration_rate: w.respirationRate ?? w.respiration_rate != null ? Number(w.respirationRate ?? w.respiration_rate) : null,
+            vo2max: w.vo2max != null ? Number(w.vo2max) : null,
           };
         }).filter((r: Record<string, unknown>) => r.date && /^\d{4}-\d{2}-\d{2}$/.test(String(r.date)));
         if (batch.length > 0) {
@@ -575,23 +588,24 @@ ${trkpts}
       if (!pbRes.ok) return jsonErr(`pbs ${pbRes.status}`, pbRes.status);
       const pbData = await pbRes.json();
       const pbArr = Array.isArray(pbData) ? pbData : (pbData?.pbs ? (pbData.pbs as unknown[]) : []);
-      await supabaseAdmin.from("personal_records").delete().eq("user_id", user.id).eq("source", "intervals");
       let count = 0;
       for (const pb of pbArr) {
         const p = pb as Record<string, unknown>;
         const dist = p.distance ?? p.name ?? "";
         if (!dist) continue;
-        const bestTime = p.best_time ?? p.time ?? p.seconds;
+        const bestTime = p.elapsed_time ?? p.best_time ?? p.time ?? p.seconds;
         const bestTimeSec = typeof bestTime === "number" ? bestTime : bestTime ? parseInt(String(bestTime), 10) : null;
-        await supabaseAdmin.from("personal_records").insert({
+        const dateAchieved = p.start_date_local ?? p.date ?? p.achieved;
+        const dateStr = dateAchieved != null ? String(dateAchieved).slice(0, 10) : null;
+        await supabaseAdmin.from("personal_records").upsert({
           user_id: user.id,
           distance: String(dist),
           best_time_seconds: bestTimeSec,
           best_pace: p.best_pace ?? p.pace != null ? String(p.pace) : null,
-          date_achieved: p.date ?? p.achieved != null ? String(p.date ?? p.achieved).slice(0, 10) : null,
+          date_achieved: dateStr,
           activity_id: p.activity_id ?? p.activityId != null ? String(p.activity_id ?? p.activityId) : null,
           source: "intervals",
-        });
+        }, { onConflict: "user_id,distance" });
         count++;
       }
       return jsonOk({ action: "sync_pbs", done: true, pbs: count });
@@ -607,16 +621,16 @@ ${trkpts}
       return jsonOk(data ?? { stage: "idle", done: true });
     }
 
-    // ─── ACTION: quick_sync (yesterday + today only — fast for app load when data already synced) ───
+    // ─── ACTION: quick_sync (last 30 days — fast for app load when data already synced) ───
     if (action === "quick_sync") {
       const today = todayStr();
       const d = new Date(today);
-      d.setDate(d.getDate() - 2);
+      d.setDate(d.getDate() - 30);
       const oldest = d.toISOString().slice(0, 10);
 
       await updateSyncProgress(supabaseAdmin, user.id, {
         stage: "quick_sync",
-        detail: "Syncing yesterday and today...",
+        detail: "Syncing last 30 days...",
         done: false,
         error: null,
       });
@@ -679,6 +693,11 @@ ${trkpts}
               hr_zone_times: run.icu_hr_zone_times ?? run.icu_zone_times ?? null,
               pace_zone_times: run.icu_pace_zone_times ?? null,
               perceived_exertion: run.perceived_exertion != null ? Number(run.perceived_exertion) : null,
+              icu_vo2max_estimate: run.icu_vo2max_estimate != null ? Number(run.icu_vo2max_estimate) : null,
+              icu_lactate_threshold_hr: run.icu_lactate_threshold_hr != null ? Number(run.icu_lactate_threshold_hr) : null,
+              icu_lactate_threshold_pace: run.icu_lactate_threshold_pace != null ? String(run.icu_lactate_threshold_pace) : null,
+              tss: run.tss != null ? Number(run.tss) : null,
+              intensity_factor: run.intensity_factor != null ? Number(run.intensity_factor) : null,
               garmin_id: `icu_${externalId}`,
             }, { onConflict: "user_id,garmin_id" });
             if (!error) activitiesUpserted++;
@@ -701,9 +720,11 @@ ${trkpts}
             const atlVal = w.atl ?? w.atlLoad ?? null;
             const tsbRaw = w.tsb ?? w.form ?? null;
             const tsb = tsbRaw != null ? Number(tsbRaw) : (ctlVal != null && atlVal != null ? Number(ctlVal) - Number(atlVal) : null);
+            const readinessVal = w.readiness ?? w.readinessScore ?? w.score ?? null;
             return {
               user_id: user.id,
               date: dateStr,
+              score: readinessVal != null ? Number(readinessVal) : null,
               ctl: ctlVal != null ? Number(ctlVal) : null,
               atl: atlVal != null ? Number(atlVal) : null,
               tsb,
@@ -723,9 +744,14 @@ ${trkpts}
               kcal: w.kcal ?? w.calories != null ? Math.round(Number(w.kcal ?? w.calories)) : null,
               steps: w.steps != null ? Math.round(Number(w.steps)) : null,
               stress_hrv: w.stressHrv ?? w.stress_hrv != null ? Number(w.stressHrv ?? w.stress_hrv) : null,
-              readiness: w.readiness != null ? Number(w.readiness) : null,
+              stress_score: w.stress != null ? Number(w.stress) : null,
+              mood: w.mood != null ? Number(w.mood) : null,
+              energy: w.energy != null ? Number(w.energy) : null,
+              muscle_soreness: w.soreness != null ? Number(w.soreness) : null,
+              readiness: readinessVal != null ? Number(readinessVal) : null,
               spo2: w.spo2 ?? w.spO2 != null ? Number(w.spo2 ?? w.spO2) : null,
               respiration_rate: w.respirationRate ?? w.respiration_rate != null ? Number(w.respirationRate ?? w.respiration_rate) : null,
+              vo2max: w.vo2max != null ? Number(w.vo2max) : null,
             };
           }).filter((r: Record<string, unknown>) => r.date && /^\d{4}-\d{2}-\d{2}$/.test(String(r.date)));
           if (batch.length > 0) {
@@ -773,6 +799,21 @@ ${trkpts}
         atl: latestReadiness?.atl ?? null,
         tsb: latestReadiness?.tsb ?? null,
       });
+
+      // Trigger post-workout analysis asynchronously (best-effort)
+      if (activitiesUpserted > 0) {
+        const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
+        const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+        fetch(`${SUPABASE_URL}/functions/v1/intervals-proxy`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+            apikey: SUPABASE_SERVICE_ROLE_KEY,
+          },
+          body: JSON.stringify({ action: "post_workout_analysis" }),
+        }).catch(() => {});
+      }
 
       return jsonOk({
         action: "quick_sync",
@@ -870,7 +911,7 @@ ${trkpts}
             return t === "run" || t.includes("run");
           }).length;
           log.push(`${year}: ${arr.length} total (${runCount} runs) — types: ${Object.entries(typeCounts).map(([k, v]) => `${k}:${v}`).join(", ")}`);
-          yearsCompleted[String(year)] = arr.length;
+          yearsCompleted[String(year)] = runCount;
           if (arr.length > 0) {
             console.log(`  first activity:`, JSON.stringify(arr[0]).slice(0, 300));
           }
@@ -954,6 +995,11 @@ ${trkpts}
           hr_zone_times: run.icu_hr_zone_times ?? run.icu_zone_times ?? null,
           pace_zone_times: run.icu_pace_zone_times ?? null,
           perceived_exertion: run.perceived_exertion != null ? Number(run.perceived_exertion) : null,
+          icu_vo2max_estimate: run.icu_vo2max_estimate != null ? Number(run.icu_vo2max_estimate) : null,
+          icu_lactate_threshold_hr: run.icu_lactate_threshold_hr != null ? Number(run.icu_lactate_threshold_hr) : null,
+          icu_lactate_threshold_pace: run.icu_lactate_threshold_pace != null ? String(run.icu_lactate_threshold_pace) : null,
+          tss: run.tss != null ? Number(run.tss) : null,
+          intensity_factor: run.intensity_factor != null ? Number(run.intensity_factor) : null,
           garmin_id: `icu_${externalId}`,
         }, { onConflict: "user_id,garmin_id" });
 
@@ -1191,22 +1237,23 @@ ${trkpts}
         if (pbRes.ok) {
           const pbData = await pbRes.json();
           const pbArr = Array.isArray(pbData) ? pbData : (pbData?.pbs ? (pbData.pbs as unknown[]) : []);
-          await supabaseAdmin.from("personal_records").delete().eq("user_id", user.id).eq("source", "intervals");
           for (const pb of pbArr) {
             const p = pb as Record<string, unknown>;
             const dist = p.distance ?? p.name ?? "";
             if (!dist) continue;
-            const bestTime = p.best_time ?? p.time ?? p.seconds;
+            const bestTime = p.elapsed_time ?? p.best_time ?? p.time ?? p.seconds;
             const bestTimeSec = typeof bestTime === "number" ? bestTime : bestTime ? parseInt(String(bestTime), 10) : null;
-            await supabaseAdmin.from("personal_records").insert({
+            const dateAchieved = p.start_date_local ?? p.date ?? p.achieved;
+            const dateStr = dateAchieved != null ? String(dateAchieved).slice(0, 10) : null;
+            await supabaseAdmin.from("personal_records").upsert({
               user_id: user.id,
               distance: String(dist),
               best_time_seconds: bestTimeSec,
               best_pace: p.best_pace ?? p.pace != null ? String(p.pace) : null,
-              date_achieved: p.date ?? p.achieved != null ? String(p.date ?? p.achieved).slice(0, 10) : null,
+              date_achieved: dateStr,
               activity_id: p.activity_id ?? p.activityId != null ? String(p.activity_id ?? p.activityId) : null,
               source: "intervals",
-            });
+            }, { onConflict: "user_id,distance" });
             pbsCount++;
           }
           log.push(`PBs: ${pbsCount} saved`);
@@ -1236,9 +1283,11 @@ ${trkpts}
               const atlVal = w.atl ?? w.atlLoad ?? null;
               const tsbRaw = w.tsb ?? w.form ?? null;
               const tsb = tsbRaw != null ? Number(tsbRaw) : (ctlVal != null && atlVal != null ? Number(ctlVal) - Number(atlVal) : null);
+              const readinessVal = w.readiness ?? w.readinessScore ?? w.score ?? null;
               return {
                 user_id: user.id,
                 date: dateStr,
+                score: readinessVal != null ? Number(readinessVal) : null,
                 ctl: ctlVal != null ? Number(ctlVal) : null,
                 atl: atlVal != null ? Number(atlVal) : null,
                 tsb,
@@ -1258,9 +1307,14 @@ ${trkpts}
                 kcal: w.kcal ?? w.calories != null ? Math.round(Number(w.kcal ?? w.calories)) : null,
                 steps: w.steps != null ? Math.round(Number(w.steps)) : null,
                 stress_hrv: w.stressHrv ?? w.stress_hrv != null ? Number(w.stressHrv ?? w.stress_hrv) : null,
-                readiness: w.readiness != null ? Number(w.readiness) : null,
+                stress_score: w.stress != null ? Number(w.stress) : null,
+                mood: w.mood != null ? Number(w.mood) : null,
+                energy: w.energy != null ? Number(w.energy) : null,
+                muscle_soreness: w.soreness != null ? Number(w.soreness) : null,
+                readiness: readinessVal != null ? Number(readinessVal) : null,
                 spo2: w.spo2 ?? w.spO2 != null ? Number(w.spo2 ?? w.spO2) : null,
                 respiration_rate: w.respirationRate ?? w.respiration_rate != null ? Number(w.respirationRate ?? w.respiration_rate) : null,
+                vo2max: w.vo2max != null ? Number(w.vo2max) : null,
               };
             }).filter((r: Record<string, unknown>) => r.date && /^\d{4}-\d{2}-\d{2}$/.test(String(r.date)));
             if (batch.length > 0) {
@@ -1276,7 +1330,7 @@ ${trkpts}
         log.push(`Wellness: FETCH ERROR ${(e as Error).message}`);
       }
 
-      // 5. Fetch athlete profile
+      // 6. Fetch athlete profile from intervals.icu API
       try {
         const aUrl = `https://intervals.icu/api/v1/athlete/${athleteId}`;
         const aRes = await fetch(aUrl, { headers });
@@ -1293,6 +1347,36 @@ ${trkpts}
         }
       } catch (e) {
         log.push(`Athlete profile: ERROR ${(e as Error).message}`);
+      }
+
+      // 7. Update athlete_profile from latest activity physiological estimates (only if not lab_test)
+      try {
+        const { data: profile } = await supabaseAdmin
+          .from("athlete_profile")
+          .select("zone_source")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        if (profile?.zone_source !== "lab_test") {
+          const { data: latestPhysio } = await supabaseAdmin
+            .from("activity")
+            .select("icu_vo2max_estimate, icu_lactate_threshold_hr, icu_lactate_threshold_pace")
+            .eq("user_id", user.id)
+            .not("icu_lactate_threshold_hr", "is", null)
+            .order("date", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+          if (latestPhysio) {
+            await supabaseAdmin.from("athlete_profile").update({
+              vo2max: latestPhysio.icu_vo2max_estimate,
+              lactate_threshold_hr: latestPhysio.icu_lactate_threshold_hr,
+              lactate_threshold_pace: latestPhysio.icu_lactate_threshold_pace,
+              zone_source: "intervals_estimate",
+            }).eq("user_id", user.id);
+            log.push("Athlete profile: updated from latest activity (vo2max, LT, zone_source)");
+          }
+        }
+      } catch (e) {
+        log.push(`Athlete profile from activity: ERROR ${(e as Error).message}`);
       }
 
       // Get latest CTL/ATL/TSB
@@ -1866,6 +1950,162 @@ Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, pers
         .eq("id", workoutId);
 
       return jsonOk({ note, cached: false });
+    }
+
+    // ─── ACTION: post_workout_analysis (auto-analyze recent unanalyzed runs) ───
+    if (action === "post_workout_analysis") {
+      const groqKeysAll = [
+        Deno.env.get("GROQ_API_KEY"),
+        Deno.env.get("GROQ_API_KEY_2"),
+        Deno.env.get("GROQ_API_KEY_3"),
+      ].filter((k): k is string => !!k);
+      const geminiKeysAll = [
+        Deno.env.get("GEMINI_API_KEY"),
+        Deno.env.get("GEMINI_API_KEY_2"),
+        Deno.env.get("GEMINI_API_KEY_3"),
+      ].filter((k): k is string => !!k);
+
+      // Only analyze activities from at least 5 minutes ago (let sync settle)
+      const POST_ANALYSIS_DELAY_MS = 5 * 60 * 1000;
+      const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+      const cutoffTime = new Date(Date.now() - POST_ANALYSIS_DELAY_MS).toISOString();
+
+      const { data: recentRuns } = await supabaseAdmin
+        .from("activity")
+        .select("id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, cadence, icu_training_load, icu_aerobic_decoupling, external_id, created_at")
+        .eq("user_id", user.id)
+        .gte("date", sevenDaysAgo)
+        .lte("created_at", cutoffTime)
+        .order("date", { ascending: false })
+        .limit(20);
+
+      const runs = ((recentRuns ?? []) as Record<string, unknown>[]).filter((a) => {
+        const t = String(a.type ?? "").toLowerCase();
+        return (t === "run" || t === "virtualrun" || t === "trailrun") && Number(a.distance_km ?? 0) >= 3;
+      });
+
+      if (runs.length === 0) {
+        return jsonOk({ analyzed: 0 });
+      }
+
+      // Find which ones already have an analysis
+      const runIds = runs.map((r) => String(r.id));
+      const { data: existingAnalyses } = await supabaseAdmin
+        .from("coach_message")
+        .select("activity_id")
+        .eq("user_id", user.id)
+        .eq("message_type", "post_workout_analysis")
+        .in("activity_id", runIds);
+      const analyzedIds = new Set((existingAnalyses ?? []).map((a: Record<string, unknown>) => String(a.activity_id)));
+      const unanalyzed = runs.filter((r) => !analyzedIds.has(String(r.id)));
+
+      if (unanalyzed.length === 0) {
+        return jsonOk({ analyzed: 0 });
+      }
+
+      // Fetch latest readiness for context
+      const { data: latestR } = await supabaseAdmin
+        .from("daily_readiness")
+        .select("ctl, atl, tsb, icu_ctl, icu_atl, icu_tsb, hrv, resting_hr")
+        .eq("user_id", user.id)
+        .order("date", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      const ctlVal = (latestR as Record<string, unknown> | null)?.ctl ?? (latestR as Record<string, unknown> | null)?.icu_ctl ?? null;
+      const tsbVal = (latestR as Record<string, unknown> | null)?.tsb ?? (latestR as Record<string, unknown> | null)?.icu_tsb ?? null;
+
+      // Fetch coaching memories for context
+      const { data: memRows } = await supabaseAdmin
+        .from("coaching_memory")
+        .select("category, content")
+        .eq("user_id", user.id)
+        .order("importance", { ascending: false })
+        .limit(5);
+      const memoryLines = (memRows ?? []).map((m: Record<string, unknown>) => `- [${m.category}] ${m.content}`).join("\n");
+
+      let analyzed = 0;
+      for (const run of unanalyzed.slice(0, 3)) {
+        const v = (val: unknown) => val != null ? String(val) : "?";
+        const analysisPrompt = `You are Kipcoachee — an elite AI running coach. Write a SHORT post-workout analysis (2-3 sentences max) for this run. Be specific about the data. No markdown headers.
+
+Activity: ${v(run.name)} on ${v(run.date)}
+Distance: ${v(run.distance_km)}km
+Duration: ${run.duration_seconds ? `${Math.round(Number(run.duration_seconds) / 60)} min` : "?"}
+Avg pace: ${v(run.avg_pace)}
+Avg HR: ${v(run.avg_hr)} bpm | Max HR: ${v(run.max_hr)} bpm
+Cadence: ${v(run.cadence)} spm
+Training load: ${v(run.icu_training_load)}
+Aerobic decoupling: ${v(run.icu_aerobic_decoupling)}%
+Current CTL: ${v(ctlVal)} | TSB: ${v(tsbVal)}
+${memoryLines ? `\nAthlete context:\n${memoryLines}` : ""}
+
+Comment on: effort level, HR vs pace (efficiency/decoupling), what it means for fitness, and one forward-looking note.`;
+
+        let text: string | null = null;
+        for (const key of groqKeysAll) {
+          try {
+            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: "llama-3.3-70b-versatile",
+                messages: [{ role: "user", content: analysisPrompt }],
+                temperature: 0.4,
+                max_tokens: 350,
+              }),
+            });
+            if (res.ok) {
+              const json = await res.json();
+              text = ((json as Record<string, unknown>).choices as Array<Record<string, unknown>>)?.[0]?.message
+                ? String(((json as Record<string, unknown>).choices as Array<Record<string, unknown>>)[0].message as Record<string, unknown>).content?.trim()
+                : null;
+              const choices = ((json as Record<string, unknown>).choices ?? []) as Array<Record<string, unknown>>;
+              const msg = choices[0]?.message as Record<string, unknown> | undefined;
+              text = msg?.content ? String(msg.content).trim() : null;
+              if (text) break;
+            }
+          } catch { /* try next */ }
+        }
+
+        if (!text) {
+          for (const key of geminiKeysAll) {
+            try {
+              const res = await fetch(
+                `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    contents: [{ parts: [{ text: analysisPrompt }] }],
+                    generationConfig: { temperature: 0.4, maxOutputTokens: 350 },
+                  }),
+                },
+              );
+              if (res.ok) {
+                const json = await res.json();
+                text = (json as Record<string, unknown>).candidates
+                  ? String(((((json as Record<string, unknown>).candidates as Array<Record<string, unknown>>)[0]?.content as Record<string, unknown>)?.parts as Array<Record<string, unknown>>)?.[0]?.text ?? "").trim()
+                  : null;
+                if (text) break;
+              }
+            } catch { /* try next */ }
+          }
+        }
+
+        if (text && text.length > 10) {
+          await supabaseAdmin.from("coach_message").insert({
+            user_id: user.id,
+            role: "assistant",
+            content: text,
+            message_type: "post_workout_analysis",
+            activity_id: String(run.id),
+            triggered_by: "auto_analysis",
+          });
+          analyzed++;
+        }
+      }
+
+      return jsonOk({ analyzed });
     }
 
     return jsonErr(`Unknown action: ${action || "(empty)"}`.slice(0, 80), 400);

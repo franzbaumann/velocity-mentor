@@ -12,6 +12,8 @@ export interface ActivityStreams {
   watts: number[];
   distance?: number[];
   distance_km?: number;
+  temperature?: number[];
+  respiration_rate?: number[];
 }
 
 export interface ActivityDetail {
@@ -232,7 +234,7 @@ export function useActivityDetail(activityId: string | undefined) {
           return [];
         };
 
-        const dbRow = dbStreamsRes.data as { time?: number[]; heartrate?: number[]; cadence?: number[]; altitude?: number[]; pace?: number[]; distance?: number[]; latlng?: number[][] } | null;
+        const dbRow = dbStreamsRes.data as { time?: number[]; heartrate?: number[]; cadence?: number[]; altitude?: number[]; pace?: number[]; distance?: number[]; latlng?: number[][]; temperature?: number[]; respiration_rate?: number[] } | null;
         const dbTime = Array.isArray(dbRow?.time) ? dbRow.time : [];
         const dbHr = Array.isArray(dbRow?.heartrate) ? dbRow.heartrate : [];
         const dbAlt = Array.isArray(dbRow?.altitude) ? dbRow.altitude : [];
@@ -254,6 +256,8 @@ export function useActivityDetail(activityId: string | undefined) {
           paceArr = toArray(streamsRaw?.pace);
         }
         const wattsArr = getStream("watts");
+        const tempArr = hasDbStreams ? (Array.isArray(dbRow?.temperature) ? dbRow.temperature : []) : getStream("temperature");
+        const respArr = hasDbStreams ? (Array.isArray(dbRow?.respiration_rate) ? dbRow.respiration_rate : []) : getStream("respiration_rate");
         const len = Math.max(timeArr.length, hrArr.length, latlng.length, 1);
         const dbDist = Array.isArray(dbRow?.distance) ? dbRow.distance : [];
         const distArr = hasDbStreams ? dbDist : getStream("distance");
@@ -274,6 +278,8 @@ export function useActivityDetail(activityId: string | undefined) {
                 distance: distArr.length ? distArr : null,
                 time: timeArr.length ? timeArr.map(Math.round) : null,
                 latlng: latlng.length >= 2 ? latlng : null,
+                temperature: tempArr.length ? tempArr : null,
+                respiration_rate: respArr.length ? respArr : null,
               },
               { onConflict: "user_id,activity_id" }
             )
@@ -291,6 +297,8 @@ export function useActivityDetail(activityId: string | undefined) {
           watts: wattsArr,
           distance: distArr.length ? distArr : undefined,
           distance_km: distKm,
+          temperature: tempArr.length ? tempArr : undefined,
+          respiration_rate: respArr.length ? respArr : undefined,
         };
 
         const icuIntervals = (a?.icu_intervals ?? a?.intervals ?? []) as Array<Record<string, unknown>>;
@@ -377,10 +385,10 @@ export function useActivityDetail(activityId: string | undefined) {
       // Load streams from DB if available
       const extId = (row as Record<string, unknown>).external_id as string | null;
       const streamQuery = extId
-        ? supabase.from("activity_streams").select("time, heartrate, cadence, altitude, pace, distance, latlng").eq("user_id", user.id).eq("activity_id", extId).maybeSingle()
-        : supabase.from("activity_streams").select("time, heartrate, cadence, altitude, pace, distance, latlng").eq("user_id", user.id).eq("activity_id", id).maybeSingle();
+        ? supabase.from("activity_streams").select("time, heartrate, cadence, altitude, pace, distance, latlng, temperature, respiration_rate").eq("user_id", user.id).eq("activity_id", extId).maybeSingle()
+        : supabase.from("activity_streams").select("time, heartrate, cadence, altitude, pace, distance, latlng, temperature, respiration_rate").eq("user_id", user.id).eq("activity_id", id).maybeSingle();
       const { data: dbStreams } = await streamQuery;
-      const sRow = dbStreams as { time?: number[]; heartrate?: number[]; cadence?: number[]; altitude?: number[]; pace?: number[]; distance?: number[]; latlng?: number[][] } | null;
+      const sRow = dbStreams as { time?: number[]; heartrate?: number[]; cadence?: number[]; altitude?: number[]; pace?: number[]; distance?: number[]; latlng?: number[][]; temperature?: number[]; respiration_rate?: number[] } | null;
 
       let latlng: [number, number][] = [];
       const poly = row.polyline as string | null;
@@ -447,6 +455,8 @@ export function useActivityDetail(activityId: string | undefined) {
           watts: [],
           distance: dbDist.length ? dbDist : undefined,
           distance_km: Number(row.distance_km ?? 0),
+          temperature: Array.isArray(sRow?.temperature) && sRow.temperature.length ? sRow.temperature : undefined,
+          respiration_rate: Array.isArray(sRow?.respiration_rate) && sRow.respiration_rate.length ? sRow.respiration_rate : undefined,
         } : undefined,
       };
     },
