@@ -12,7 +12,7 @@ import {
   weekPlan as mockWeekPlan,
 } from "../data/mockDashboard";
 
-type ActivityRow = {
+export type ActivityRow = {
   id: string;
   date: string;
   type: string | null;
@@ -24,7 +24,7 @@ type ActivityRow = {
   max_hr: number | null;
 };
 
-type ReadinessRow = {
+export type ReadinessRow = {
   date: string;
   ctl: number | null;
   atl: number | null;
@@ -33,9 +33,20 @@ type ReadinessRow = {
   resting_hr: number | null;
   sleep_hours: number | null;
   sleep_quality: number | null;
+  /** Readiness / recovery score (0–100) */
   score: number | null;
   hrv_baseline: number | null;
   ai_summary: string | null;
+  /** Sleep score from intervals.icu wellness (0–100) */
+  sleep_score?: number | null;
+  /** intervals.icu fallbacks when main columns are null */
+  icu_ctl?: number | null;
+  icu_atl?: number | null;
+  icu_tsb?: number | null;
+  /** VO2max from Garmin sync (intervals wellness); null if not available */
+  vo2max?: number | null;
+  /** Ramp rate (fitness change rate) from intervals wellness */
+  ramp_rate?: number | null;
 };
 
 function subDays(date: Date, days: number): Date {
@@ -117,12 +128,10 @@ export function useDashboardData() {
       const oldest = subDays(new Date(), 365 * 2);
       const { data, error } = await supabase
         .from("daily_readiness")
-        .select(
-          "date, ctl, atl, tsb, hrv, resting_hr, sleep_hours, sleep_quality, score, hrv_baseline, ai_summary",
-        )
+        .select("*")
         .eq("user_id", user.id)
         .gte("date", oldest.toISOString().slice(0, 10))
-        .order("date", { ascending: false });
+        .order("date", { ascending: true });
       if (error) throw error;
       return (data ?? []) as ReadinessRow[];
     },
@@ -319,6 +328,7 @@ export function useDashboardData() {
   const isSampleData = !hasRealReadiness && !hasRealActivities;
 
   return {
+    athleteProfile,
     athlete: athleteProfile
       ? {
           name: athleteProfile.name || mockAthlete.name,
@@ -343,6 +353,7 @@ export function useDashboardData() {
     weekPlan,
     isSampleData,
     activities,
+    readinessRows,
     isLoading: activitiesLoading || readinessLoading,
     isRefetching,
     refetch,

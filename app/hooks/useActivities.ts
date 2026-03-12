@@ -7,6 +7,10 @@ type ActivitySource = "garmin" | "strava" | "intervals_icu";
 
 export type ActivityListItem = {
   id: string;
+  /** Primary key in activity table */
+  rawId: string;
+  /** External id (e.g. intervals.icu id) if present */
+  externalId?: string | null;
   date: Date;
   name: string;
   type: string;
@@ -14,6 +18,7 @@ export type ActivityListItem = {
   nonDist: boolean;
   pace: string | null;
   duration: string;
+  durationSeconds: number | null;
   hr: number | null;
   source: ActivitySource | "sample";
 };
@@ -33,6 +38,7 @@ type ActivityRow = {
   avg_pace: string | null;
   avg_hr: number | null;
   source: string | null;
+  external_id?: string | null;
 };
 
 function formatDuration(sec: number | null): string {
@@ -62,7 +68,16 @@ function buildSections(activities: ActivityListItem[]): ActivitiesSection[] {
       month: "short",
       day: "numeric",
     });
-    const list = byDate.get(key)!.slice().sort((a, b) => b.date.getTime() - a.date.getTime());
+    const list = byDate
+      .get(key)!
+      .slice()
+      .sort((a, b) => {
+        const aDate = a.date instanceof Date ? a.date : new Date(a.date as unknown as string);
+        const bDate = b.date instanceof Date ? b.date : new Date(b.date as unknown as string);
+        const aTime = typeof aDate?.getTime === "function" ? aDate.getTime() : 0;
+        const bTime = typeof bDate?.getTime === "function" ? bDate.getTime() : 0;
+        return bTime - aTime;
+      });
     return { title: label, data: list };
   });
 }
@@ -81,7 +96,7 @@ export function useActivitiesList(days = 120) {
       const { data, error } = await supabase
         .from("activity")
         .select(
-          "id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, source",
+          "id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, source, external_id",
         )
         .eq("user_id", user.id)
         .gte("date", oldest.toISOString().slice(0, 10))
@@ -92,11 +107,17 @@ export function useActivitiesList(days = 120) {
       const rows = (data ?? []) as ActivityRow[];
 
       return rows.map((row) => {
-        const date = new Date(row.date);
+        const raw = row.date != null ? new Date(row.date) : new Date();
+        const date = raw instanceof Date && !Number.isNaN(raw.getTime()) ? raw : new Date();
         const km = row.distance_km ?? 0;
         const nonDist = !km || km <= 0;
+        const isIcu = row.source === "intervals_icu" && row.external_id;
+        const detailId =
+          isIcu && row.external_id ? `icu_${row.external_id}` : row.id;
         return {
-          id: row.id,
+          id: detailId,
+          rawId: row.id,
+          externalId: row.external_id ?? null,
           date,
           name: row.name || (row.type ?? "Activity"),
           type: row.type ?? "Run",
@@ -104,6 +125,7 @@ export function useActivitiesList(days = 120) {
           nonDist,
           pace: row.avg_pace,
           duration: formatDuration(row.duration_seconds),
+          durationSeconds: row.duration_seconds,
           hr: row.avg_hr,
           source: (row.source as ActivitySource | null) ?? "sample",
         };
@@ -126,7 +148,7 @@ export function useActivitiesList(days = 120) {
 }
 
 export function useActivityById(id: string) {
-  const { items } = useActivitiesList(365);
+  const { items } = useActivitiesList(730);
   const activity = useMemo(() => items.find((a) => a.id === id) ?? null, [items, id]);
   return { activity };
 }

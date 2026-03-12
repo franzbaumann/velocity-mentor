@@ -1,6 +1,8 @@
 import { addDays, startOfWeek, subDays, subWeeks } from "date-fns";
 import type { ActivityRow } from "@/hooks/useActivities";
 
+type ActivityWithLoad = ActivityRow & { icu_training_load?: number | null; trimp?: number | null };
+
 const DEFAULT_THRESHOLD_HR = 170;
 
 /** TSS = (duration_seconds × avg_hr × 100) / (3600 × threshold_hr × 100) */
@@ -20,14 +22,30 @@ function ewa(series: number[], days: number): number[] {
   return out;
 }
 
-/** Build daily TSS map from activities */
+/** Get TSS/load for an activity. Prefers HR-based TSS, then icu_training_load, trimp, or duration-based estimate. */
+function getActivityLoad(a: ActivityWithLoad, thresholdHr = DEFAULT_THRESHOLD_HR): number | null {
+  if (!a.date) return null;
+  if (a.avg_hr != null && a.duration_seconds != null) {
+    const tss = computeTSS(a.duration_seconds, a.avg_hr, thresholdHr);
+    if (tss > 0) return tss;
+  }
+  if (a.icu_training_load != null && a.icu_training_load > 0) return a.icu_training_load;
+  if (a.trimp != null && a.trimp > 0) return a.trimp;
+  if (a.duration_seconds != null && a.duration_seconds > 0) {
+    return a.duration_seconds / 36;
+  }
+  if (a.distance_km != null && a.distance_km > 0) return a.distance_km * 10;
+  return null;
+}
+
+/** Build daily TSS map from activities. Uses HR-based TSS, icu_training_load, trimp, or duration/distance estimates. */
 export function dailyTSSFromActivities(activities: ActivityRow[], thresholdHr = DEFAULT_THRESHOLD_HR): Map<string, number> {
   const map = new Map<string, number>();
   for (const a of activities) {
-    if (!a.date || !a.duration_seconds || !a.avg_hr) continue;
-    const tss = computeTSS(a.duration_seconds, a.avg_hr, thresholdHr);
+    const load = getActivityLoad(a, thresholdHr);
+    if (load == null || load <= 0) continue;
     const existing = map.get(a.date) ?? 0;
-    map.set(a.date, existing + tss);
+    map.set(a.date, existing + load);
   }
   return map;
 }
@@ -113,8 +131,8 @@ export function findBestForDistance(
   activities: ActivityRow[],
   targetKm: number,
   tolerance = 0.05
-): { timeSec: number; paceMinPerKm: number; date: string; activityId: string } | null {
-  let best: { timeSec: number; paceMinPerKm: number; date: string; activityId: string } | null = null;
+): { timeSec: number; paceMinPerKm: number; date: string; activityId: string; externalId?: string | null } | null {
+  let best: { timeSec: number; paceMinPerKm: number; date: string; activityId: string; externalId?: string | null } | null = null;
   for (const a of activities) {
     if (!isRunningActivity(a.type)) continue;
     const dist = a.distance_km ?? 0;
@@ -127,7 +145,7 @@ export function findBestForDistance(
       if (pace < 2 || pace > 15) continue;
       const minTimeSec = targetKm * 120;
       if (equivTime < minTimeSec) continue;
-      if (!best || pace < best.paceMinPerKm) best = { timeSec: equivTime, paceMinPerKm: pace, date: a.date, activityId: a.id };
+      if (!best || pace < best.paceMinPerKm) best = { timeSec: equivTime, paceMinPerKm: pace, date: a.date, activityId: a.id, externalId: (a as { external_id?: string | null }).external_id };
     }
     // Splits: find best segment
     const splits = a.splits as Array<{ distance?: number; elapsed_time?: number }> | null;
@@ -147,7 +165,7 @@ export function findBestForDistance(
           if (pace < 2 || pace > 15) break;
           const minTimeSec = targetKm * 120;
           if (equivTime < minTimeSec) break;
-          if (!best || pace < best.paceMinPerKm) best = { timeSec: equivTime, paceMinPerKm: pace, date: a.date, activityId: a.id };
+          if (!best || pace < best.paceMinPerKm) best = { timeSec: equivTime, paceMinPerKm: pace, date: a.date, activityId: a.id, externalId: (a as { external_id?: string | null }).external_id };
           break;
         }
       }

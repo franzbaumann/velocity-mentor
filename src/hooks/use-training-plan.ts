@@ -86,33 +86,98 @@ export function useTrainingPlan() {
         .select("*")
         .eq("plan_id", planRow.id)
         .order("week_number", { ascending: true });
-      if (weeksErr || !weeks?.length) return { plan: planRow, weeks: [] };
 
-      const weeksWithSessions = await Promise.all(
-        weeks.map(async (w) => {
-          const { data: sessions } = await supabase
-            .from("training_session")
-            .select("*")
-            .eq("week_id", w.id)
-            .order("order_index", { ascending: true });
-          return { ...w, sessions: sessions ?? [] };
-        })
-      );
+      if (weeksErr) return { plan: planRow, weeks: [] };
 
-      return {
-        plan: planRow,
-        weeks: weeksWithSessions,
-      };
+      if (weeks?.length) {
+        const weeksWithSessions = await Promise.all(
+          weeks.map(async (w) => {
+            const { data: sessions } = await supabase
+              .from("training_session")
+              .select("*")
+              .eq("week_id", w.id)
+              .order("order_index", { ascending: true });
+            const raw = sessions ?? [];
+            const sess = raw.map((s) => ({
+              id: s.id,
+              scheduled_date: s.scheduled_date,
+              session_type: s.session_type ?? "easy",
+              description: s.description ?? "",
+              distance_km: s.distance_km,
+              duration_min: s.duration_min,
+              pace_target: s.pace_target,
+              key_focus: s.notes ?? null,
+              target_hr_zone: (s as { target_hr_zone?: number }).target_hr_zone ?? null,
+              completed_at: (s as { completed_at?: string }).completed_at ?? null,
+              supportsCoachNote: false, // from training_session, no coach_note support
+            }));
+            const total_km = sess.reduce((s, x) => s + (x.distance_km ?? 0), 0);
+            return { ...w, sessions: sess, total_km, phase: w.notes ?? undefined };
+          })
+        );
+        return { plan: planRow, weeks: weeksWithSessions };
+      }
+
+      const { data: workouts } = await supabase
+        .from("training_plan_workout")
+        .select("*")
+        .eq("plan_id", planRow.id)
+        .order("date", { ascending: true });
+      if (!workouts?.length) return { plan: planRow, weeks: [] };
+
+      const weekMap = new Map<number, { id: string; week_number: number; start_date: string; phase?: string; total_km?: number; sessions: unknown[] }>();
+      for (const w of workouts) {
+        const wn = w.week_number ?? 1;
+        if (!weekMap.has(wn)) {
+          const start = w.date ? new Date(w.date) : new Date();
+          const mon = new Date(start);
+          mon.setDate(mon.getDate() - (mon.getDay() || 7) + 1);
+          weekMap.set(wn, {
+            id: `workout_${wn}`,
+            week_number: wn,
+            start_date: mon.toISOString().slice(0, 10),
+            phase: w.phase ?? undefined,
+            sessions: [],
+          });
+        }
+        const rec = weekMap.get(wn)!;
+        rec.sessions.push({
+          id: w.id,
+          scheduled_date: w.date,
+          session_type: w.type ?? "easy",
+          description: w.description ?? w.name ?? "",
+          distance_km: w.distance_km,
+          duration_min: w.duration_minutes,
+          pace_target: w.target_pace,
+          key_focus: w.key_focus ?? null,
+          target_hr_zone: w.target_hr_zone ?? null,
+          tss_estimate: w.tss_estimate ?? null,
+          completed_at: w.completed ? (w.date ? `${w.date}T12:00:00Z` : new Date().toISOString()) : null,
+          coach_note: (w as { coach_note?: string | null }).coach_note ?? null,
+          adjustment_notes: (w as { notes?: string | null }).notes ?? null,
+          supportsCoachNote: true,
+        });
+      }
+      for (const rec of weekMap.values()) {
+        rec.total_km = (rec.sessions as { distance_km?: number }[]).reduce((s, x) => s + (x.distance_km ?? 0), 0);
+      }
+      const weeksWithSessions = Array.from(weekMap.values()).sort((a, b) => a.week_number - b.week_number);
+      return { plan: planRow, weeks: weeksWithSessions };
     },
   });
 
   const rescheduleMutation = useMutation({
     mutationFn: async ({ sessionId, newDate }: { sessionId: string; newDate: string }) => {
-      const { error } = await supabase
+      const { error: sessionErr } = await supabase
         .from("training_session")
         .update({ scheduled_date: newDate })
         .eq("id", sessionId);
-      if (error) throw error;
+      if (!sessionErr) return;
+      const { error: workoutErr } = await supabase
+        .from("training_plan_workout")
+        .update({ date: newDate })
+        .eq("id", sessionId);
+      if (workoutErr) throw workoutErr;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["training-plan"] });
@@ -125,11 +190,16 @@ export function useTrainingPlan() {
 
   const markDoneMutation = useMutation({
     mutationFn: async ({ sessionId, done }: { sessionId: string; done: boolean }) => {
-      const { error } = await supabase
+      const { error: sessionErr } = await supabase
         .from("training_session")
         .update({ completed_at: done ? new Date().toISOString() : null })
         .eq("id", sessionId);
-      if (error) throw error;
+      if (!sessionErr) return { sessionId, done };
+      const { error: workoutErr } = await supabase
+        .from("training_plan_workout")
+        .update({ completed: done })
+        .eq("id", sessionId);
+      if (workoutErr) throw workoutErr;
       return { sessionId, done };
     },
     onSuccess: async (_, { sessionId, done }) => {

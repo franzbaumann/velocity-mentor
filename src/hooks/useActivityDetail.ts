@@ -35,6 +35,10 @@ export interface ActivityDetail {
   hr_zone_times?: number[] | null;
   pace_zone_times?: number[] | null;
   perceived_exertion?: number | null;
+  coach_note?: string | null;
+  user_notes?: string | null;
+  nomio_drink?: boolean | null;
+  lactate_levels?: string | null;
   source: string;
   latlng: [number, number][];
   splits: Array<{ km?: number; pace?: string; elapsed_sec?: number; hr?: number; elevation?: number }>;
@@ -311,6 +315,10 @@ export function useActivityDetail(activityId: string | undefined) {
             return null;
           })(),
           perceived_exertion: (a?.perceived_exertion ?? dbAct?.perceived_exertion) != null ? Number(a?.perceived_exertion ?? dbAct?.perceived_exertion) : null,
+          coach_note: dbAct?.coach_note as string | null ?? null,
+          user_notes: dbAct?.user_notes as string | null ?? null,
+          nomio_drink: dbAct?.nomio_drink as boolean | null ?? null,
+          lactate_levels: dbAct?.lactate_levels as string | null ?? null,
           source: "intervals_icu",
           latlng,
           splits,
@@ -330,7 +338,7 @@ export function useActivityDetail(activityId: string | undefined) {
       if (!user) return null;
       const { data: row, error } = await supabase
         .from("activity")
-        .select("id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, source, splits, polyline, elevation_gain, external_id")
+        .select("id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, cadence, source, splits, polyline, elevation_gain, external_id, coach_note, user_notes, nomio_drink, lactate_levels, icu_training_load, trimp, hr_zone_times, pace_zone_times, perceived_exertion")
         .eq("id", id)
         .eq("user_id", user.id)
         .single();
@@ -376,6 +384,7 @@ export function useActivityDetail(activityId: string | undefined) {
       const dbDist = Array.isArray(sRow?.distance) ? sRow.distance : [];
       const hasStreams = dbTime.length > 20 && (dbHr.length > 0 || dbAlt.length > 0 || dbPace.length > 0);
 
+      const r = row as Record<string, unknown>;
       return {
         id: row.id,
         date: row.date ?? "",
@@ -386,7 +395,17 @@ export function useActivityDetail(activityId: string | undefined) {
         avg_pace: row.avg_pace,
         avg_hr: row.avg_hr != null ? Number(row.avg_hr) : null,
         max_hr: row.max_hr != null ? Number(row.max_hr) : null,
+        cadence: r.cadence != null ? Number(r.cadence) : null,
+        load: r.icu_training_load != null ? Number(r.icu_training_load) : null,
+        trimp: r.trimp != null ? Number(r.trimp) : null,
+        hr_zone_times: Array.isArray(r.hr_zone_times) ? (r.hr_zone_times as number[]).map(Number) : null,
+        pace_zone_times: Array.isArray(r.pace_zone_times) ? (r.pace_zone_times as number[]).map(Number) : null,
+        perceived_exertion: r.perceived_exertion != null ? Number(r.perceived_exertion) : null,
         source: row.source ?? "garmin",
+        coach_note: r.coach_note as string | null ?? null,
+        user_notes: r.user_notes as string | null ?? null,
+        nomio_drink: r.nomio_drink as boolean | null ?? null,
+        lactate_levels: r.lactate_levels as string | null ?? null,
         latlng,
         splits,
         streams: hasStreams ? {

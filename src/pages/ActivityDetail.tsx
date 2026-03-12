@@ -1,4 +1,5 @@
-import { useEffect, useMemo } from "react";
+import { useEffect, useMemo, useState, useCallback } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/AppLayout";
 import { useTheme } from "@/hooks/useTheme";
 import { useActivityDetail, type ActivityStreams } from "@/hooks/useActivityDetail";
@@ -6,20 +7,28 @@ import { useParams, useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { isNonDistanceActivity } from "@/lib/analytics";
 import { formatDistance, formatCadence, formatElevation } from "@/lib/format";
-import { ArrowLeft, BarChart3, Heart, Gauge, Mountain, Zap, Footprints, Timer, Flame, Brain } from "lucide-react";
+import { ArrowLeft, BarChart3, Heart, Mountain, MessageCircle, Loader2, FileText, Coffee, Droplets, Download, Trophy } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
 import { MapContainer, TileLayer, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import {
   Line,
   Area,
+  Bar,
+  Cell,
   XAxis,
   YAxis,
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
   ComposedChart,
+  BarChart as RechartsBarChart,
 } from "recharts";
+import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
+import { toast } from "@/hooks/use-toast";
 
 delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -209,11 +218,35 @@ function ZoneBar({ times, names, colors, label }: { times: number[]; names: stri
 const TILE_LIGHT = "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png";
 const TILE_DARK = "https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png";
 
+type ActivityTab = "charts" | "data" | "notes";
+
 export default function ActivityDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { resolved: themeMode } = useTheme();
   const { data: activity, isLoading, error } = useActivityDetail(id);
+  const [tab, setTab] = useState<ActivityTab>("charts");
+
+  const actIdForPb = id?.startsWith("icu_") ? id.replace(/^icu_/, "") : id;
+  const { data: pbRecords = [] } = useQuery({
+    queryKey: ["personal-records-for-activity", actIdForPb, id],
+    queryFn: async () => {
+      if (!actIdForPb && !id) return [];
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return [];
+      const ids = [actIdForPb, id].filter(Boolean) as string[];
+      const { data } = await supabase
+        .from("personal_records")
+        .select("distance")
+        .eq("user_id", user.id)
+        .in("activity_id", [...new Set(ids)]);
+      return (data ?? []) as { distance: string }[];
+    },
+    enabled: !!activity && (!!actIdForPb || !!id),
+  });
+  const isPb = pbRecords.length > 0;
+  const isMarathonPb = pbRecords.some((r) => /marathon|42\.195|42\s/i.test(r.distance ?? ""));
 
   const chartData = useMemo(() => {
     if (!activity?.streams) return [];
@@ -240,7 +273,7 @@ export default function ActivityDetail() {
           <button onClick={() => navigate("/activities")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
             <ArrowLeft className="w-4 h-4" /> Back to Activities
           </button>
-          <div className="h-[320px] rounded-2xl bg-secondary/30 animate-pulse" />
+          <div className="h-[200px] rounded-2xl bg-secondary/30 animate-pulse" />
           <div className="h-24 rounded-xl bg-secondary/30 animate-pulse" />
         </div>
       </AppLayout>
@@ -270,247 +303,363 @@ export default function ActivityDetail() {
 
   return (
     <AppLayout>
-      <div className="animate-fade-in space-y-5 max-w-4xl mx-auto">
+      <div className="animate-fade-in space-y-4 max-w-5xl mx-auto">
         <button onClick={() => navigate("/activities")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground -ml-1">
           <ArrowLeft className="w-4 h-4" /> Back to Activities
         </button>
 
-        <div className="rounded-2xl overflow-hidden border border-border bg-card shadow-sm">
+        {/* ── Hero header — big readable stats ── */}
+        <div className="rounded-xl border border-border bg-card overflow-hidden">
+          <div className="px-5 py-5">
+            {/* Title + date row */}
+            <div className="flex flex-wrap items-start justify-between gap-2 mb-4">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h1 className="text-xl font-bold text-foreground">
+                    {activity.name ?? activity.type}
+                  </h1>
+                  {isPb && (
+                    <span className={`inline-flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full ${isMarathonPb ? "bg-amber-500/20 text-amber-700 dark:text-amber-400" : "bg-primary/15 text-primary"}`}>
+                      <Trophy className="w-3 h-3" />
+                      {isMarathonPb ? "Marathon PB" : "PB"}
+                    </span>
+                  )}
+                </div>
+                <p className="text-sm text-muted-foreground mt-0.5">{format(new Date(activity.date), "EEEE, MMMM d, yyyy")}</p>
+              </div>
+              {activity.source === "intervals_icu" && (
+                <GpxDownloadButton activityId={id} activityName={activity.name ?? activity.type ?? "activity"} className="shrink-0" />
+              )}
+            </div>
+
+            {/* Big hero metrics */}
+            <div className="flex flex-wrap items-end gap-x-8 gap-y-3">
+              {!nonDist && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Distance</p>
+                  <p className="text-3xl font-bold tabular-nums text-foreground">{formatDistance(activity.distance_km)}<span className="text-base font-normal text-muted-foreground ml-1">km</span></p>
+                </div>
+              )}
+              <div>
+                <p className="text-xs text-muted-foreground mb-0.5">Duration</p>
+                <p className="text-3xl font-bold tabular-nums text-foreground">{formatDuration(activity.duration_seconds)}</p>
+              </div>
+              {!nonDist && activity.avg_pace && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Pace</p>
+                  <p className="text-3xl font-bold tabular-nums text-foreground">{activity.avg_pace}<span className="text-base font-normal text-muted-foreground ml-1">/km</span></p>
+                </div>
+              )}
+              {activity.avg_hr != null && (
+                <div>
+                  <p className="text-xs text-muted-foreground mb-0.5">Avg HR</p>
+                  <p className="text-3xl font-bold tabular-nums text-foreground">{activity.avg_hr}<span className="text-base font-normal text-muted-foreground ml-1">bpm</span></p>
+                </div>
+              )}
+            </div>
+
+            {/* Secondary stats row */}
+            <div className="flex flex-wrap gap-x-5 gap-y-1 mt-4 text-xs text-muted-foreground">
+              {activity.max_hr != null && <StatChip label="Max HR" value={`${activity.max_hr} bpm`} />}
+              {activity.intensity != null && <StatChip label="Intensity" value={`${Math.round(activity.intensity)}%`} />}
+              {activity.load != null && <StatChip label="Load" value={`${Math.round(activity.load)}`} />}
+              {activity.trimp != null && <StatChip label="TRIMP" value={`${Math.round(activity.trimp)}`} />}
+              {activity.perceived_exertion != null && <StatChip label="RPE" value={`${activity.perceived_exertion}/10`} />}
+              {activity.cadence != null && activity.cadence > 0 && <StatChip label="Cadence" value={formatCadence(activity.cadence)} />}
+              {activity.elevation_gain != null && activity.elevation_gain > 0 && <StatChip label="Climbing" value={formatElevation(activity.elevation_gain)} />}
+              {activity.calories != null && activity.calories > 0 && <StatChip label="Calories" value={`${Math.round(activity.calories)}`} />}
+            </div>
+          </div>
+
+          {/* Map (if available) */}
           {hasMap && (
-            <div className="relative h-[280px] bg-muted/30">
+            <div className="relative h-[200px] border-t border-border">
               <MapContainer center={[validLatlng[0][0], validLatlng[0][1]]} zoom={13} className="h-full w-full" scrollWheelZoom={false}>
                 <TileLayer attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>' url={themeMode === "dark" ? TILE_DARK : TILE_LIGHT} />
-                <Polyline positions={validLatlng} color="hsl(25 95% 53%)" weight={5} opacity={0.95} />
+                <Polyline positions={validLatlng} color="hsl(25 95% 53%)" weight={4} opacity={0.95} />
                 <MapFitBounds latlng={validLatlng} />
               </MapContainer>
             </div>
           )}
-
-          <div className="px-5 py-4 border-t border-border bg-background/80">
-            <h1 className="text-xl font-semibold text-foreground mb-1">
-              {activity.name ?? (nonDist ? `${activity.type} — ${formatDuration(activity.duration_seconds)}` : `${activity.type} — ${formatDistance(activity.distance_km)}`)}
-            </h1>
-            <p className="text-sm text-muted-foreground mb-4">{format(new Date(activity.date), "EEEE, MMMM d, yyyy")}</p>
-            <div className="flex flex-wrap gap-8">
-              {!nonDist && (
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Distance</p>
-                  <p className="text-2xl font-bold tabular-nums text-foreground">{formatDistance(activity.distance_km)}</p>
-                </div>
-              )}
-              {!nonDist && (
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Pace</p>
-                  <p className="text-2xl font-bold tabular-nums text-foreground">{activity.avg_pace ?? "—"}</p>
-                </div>
-              )}
-              <div>
-                <p className="text-xs uppercase tracking-wider text-muted-foreground">Time</p>
-                <p className="text-2xl font-bold tabular-nums text-foreground">{formatDuration(activity.duration_seconds)}</p>
-              </div>
-              {activity.elevation_gain != null && activity.elevation_gain > 0 && (
-                <div>
-                  <p className="text-xs uppercase tracking-wider text-muted-foreground">Elevation</p>
-                  <p className="text-2xl font-bold tabular-nums text-foreground">{formatElevation(activity.elevation_gain)}</p>
-                </div>
-              )}
-            </div>
-          </div>
         </div>
 
-        <div className="rounded-xl border border-border bg-card p-4">
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-4">
-            <StatPill icon={Heart} label="Avg HR" value={activity.avg_hr != null ? `${activity.avg_hr} bpm` : "—"} />
-            <StatPill icon={Heart} label="Max HR" value={activity.max_hr != null ? `${activity.max_hr} bpm` : "—"} />
-            <StatPill icon={Footprints} label="Cadence" value={formatCadence(activity.cadence)} />
-            <StatPill icon={Mountain} label="Climbing" value={formatElevation(activity.elevation_gain)} />
-            <StatPill icon={Zap} label="Load" value={activity.load != null ? String(Math.round(activity.load)) : "—"} />
-            <StatPill icon={Timer} label="Intensity" value={activity.intensity != null ? `${Math.round(activity.intensity)}%` : "—"} />
-            {activity.trimp != null && <StatPill icon={Flame} label="TRIMP" value={String(Math.round(activity.trimp))} />}
-            {activity.calories != null && activity.calories > 0 && <StatPill icon={Flame} label="Calories" value={`${Math.round(activity.calories)} kcal`} />}
-            {activity.perceived_exertion != null && <StatPill icon={Brain} label="RPE" value={`${activity.perceived_exertion}/10`} />}
-          </div>
+        {/* ── Tab navigation ── */}
+        <div className="flex rounded-lg bg-muted/60 p-1">
+          {(["charts", "data", "notes"] as const).map((t) => (
+            <button
+              key={t}
+              onClick={() => setTab(t)}
+              className={`px-4 py-2 rounded-md text-sm font-medium transition-colors flex-1 ${tab === t ? "bg-background text-foreground shadow" : "text-muted-foreground hover:text-foreground"}`}
+            >
+              {t === "charts" ? "Charts" : t === "data" ? "Data" : "Notes"}
+            </button>
+          ))}
         </div>
 
-        {/* ── HR Zones ── */}
-        {activity.hr_zone_times && activity.hr_zone_times.some(t => t > 0) && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <ZoneBar times={activity.hr_zone_times} names={HR_ZONE_NAMES} colors={HR_ZONE_COLORS} label="Heart Rate Zones" />
-          </div>
-        )}
-
-        {/* ── Pace Zones ── */}
-        {activity.pace_zone_times && activity.pace_zone_times.some(t => t > 0) && (
-          <div className="rounded-xl border border-border bg-card p-4">
-            <ZoneBar times={activity.pace_zone_times} names={PACE_ZONE_NAMES} colors={HR_ZONE_COLORS} label="Pace Zones" />
-          </div>
-        )}
-
-        {/* ── Pace & Heart Rate ── */}
-        {hasGraphs && (hasPace || hasHr) && (
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-              <Gauge className="w-4 h-4 text-primary" />
-              <span className="text-sm font-semibold text-foreground">Pace & Heart Rate</span>
-            </div>
-            <div className="px-2 py-4">
-              <div className="h-[220px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={chartData} margin={{ top: 8, right: 44, left: -4, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="paceGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={PACE_COLOR} stopOpacity={0.15} />
-                        <stop offset="100%" stopColor={PACE_COLOR} stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="timeLabel" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} interval="preserveStartEnd" tickLine={false} axisLine={false} />
-                    {hasPace && (
-                      <YAxis
-                        yAxisId="pace"
-                        orientation="left"
-                        domain={[(d: number) => Math.floor(d) - 1, (d: number) => Math.ceil(d) + 1]}
-                        tick={{ fontSize: 10, fill: PACE_COLOR }}
-                        tickFormatter={(v: number) => formatPace(v)}
-                        reversed
-                        allowDecimals={false}
-                        tickLine={false}
-                        axisLine={false}
-                        width={42}
-                      />
-                    )}
-                    {hasHr && (
-                      <YAxis
-                        yAxisId="hr"
-                        orientation="right"
-                        domain={[(d: number) => Math.floor(d / 5) * 5 - 10, (d: number) => Math.ceil(d / 5) * 5 + 10]}
-                        tick={{ fontSize: 10, fill: HR_COLOR }}
-                        tickFormatter={(v: number) => String(Math.round(v))}
-                        allowDecimals={false}
-                        tickLine={false}
-                        axisLine={false}
-                        width={40}
-                      />
-                    )}
-                    <Tooltip
-                      contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }}
-                      labelFormatter={(l) => String(l)}
-                      formatter={(val: number, name: string) => {
-                        if (name === "pace") return [`${formatPace(val)}/km`, "Pace"];
-                        if (name === "hr") return [`${Math.round(val)} bpm`, "Heart Rate"];
-                        return [String(val), name];
-                      }}
-                    />
-                    {hasPace && <Area yAxisId="pace" type="natural" dataKey="pace" fill="url(#paceGrad)" stroke={PACE_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 3 }} name="pace" />}
-                    {hasHr && <Line yAxisId="hr" type="natural" dataKey="hr" stroke={HR_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 3 }} name="hr" />}
-                  </ComposedChart>
-                </ResponsiveContainer>
+        {/* ── TAB: Charts ── */}
+        {tab === "charts" && (
+          <div className="space-y-4">
+            {/* Intervals bar */}
+            {activity.splits.length > 1 && (
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="overflow-x-auto">
+                  <div className="flex min-w-max">
+                    {activity.splits.map((s, i) => {
+                      const zone = s.hr != null ? (s.hr < 130 ? 0 : s.hr < 145 ? 1 : s.hr < 160 ? 2 : s.hr < 175 ? 3 : 4) : 1;
+                      return (
+                        <div key={i} className="flex-1 min-w-[72px] border-r border-border last:border-r-0 px-2 py-2 text-center">
+                          <p className="text-[10px] text-muted-foreground mb-0.5">{s.elapsed_sec != null ? formatDuration(s.elapsed_sec) : `#${i + 1}`}</p>
+                          <p className="text-xs font-bold tabular-nums text-foreground">{s.pace ?? "—"}</p>
+                          {s.hr != null && <p className="text-[10px] tabular-nums text-muted-foreground">{s.hr}bpm</p>}
+                          <div className="mt-1 h-1.5 rounded-full" style={{ backgroundColor: HR_ZONE_COLORS[zone] }} />
+                          <p className="text-[9px] text-muted-foreground mt-0.5">Z{zone + 1}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
               </div>
-              <div className="flex gap-5 mt-1 px-4 text-xs text-muted-foreground">
-                {hasPace && <span><span className="inline-block w-3 h-[3px] rounded-full align-middle mr-1" style={{ background: PACE_COLOR }} />Pace</span>}
-                {hasHr && <span><span className="inline-block w-3 h-[3px] rounded-full align-middle mr-1" style={{ background: HR_COLOR }} />Heart Rate</span>}
+            )}
+
+            {/* Stacked charts */}
+            {hasGraphs && (
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                {hasPace && (
+                  <div className="px-2 pt-3 pb-0">
+                    <div className="flex items-center gap-2 px-3 mb-1">
+                      <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: PACE_COLOR }}>Pace</span>
+                    </div>
+                    <div className="h-[140px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData} margin={{ top: 4, right: 44, left: -4, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="paceGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={PACE_COLOR} stopOpacity={0.15} />
+                              <stop offset="100%" stopColor={PACE_COLOR} stopOpacity={0.02} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                          <XAxis dataKey="timeLabel" tick={false} tickLine={false} axisLine={false} height={0} />
+                          <YAxis yAxisId="pace" orientation="left" domain={[(d: number) => Math.floor(d) - 1, (d: number) => Math.ceil(d) + 1]} tick={{ fontSize: 9, fill: PACE_COLOR }} tickFormatter={(v: number) => formatPace(v)} reversed allowDecimals={false} tickLine={false} axisLine={false} width={42} />
+                          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} labelFormatter={(l) => String(l)} formatter={(val: number) => [`${formatPace(val)}/km`, "Pace"]} />
+                          <Area yAxisId="pace" type="natural" dataKey="pace" fill="url(#paceGrad)" stroke={PACE_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
+                {hasHr && (
+                  <div className="px-2 pb-0">
+                    <div className="flex items-center gap-2 px-3 mb-1">
+                      <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: HR_COLOR }}>Heart Rate</span>
+                    </div>
+                    <div className="h-[120px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData} margin={{ top: 4, right: 44, left: -4, bottom: 0 }}>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                          <XAxis dataKey="timeLabel" tick={false} tickLine={false} axisLine={false} height={0} />
+                          <YAxis domain={[(d: number) => Math.floor(d / 5) * 5 - 10, (d: number) => Math.ceil(d / 5) * 5 + 10]} tick={{ fontSize: 9, fill: HR_COLOR }} tickFormatter={(v: number) => String(Math.round(v))} allowDecimals={false} tickLine={false} axisLine={false} width={42} />
+                          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} labelFormatter={(l) => String(l)} formatter={(val: number) => [`${Math.round(val)} bpm`, "HR"]} />
+                          <Line type="natural" dataKey="hr" stroke={HR_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
+                {hasCad && (
+                  <div className="px-2 pb-0">
+                    <div className="flex items-center gap-2 px-3 mb-1">
+                      <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: CAD_COLOR }}>Cadence</span>
+                    </div>
+                    <div className="h-[100px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData} margin={{ top: 4, right: 44, left: -4, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="cadGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={CAD_COLOR} stopOpacity={0.2} />
+                              <stop offset="100%" stopColor={CAD_COLOR} stopOpacity={0.02} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                          <XAxis dataKey="timeLabel" tick={false} tickLine={false} axisLine={false} height={0} />
+                          <YAxis domain={["dataMin - 5", "dataMax + 5"]} tick={{ fontSize: 9, fill: CAD_COLOR }} tickFormatter={(v: number) => String(Math.round(v))} tickLine={false} axisLine={false} width={42} />
+                          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} labelFormatter={(l) => String(l)} formatter={(v: number) => [`${Math.round(v)} spm`, "Cadence"]} />
+                          <Area type="natural" dataKey="cadence" fill="url(#cadGrad)" stroke={CAD_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
+                {hasAlt && (
+                  <div className="px-2 pb-2">
+                    <div className="flex items-center gap-2 px-3 mb-1">
+                      <span className="text-[10px] font-medium uppercase tracking-wider" style={{ color: ELEV_COLOR }}>Altitude</span>
+                    </div>
+                    <div className="h-[90px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData} margin={{ top: 4, right: 44, left: -4, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="elevGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={ELEV_COLOR} stopOpacity={0.35} />
+                              <stop offset="100%" stopColor={ELEV_COLOR} stopOpacity={0.05} />
+                            </linearGradient>
+                          </defs>
+                          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+                          <XAxis dataKey="timeLabel" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} interval="preserveStartEnd" tickLine={false} axisLine={false} />
+                          <YAxis domain={["dataMin - 5", "dataMax + 5"]} tick={{ fontSize: 9, fill: ELEV_COLOR }} tickFormatter={(v: number) => String(Math.round(v))} tickLine={false} axisLine={false} width={42} />
+                          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} formatter={(v: number) => [`${Math.round(v)} m`, "Elevation"]} labelFormatter={(l) => String(l)} />
+                          <Area type="natural" dataKey="altitude" fill="url(#elevGrad)" stroke={ELEV_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
+
+                {!hasAlt && (
+                  <div className="px-2 pb-2">
+                    <div className="h-[20px]">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <ComposedChart data={chartData} margin={{ top: 0, right: 44, left: -4, bottom: 0 }}>
+                          <XAxis dataKey="timeLabel" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} interval="preserveStartEnd" tickLine={false} axisLine={false} />
+                        </ComposedChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                )}
               </div>
-            </div>
+            )}
+
+            {/* HR Distribution + Cumulative Time charts */}
+            {hasHr && (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <HrDistributionChart chartData={chartData} maxHr={activity.max_hr} />
+                <CumulativeHrChart chartData={chartData} maxHr={activity.max_hr} />
+              </div>
+            )}
+
+            {/* Mean Maximal HR Curve */}
+            {hasHr && <MeanMaxHrChart chartData={chartData} />}
+
+            {!hasGraphs && (
+              <div className="rounded-xl border border-border bg-card p-12 text-center">
+                <p className="text-sm text-muted-foreground">No chart data available for this activity.</p>
+              </div>
+            )}
           </div>
         )}
 
-        {/* ── Elevation ── */}
-        {hasAlt && (
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-              <Mountain className="w-4 h-4 text-primary" />
-              <span className="text-sm font-semibold text-foreground">Elevation</span>
-            </div>
-            <div className="px-2 py-4">
-              <div className="h-[140px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={chartData} margin={{ top: 4, right: 12, left: -4, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="elevGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={ELEV_COLOR} stopOpacity={0.35} />
-                        <stop offset="100%" stopColor={ELEV_COLOR} stopOpacity={0.05} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="timeLabel" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} interval="preserveStartEnd" tickLine={false} axisLine={false} />
-                    <YAxis domain={["dataMin - 5", "dataMax + 5"]} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} unit=" m" tickLine={false} axisLine={false} width={48} />
-                    <Tooltip
-                      contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }}
-                      formatter={(v: number) => [`${Math.round(v)} m`, "Elevation"]}
-                      labelFormatter={(l) => String(l)}
-                    />
-                    <Area type="natural" dataKey="altitude" fill="url(#elevGrad)" stroke={ELEV_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 3 }} />
-                  </ComposedChart>
-                </ResponsiveContainer>
+        {/* ── TAB: Data ── */}
+        {tab === "data" && (
+          <div className="space-y-4">
+            {/* HR Zone Detail Table (intervals.icu style) */}
+            {activity.hr_zone_times && activity.hr_zone_times.some(t => t > 0) && (
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 bg-muted/30">
+                  <Heart className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-xs font-semibold text-foreground">Heart Rate Zones</span>
+                </div>
+                <ZoneDetailTable times={activity.hr_zone_times} names={HR_ZONE_NAMES} colors={HR_ZONE_COLORS} maxHr={activity.max_hr} />
+              </div>
+            )}
+
+            {/* Pace Zone Detail Table */}
+            {activity.pace_zone_times && activity.pace_zone_times.some(t => t > 0) && (
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 bg-muted/30">
+                  <BarChart3 className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-xs font-semibold text-foreground">Pace Zones</span>
+                </div>
+                <ZoneDetailTable times={activity.pace_zone_times} names={PACE_ZONE_NAMES} colors={HR_ZONE_COLORS} />
+              </div>
+            )}
+
+            {/* Summary Stats Card */}
+            <div className="rounded-xl border border-border bg-card overflow-hidden">
+              <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 bg-muted/30">
+                <BarChart3 className="w-3.5 h-3.5 text-primary" />
+                <span className="text-xs font-semibold text-foreground">Summary</span>
+              </div>
+              <div className="p-4">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
+                  {!nonDist && <SummaryItem label="Distance" value={`${formatDistance(activity.distance_km)} km`} />}
+                  <SummaryItem label="Duration" value={formatDuration(activity.duration_seconds)} />
+                  {!nonDist && activity.avg_pace && <SummaryItem label="Avg Pace" value={`${activity.avg_pace}/km`} />}
+                  {activity.avg_hr != null && <SummaryItem label="Avg HR" value={`${activity.avg_hr} bpm`} />}
+                  {activity.max_hr != null && <SummaryItem label="Max HR" value={`${activity.max_hr} bpm`} />}
+                  {activity.avg_hr != null && activity.max_hr != null && <SummaryItem label="HR %" value={`${Math.round((activity.avg_hr / activity.max_hr) * 100)}%`} />}
+                  {activity.load != null && <SummaryItem label="Training Load" value={`${Math.round(activity.load)}`} />}
+                  {activity.trimp != null && <SummaryItem label="TRIMP" value={`${Math.round(activity.trimp)}`} />}
+                  {activity.intensity != null && <SummaryItem label="Intensity" value={`${Math.round(activity.intensity)}%`} />}
+                  {activity.perceived_exertion != null && <SummaryItem label="RPE" value={`${activity.perceived_exertion}/10`} />}
+                  {activity.cadence != null && activity.cadence > 0 && <SummaryItem label="Avg Cadence" value={`${formatCadence(activity.cadence)} spm`} />}
+                  {activity.elevation_gain != null && activity.elevation_gain > 0 && <SummaryItem label="Climbing" value={`${formatElevation(activity.elevation_gain)} m`} />}
+                  {activity.calories != null && activity.calories > 0 && <SummaryItem label="Calories" value={`${Math.round(activity.calories)} kcal`} />}
+                </div>
               </div>
             </div>
+
+            {/* Splits Table */}
+            {activity.splits.length > 0 && (
+              <div className="rounded-xl border border-border bg-card overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-border flex items-center gap-2 bg-muted/30">
+                  <BarChart3 className="w-3.5 h-3.5 text-primary" />
+                  <span className="text-xs font-semibold text-foreground">Splits</span>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border bg-muted/20">
+                        <th className="text-left py-2.5 px-4 font-medium text-muted-foreground">#</th>
+                        <th className="text-right py-2.5 px-4 font-medium text-muted-foreground">Time</th>
+                        <th className="text-right py-2.5 px-4 font-medium text-muted-foreground">Pace</th>
+                        {activity.splits.some(s => s.hr != null) && <th className="text-right py-2.5 px-4 font-medium text-muted-foreground">Avg HR</th>}
+                        {activity.splits.some(s => s.hr != null) && <th className="text-right py-2.5 px-4 font-medium text-muted-foreground">Zone</th>}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {activity.splits.map((s, i) => {
+                        const zone = s.hr != null ? (s.hr < 130 ? 1 : s.hr < 145 ? 2 : s.hr < 160 ? 3 : s.hr < 175 ? 4 : 5) : null;
+                        return (
+                          <tr key={i} className="border-b border-border/40 hover:bg-muted/20">
+                            <td className="py-2 px-4 font-medium tabular-nums text-foreground">{i + 1}</td>
+                            <td className="py-2 px-4 text-right tabular-nums">{s.elapsed_sec != null ? formatDuration(s.elapsed_sec) : "—"}</td>
+                            <td className="py-2 px-4 text-right tabular-nums font-medium text-foreground">{s.pace ?? "—"}</td>
+                            {activity.splits.some(sp => sp.hr != null) && <td className="py-2 px-4 text-right tabular-nums">{s.hr ?? "—"}</td>}
+                            {activity.splits.some(sp => sp.hr != null) && (
+                              <td className="py-2 px-4 text-right">
+                                {zone != null && (
+                                  <span className="inline-flex items-center gap-1 text-xs">
+                                    <span className="w-2 h-2 rounded-full" style={{ backgroundColor: HR_ZONE_COLORS[zone - 1] }} />
+                                    {zone}
+                                  </span>
+                                )}
+                              </td>
+                            )}
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
-        {/* ── Cadence ── */}
-        {hasCad && (
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-              <Footprints className="w-4 h-4 text-primary" />
-              <span className="text-sm font-semibold text-foreground">Cadence</span>
-            </div>
-            <div className="px-2 py-4">
-              <div className="h-[140px]">
-                <ResponsiveContainer width="100%" height="100%">
-                  <ComposedChart data={chartData} margin={{ top: 4, right: 12, left: -4, bottom: 0 }}>
-                    <defs>
-                      <linearGradient id="cadGrad" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="0%" stopColor={CAD_COLOR} stopOpacity={0.2} />
-                        <stop offset="100%" stopColor={CAD_COLOR} stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="timeLabel" tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} interval="preserveStartEnd" tickLine={false} axisLine={false} />
-                    <YAxis domain={["dataMin - 5", "dataMax + 5"]} tick={{ fontSize: 10, fill: "hsl(var(--muted-foreground))" }} unit=" spm" tickLine={false} axisLine={false} width={52} />
-                    <Tooltip
-                      contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }}
-                      formatter={(v: number) => [`${Math.round(v)} spm`, "Cadence"]}
-                      labelFormatter={(l) => String(l)}
-                    />
-                    <Area type="natural" dataKey="cadence" fill="url(#cadGrad)" stroke={CAD_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 3 }} />
-                  </ComposedChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-          </div>
-        )}
-
-        {/* ── Splits ── */}
-        {activity.splits.length > 0 && (
-          <div className="rounded-xl border border-border bg-card overflow-hidden">
-            <div className="px-4 py-3 border-b border-border flex items-center gap-2">
-              <BarChart3 className="w-4 h-4 text-primary" />
-              <span className="text-sm font-semibold text-foreground">Splits</span>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-border bg-muted/30">
-                    <th className="text-left py-3 px-4 font-medium text-muted-foreground">#</th>
-                    <th className="text-right py-3 px-4 font-medium text-muted-foreground">Distance</th>
-                    <th className="text-right py-3 px-4 font-medium text-muted-foreground">Pace</th>
-                    <th className="text-right py-3 px-4 font-medium text-muted-foreground">Time</th>
-                    <th className="text-right py-3 px-4 font-medium text-muted-foreground">HR</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {activity.splits.map((s, i) => (
-                    <tr key={i} className="border-b border-border/50 hover:bg-muted/20">
-                      <td className="py-2.5 px-4 font-medium tabular-nums">{i + 1}</td>
-                      <td className="py-2.5 px-4 text-right tabular-nums">{s.km != null ? formatDistance(s.km) : "—"}</td>
-                      <td className="py-2.5 px-4 text-right tabular-nums">{s.pace ?? "—"}</td>
-                      <td className="py-2.5 px-4 text-right tabular-nums">{s.elapsed_sec != null ? formatDuration(s.elapsed_sec) : "—"}</td>
-                      <td className="py-2.5 px-4 text-right tabular-nums">{s.hr != null ? `${s.hr} bpm` : "—"}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+        {/* ── TAB: Notes ── */}
+        {tab === "notes" && (
+          <div className="space-y-4">
+            <CoachNote activityId={id} cachedNote={activity.coach_note} />
+            <ActivityNotes
+              activityId={id}
+              userNotes={activity.user_notes}
+              nomioDrink={activity.nomio_drink}
+              lactateLevels={activity.lactate_levels}
+              onUpdate={() => queryClient.invalidateQueries({ queryKey: ["activity-detail", id] })}
+            />
           </div>
         )}
       </div>
@@ -518,16 +667,462 @@ export default function ActivityDetail() {
   );
 }
 
-function StatPill({ icon: Icon, label, value }: { icon: React.ComponentType<{ className?: string }>; label: string; value: string }) {
+function GpxDownloadButton({ activityId, activityName, className }: { activityId: string; activityName: string; className?: string }) {
+  const [loading, setLoading] = useState(false);
+  const activityIdForApi = activityId?.startsWith("icu_") ? activityId.replace(/^icu_/, "") : activityId;
+
+  const download = useCallback(async () => {
+    if (!activityIdForApi || loading) return;
+    setLoading(true);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) return;
+      const { data, error } = await supabase.functions.invoke("intervals-proxy", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { action: "gpx", activityId: activityIdForApi },
+      });
+      if (error || (data && typeof data === "object" && "error" in (data as object))) {
+        toast({ title: "GPX unavailable", description: "No GPS track for this activity.", variant: "destructive" });
+        return;
+      }
+      const gpx = typeof data === "string" ? data : JSON.stringify(data);
+      const blob = new Blob([gpx], { type: "application/gpx+xml" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${activityName.replace(/[^a-zA-Z0-9-_]/g, "_")}-${activityIdForApi}.gpx`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } finally {
+      setLoading(false);
+    }
+  }, [activityIdForApi, activityName, loading]);
+
+  const base = "flex items-center gap-1.5 rounded-lg bg-background/90 px-2.5 py-1.5 text-xs font-medium text-foreground shadow-sm border border-border hover:bg-muted/80 transition-colors";
   return (
-    <div className="flex items-center gap-2">
-      <div className="rounded-lg bg-primary/10 p-2">
-        <Icon className="w-4 h-4 text-primary" />
+    <button
+      onClick={download}
+      disabled={loading}
+      className={className ? `${base} ${className}` : `${base} absolute top-2 right-2 z-[1000]`}
+    >
+      <Download className="w-3.5 h-3.5" />
+      {loading ? "…" : "Download GPX"}
+    </button>
+  );
+}
+
+function ActivityNotes({
+  activityId,
+  userNotes,
+  nomioDrink,
+  lactateLevels,
+  onUpdate,
+}: {
+  activityId: string | undefined;
+  userNotes?: string | null;
+  nomioDrink?: boolean | null;
+  lactateLevels?: string | null;
+  onUpdate: () => void;
+}) {
+  const [notes, setNotes] = useState(userNotes ?? "");
+  const [nomio, setNomio] = useState(!!nomioDrink);
+  const [lactate, setLactate] = useState(lactateLevels ?? "");
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    setNotes(userNotes ?? "");
+    setNomio(!!nomioDrink);
+    setLactate(lactateLevels ?? "");
+  }, [userNotes, nomioDrink, lactateLevels]);
+
+  const save = useCallback(async () => {
+    if (!activityId) return;
+    setSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(activityId);
+      const query = supabase
+        .from("activity")
+        .update({ user_notes: notes || null, nomio_drink: nomio, lactate_levels: lactate || null })
+        .eq("user_id", user.id);
+      const { error } = isUuid
+        ? await query.eq("id", activityId)
+        : await query.eq("external_id", activityId.startsWith("icu_") ? activityId.replace(/^icu_/, "") : activityId);
+      if (!error) onUpdate();
+    } finally {
+      setSaving(false);
+    }
+  }, [activityId, notes, nomio, lactate, onUpdate]);
+
+  useEffect(() => {
+    const t = setTimeout(save, 500);
+    return () => clearTimeout(t);
+  }, [notes, nomio, lactate]);
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 space-y-4">
+      <div className="flex items-center gap-2 mb-3">
+        <FileText className="w-4 h-4 text-primary" />
+        <span className="text-sm font-semibold text-foreground">Training notes</span>
+        {saving && <Loader2 className="w-3.5 h-3.5 animate-spin text-muted-foreground" />}
       </div>
       <div>
-        <p className="text-xs text-muted-foreground">{label}</p>
-        <p className="font-semibold tabular-nums text-foreground">{value}</p>
+        <Label className="text-xs text-muted-foreground">How you felt & notes</Label>
+        <Textarea
+          placeholder="e.g. Legs felt heavy, good session overall..."
+          value={notes}
+          onChange={(e) => setNotes(e.target.value)}
+          className="mt-1.5 min-h-[72px] resize-none"
+          rows={3}
+        />
       </div>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Coffee className="w-4 h-4 text-muted-foreground" />
+          <Label htmlFor="nomio" className="text-sm font-medium cursor-pointer">Nomio drink before</Label>
+        </div>
+        <Switch id="nomio" checked={nomio} onCheckedChange={setNomio} />
+      </div>
+      <div>
+        <Label className="text-xs text-muted-foreground flex items-center gap-1.5">
+          <Droplets className="w-3.5 h-3.5" /> Lactate levels
+        </Label>
+        <Textarea
+          placeholder="e.g. After each rep: 4.2, 5.1, 4.8 — or post-session: 3.5"
+          value={lactate}
+          onChange={(e) => setLactate(e.target.value)}
+          className="mt-1.5 min-h-[56px] resize-none text-sm"
+          rows={2}
+        />
+      </div>
+    </div>
+  );
+}
+
+function CoachNote({ activityId, cachedNote }: { activityId: string | undefined; cachedNote?: string | null }) {
+  const queryClient = useQueryClient();
+  const [note, setNote] = useState<string | null>(cachedNote ?? null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(false);
+
+  const activityIdForApi = activityId?.startsWith("icu_") ? activityId.replace(/^icu_/, "") : activityId;
+
+  const generate = useCallback(async (forceRegenerate = false) => {
+    if (!activityIdForApi || loading) return;
+    setLoading(true);
+    setError(false);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.access_token) { setError(true); return; }
+      const { data, error: fnErr } = await supabase.functions.invoke("intervals-proxy", {
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { action: "activity_coach_note", activityId: activityIdForApi, regenerate: forceRegenerate },
+      });
+      if (fnErr || !data?.note) { setError(true); return; }
+      setNote(data.note);
+      queryClient.invalidateQueries({ queryKey: ["activity-detail", activityId] });
+    } catch {
+      setError(true);
+    } finally {
+      setLoading(false);
+    }
+  }, [activityIdForApi, activityId, loading, queryClient]);
+
+  useEffect(() => {
+    if (cachedNote) { setNote(cachedNote); return; }
+    if (!note && activityIdForApi) generate();
+  }, [cachedNote, activityIdForApi]);
+
+  if (error && !note) {
+    return (
+      <div className="rounded-xl border border-border bg-card p-4 flex items-center gap-3">
+        <div className="rounded-lg bg-primary/10 p-2 shrink-0">
+          <MessageCircle className="w-4 h-4 text-primary" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <p className="text-xs font-medium text-muted-foreground mb-0.5">Kipcoachee</p>
+          <p className="text-sm text-muted-foreground">Couldn't generate feedback.</p>
+        </div>
+        <button onClick={generate} className="text-xs text-primary hover:underline shrink-0">Retry</button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4 flex items-start gap-3">
+      <div className="rounded-lg bg-primary/10 p-2 shrink-0 mt-0.5">
+        <MessageCircle className="w-4 h-4 text-primary" />
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-xs font-medium text-muted-foreground mb-1">Kipcoachee</p>
+        {loading || !note ? (
+          <div className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <span>Analyzing your activity...</span>
+          </div>
+        ) : (
+          <>
+            <p className="text-sm text-foreground leading-relaxed">{note}</p>
+            <button
+              onClick={() => generate(true)}
+              disabled={loading}
+              className="mt-2 text-xs text-muted-foreground hover:text-foreground transition-colors"
+            >
+              Regenerate feedback
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function getHrZone(bpm: number, maxHr: number): number {
+  const pct = bpm / maxHr;
+  if (pct < 0.6) return 0;
+  if (pct < 0.7) return 0;
+  if (pct < 0.8) return 1;
+  if (pct < 0.9) return 2;
+  if (pct < 0.95) return 3;
+  if (pct < 1.0) return 4;
+  return 5;
+}
+
+/** HR Distribution Histogram — time spent at each BPM, colored by zone */
+function HrDistributionChart({ chartData, maxHr }: { chartData: ChartPoint[]; maxHr?: number | null }) {
+  const effectiveMax = maxHr ?? Math.max(...chartData.map((d) => d.hr).filter(Boolean));
+  if (!effectiveMax || effectiveMax <= 0) return null;
+
+  const hrVals = chartData.map((d) => Math.round(d.hr)).filter((h) => h > 0);
+  if (hrVals.length === 0) return null;
+
+  const minHr = Math.min(...hrVals);
+  const maxHrVal = Math.max(...hrVals);
+  const bucketSize = 2;
+  const buckets: { bpm: number; seconds: number; zone: number }[] = [];
+  const intervalSec = chartData.length > 1 ? Math.max(1, (chartData[chartData.length - 1].t - chartData[0].t) / (chartData.length - 1)) : 1;
+
+  for (let b = Math.floor(minHr / bucketSize) * bucketSize; b <= maxHrVal; b += bucketSize) {
+    const count = hrVals.filter((h) => h >= b && h < b + bucketSize).length;
+    buckets.push({ bpm: b, seconds: count * intervalSec, zone: getHrZone(b + bucketSize / 2, effectiveMax) });
+  }
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
+        <Heart className="w-3.5 h-3.5 text-red-500" />
+        HR Distribution
+      </p>
+      <div className="h-[180px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <RechartsBarChart data={buckets} margin={{ top: 4, right: 8, left: -4, bottom: 0 }} barCategoryGap={0} barGap={0}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+            <XAxis dataKey="bpm" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} interval="preserveStartEnd" />
+            <YAxis tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} width={36} tickFormatter={(v: number) => v >= 60 ? `${(v / 60).toFixed(0)}m` : `${Math.round(v)}s`} />
+            <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} formatter={(v: number) => [v >= 60 ? `${(v / 60).toFixed(1)}min` : `${Math.round(v)}s`, "Time"]} labelFormatter={(l) => `${l} bpm`} />
+            <Bar dataKey="seconds" radius={[1, 1, 0, 0]}>
+              {buckets.map((b, i) => (
+                <Cell key={i} fill={HR_ZONE_COLORS[b.zone] ?? HR_ZONE_COLORS[HR_ZONE_COLORS.length - 1]} />
+              ))}
+            </Bar>
+          </RechartsBarChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+/** Cumulative Time at HR — total time accumulated at or above each HR */
+function CumulativeHrChart({ chartData, maxHr }: { chartData: ChartPoint[]; maxHr?: number | null }) {
+  const effectiveMax = maxHr ?? Math.max(...chartData.map((d) => d.hr).filter(Boolean));
+  if (!effectiveMax || effectiveMax <= 0) return null;
+
+  const hrVals = chartData.map((d) => Math.round(d.hr)).filter((h) => h > 0);
+  if (hrVals.length === 0) return null;
+
+  const intervalSec = chartData.length > 1 ? Math.max(1, (chartData[chartData.length - 1].t - chartData[0].t) / (chartData.length - 1)) : 1;
+  const maxHrVal = Math.max(...hrVals);
+  const minHr = Math.min(...hrVals);
+  const step = 1;
+  const data: { bpm: number; cumSeconds: number; zone: number }[] = [];
+
+  for (let bpm = maxHrVal; bpm >= minHr; bpm -= step) {
+    const count = hrVals.filter((h) => h >= bpm).length;
+    data.push({ bpm, cumSeconds: count * intervalSec, zone: getHrZone(bpm, effectiveMax) });
+  }
+  data.reverse();
+
+  const zoneBreaks = [0.6, 0.7, 0.8, 0.9, 0.95, 1.0].map((pct) => Math.round(effectiveMax * pct));
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
+        <Heart className="w-3.5 h-3.5 text-red-500" />
+        Cumulative Time
+      </p>
+      <div className="h-[180px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={data} margin={{ top: 4, right: 8, left: -4, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+            <XAxis dataKey="bpm" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} reversed interval="preserveStartEnd" />
+            <YAxis tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} width={36} scale="log" domain={[1, "auto"]} allowDataOverflow tickFormatter={(v: number) => v >= 60 ? `${(v / 60).toFixed(0)}m` : `${Math.round(v)}s`} />
+            <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} formatter={(v: number) => [v >= 60 ? `${(v / 60).toFixed(1)}min` : `${Math.round(v)}s`, "Time ≥"]} labelFormatter={(l) => `≥ ${l} bpm`} />
+            {zoneBreaks.map((bpm, i) => (
+              <Line key={`zb-${i}`} type="monotone" dataKey={() => null} stroke="none" dot={false} activeDot={false} />
+            ))}
+            <Area type="stepAfter" dataKey="cumSeconds" fill="url(#cumHrGrad)" stroke={HR_COLOR} strokeWidth={1.5} dot={false} />
+            <defs>
+              <linearGradient id="cumHrGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={HR_COLOR} stopOpacity={0.3} />
+                <stop offset="100%" stopColor={HR_COLOR} stopOpacity={0.03} />
+              </linearGradient>
+            </defs>
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+      <div className="flex flex-wrap gap-2 mt-2">
+        {zoneBreaks.slice(0, -1).map((bpm, i) => (
+          <span key={i} className="inline-flex items-center gap-1 text-[10px] text-muted-foreground">
+            <span className="w-2 h-2 rounded-sm" style={{ backgroundColor: HR_ZONE_COLORS[i + 1] ?? HR_ZONE_COLORS[0] }} />
+            Z{i + 2} {bpm}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Mean Maximal HR Curve — max sustained HR over increasing time windows */
+function MeanMaxHrChart({ chartData }: { chartData: ChartPoint[] }) {
+  const hrVals = chartData.map((d) => d.hr).filter(Boolean);
+  if (hrVals.length < 10) return null;
+
+  const intervalSec = chartData.length > 1 ? Math.max(1, (chartData[chartData.length - 1].t - chartData[0].t) / (chartData.length - 1)) : 1;
+
+  const durations = [1, 2, 5, 10, 15, 30, 60, 120, 300, 600, 900, 1200, 1800, 2700, 3600].filter(
+    (d) => d <= chartData.length * intervalSec
+  );
+
+  const mmhr: { duration: number; label: string; maxAvgHr: number }[] = [];
+  for (const dur of durations) {
+    const windowSize = Math.max(1, Math.round(dur / intervalSec));
+    if (windowSize > hrVals.length) continue;
+    let maxAvg = 0;
+    let windowSum = 0;
+    for (let i = 0; i < windowSize; i++) windowSum += hrVals[i];
+    maxAvg = windowSum / windowSize;
+    for (let i = windowSize; i < hrVals.length; i++) {
+      windowSum += hrVals[i] - hrVals[i - windowSize];
+      maxAvg = Math.max(maxAvg, windowSum / windowSize);
+    }
+    const label = dur < 60 ? `${dur}s` : dur < 3600 ? `${Math.round(dur / 60)}m` : `${(dur / 3600).toFixed(1)}h`;
+    mmhr.push({ duration: dur, label, maxAvgHr: Math.round(maxAvg) });
+  }
+
+  if (mmhr.length < 3) return null;
+
+  return (
+    <div className="rounded-xl border border-border bg-card p-4">
+      <p className="text-xs font-semibold text-foreground mb-2 flex items-center gap-1.5">
+        <Heart className="w-3.5 h-3.5 text-red-500" />
+        HR Curve (Mean Maximal)
+      </p>
+      <div className="h-[180px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <ComposedChart data={mmhr} margin={{ top: 4, right: 8, left: -4, bottom: 0 }}>
+            <defs>
+              <linearGradient id="mmhrGrad" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stopColor={HR_COLOR} stopOpacity={0.25} />
+                <stop offset="100%" stopColor={HR_COLOR} stopOpacity={0.02} />
+              </linearGradient>
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
+            <XAxis dataKey="label" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} />
+            <YAxis domain={["dataMin - 5", "dataMax + 5"]} tick={{ fontSize: 9, fill: HR_COLOR }} tickLine={false} axisLine={false} width={36} />
+            <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} formatter={(v: number) => [`${v} bpm`, "Max Avg HR"]} />
+            <Area type="monotone" dataKey="maxAvgHr" fill="url(#mmhrGrad)" stroke={HR_COLOR} strokeWidth={2} dot={{ r: 2, fill: HR_COLOR }} activeDot={{ r: 3 }} />
+          </ComposedChart>
+        </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+/** intervals.icu-style zone detail table with % range, HR range, colored bar, time, % */
+function ZoneDetailTable({ times, names, colors, maxHr }: { times: number[]; names: string[]; colors: string[]; maxHr?: number | null }) {
+  const total = times.reduce((a, b) => a + b, 0);
+  if (total === 0) return null;
+  const maxTime = Math.max(...times);
+  const hrRanges = maxHr ? [
+    `0 - ${Math.round(maxHr * 0.6)}`,
+    `${Math.round(maxHr * 0.6)} - ${Math.round(maxHr * 0.7)}`,
+    `${Math.round(maxHr * 0.7)} - ${Math.round(maxHr * 0.8)}`,
+    `${Math.round(maxHr * 0.8)} - ${Math.round(maxHr * 0.9)}`,
+    `${Math.round(maxHr * 0.9)} - ${Math.round(maxHr * 0.95)}`,
+    `${Math.round(maxHr * 0.95)} - ${maxHr}`,
+    `${maxHr}+`,
+  ] : null;
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="border-b border-border bg-muted/20">
+            <th className="text-left py-2 px-4 font-medium text-muted-foreground w-[140px]">Zone</th>
+            {hrRanges && <th className="text-left py-2 px-4 font-medium text-muted-foreground w-[110px]">HR Range</th>}
+            <th className="text-left py-2 px-4 font-medium text-muted-foreground">Distribution</th>
+            <th className="text-right py-2 px-4 font-medium text-muted-foreground w-[80px]">Time</th>
+            <th className="text-right py-2 px-4 font-medium text-muted-foreground w-[60px]">%</th>
+          </tr>
+        </thead>
+        <tbody>
+          {times.map((t, i) => {
+            const pct = total > 0 ? (t / total) * 100 : 0;
+            const barPct = maxTime > 0 ? (t / maxTime) * 100 : 0;
+            const mins = Math.round(t / 60);
+            const timeStr = mins >= 60 ? `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}m` : `${mins}m${String(Math.round(t % 60)).padStart(2, "0")}s`;
+            return (
+              <tr key={i} className="border-b border-border/40">
+                <td className="py-2 px-4">
+                  <span className="inline-flex items-center gap-1.5 text-xs">
+                    <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: colors[i] ?? colors[colors.length - 1] }} />
+                    <span className="font-medium text-foreground">{names[i] ?? `Zone ${i + 1}`}</span>
+                  </span>
+                </td>
+                {hrRanges && <td className="py-2 px-4 tabular-nums text-xs text-muted-foreground">{hrRanges[i] ?? ""}</td>}
+                <td className="py-2 px-4">
+                  <div className="h-4 bg-muted/40 rounded overflow-hidden">
+                    <div className="h-full rounded transition-all" style={{ width: `${barPct}%`, backgroundColor: colors[i] ?? colors[colors.length - 1] }} />
+                  </div>
+                </td>
+                <td className="py-2 px-4 text-right tabular-nums text-foreground font-medium">{t > 0 ? timeStr : "—"}</td>
+                <td className="py-2 px-4 text-right tabular-nums text-muted-foreground">{pct > 0.5 ? `${pct.toFixed(1)}%` : pct > 0 ? "<1%" : "0%"}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function SummaryItem({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <p className="text-xs text-muted-foreground">{label}</p>
+      <p className="font-semibold tabular-nums text-foreground">{value}</p>
+    </div>
+  );
+}
+
+/** Compact stat chip for the intervals.icu-style header bar */
+function StatChip({ label, value, sub, color }: { label: string; value: string; sub?: string; color?: string }) {
+  return (
+    <div className="flex items-baseline gap-1.5">
+      <span className="text-muted-foreground">{label}</span>
+      <span className="font-semibold tabular-nums" style={color ? { color } : undefined}>{value}</span>
+      {sub && <span className="text-muted-foreground">{sub}</span>}
     </div>
   );
 }

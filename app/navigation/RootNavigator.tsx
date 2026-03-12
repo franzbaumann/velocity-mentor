@@ -9,6 +9,7 @@ import { DashboardScreen } from "../screens/DashboardScreen";
 import { ActivitiesScreen } from "../screens/ActivitiesScreen";
 import { ActivityDetailScreen } from "../screens/ActivityDetailScreen";
 import { TrainingPlanScreen } from "../screens/TrainingPlanScreen";
+import { PlanOnboardingScreen } from "../screens/PlanOnboardingScreen";
 import { CoachScreen } from "../screens/CoachScreen";
 import { StatsScreen } from "../screens/StatsScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
@@ -25,6 +26,11 @@ export type AuthStackParamList = {
 export type ActivitiesStackParamList = {
   ActivitiesList: undefined;
   ActivityDetail: { id: string };
+};
+
+export type PlanStackParamList = {
+  PlanOnboarding: undefined;
+  PlanMain: undefined;
 };
 
 export type AppTabsParamList = {
@@ -45,6 +51,7 @@ export type RootStackParamList = {
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const ActivitiesStack = createNativeStackNavigator<ActivitiesStackParamList>();
+const PlanStack = createNativeStackNavigator<PlanStackParamList>();
 
 function AuthStackNavigator() {
   return (
@@ -85,8 +92,23 @@ function ActivitiesStackNavigator() {
   );
 }
 
+function PlanStackNavigator() {
+  return (
+    <PlanStack.Navigator
+      screenOptions={{
+        headerShown: false,
+      }}
+      initialRouteName="PlanOnboarding"
+    >
+      <PlanStack.Screen name="PlanOnboarding" component={PlanOnboardingScreen} />
+      <PlanStack.Screen name="PlanMain" component={TrainingPlanScreen} />
+    </PlanStack.Navigator>
+  );
+}
+
 import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
+import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { LiquidTabBar } from "../components/LiquidTabBar";
 
@@ -99,21 +121,29 @@ function AppTabsNavigator() {
   return (
     <Tabs.Navigator
       tabBar={(props) => <LiquidTabBar {...props} />}
-      screenOptions={{
-        headerShown: false,
-        tabBarStyle: {
-          position: "absolute",
-          backgroundColor: "transparent",
-          borderTopWidth: 0,
-          elevation: 0,
-          shadowOpacity: 0,
-        },
-        sceneContainerStyle: {
-          paddingBottom: insets.bottom + TAB_BAR_HEIGHT,
-        },
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.mutedForeground,
-        tabBarShowLabel: true,
+      screenOptions={({ route }) => {
+        let nestedRouteName = getFocusedRouteNameFromRoute(route);
+        if (route.name === "Plan" && !nestedRouteName) {
+          nestedRouteName = "PlanOnboarding";
+        }
+        const hideTabBar = route.name === "Plan" && nestedRouteName === "PlanOnboarding";
+        return {
+          headerShown: false,
+          tabBarStyle: {
+            position: "absolute",
+            backgroundColor: "transparent",
+            borderTopWidth: 0,
+            elevation: 0,
+            shadowOpacity: 0,
+            ...(hideTabBar ? { display: "none" } : {}),
+          },
+          sceneContainerStyle: {
+            paddingBottom: hideTabBar ? 0 : insets.bottom + TAB_BAR_HEIGHT,
+          },
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.mutedForeground,
+          tabBarShowLabel: true,
+        };
       }}
     >
       <Tabs.Screen
@@ -127,7 +157,7 @@ function AppTabsNavigator() {
       />
       <Tabs.Screen
         name="Plan"
-        component={TrainingPlanScreen}
+        component={PlanStackNavigator}
         options={{
           title: "Plan",
           tabBarIcon: ({ color, size }) => <Ionicons name="calendar" size={size} color={color} />,

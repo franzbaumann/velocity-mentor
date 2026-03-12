@@ -22,9 +22,16 @@
           "action": "VIEW",
           "autoVerify": true,
           "data": [
-            { "scheme": "velocitycoach", "host": "auth", "pathPrefix": "/callback" }
+            {
+              "scheme": "velocitycoach",
+              "host": "auth",
+              "pathPrefix": "/callback"
+            }
           ],
-          "category": ["BROWSABLE", "DEFAULT"]
+          "category": [
+            "BROWSABLE",
+            "DEFAULT"
+          ]
         }
       ],
       "package": "com.velocitycoach.app",
@@ -38,6 +45,9 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-sharing"
+    ]
   }
 }

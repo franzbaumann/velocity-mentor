@@ -190,7 +190,7 @@ serve(async (req) => {
         }
       }
       if (Array.isArray(a) && a.length > 0) {
-        context += `\n\n## intervals.icu Activities (last 16 weeks)\n`;
+        context += `\n\n## intervals.icu Activities (last 2 weeks)\n`;
         const recent = a.slice(0, 20);
         for (const act of recent) {
           const date = act.start_date_local ?? act.date ?? "?";

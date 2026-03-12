@@ -7,8 +7,8 @@ import { Pressable, StyleSheet, Text, View } from "react-native";
 import { PanGestureHandler } from "react-native-gesture-handler";
 import { useTheme } from "../context/ThemeContext";
 
-const PRIMARY_ROUTES = ["Dashboard", "Plan", "Coach", "ActivitiesStack"] as const;
-const SECONDARY_ROUTES = ["Stats", "Settings", "Philosophy"] as const;
+const PRIMARY_ROUTES = ["Dashboard", "Plan", "Coach", "ActivitiesStack", "Stats"] as const;
+const SECONDARY_ROUTES = ["Settings", "Philosophy"] as const;
 
 type RouteKey = (typeof PRIMARY_ROUTES)[number] | (typeof SECONDARY_ROUTES)[number];
 
@@ -39,7 +39,6 @@ export function LiquidTabBar({ state, descriptors, navigation }: BottomTabBarPro
   const isDark = resolved === "dark";
   const borderColor = isDark ? "rgba(255, 255, 255, 0.06)" : "rgba(0, 0, 0, 0.06)";
   const pillBg = isDark ? "rgba(18, 18, 20, 0.18)" : "rgba(255, 255, 255, 0.22)";
-  const searchBg = isDark ? "rgba(18, 18, 20, 0.32)" : "rgba(255, 255, 255, 0.32)";
   const activeIconColor = isDark ? "rgba(255, 255, 255, 0.96)" : "#050505";
   const inactiveIconColor = isDark ? "rgba(255, 255, 255, 0.72)" : "rgba(0, 0, 0, 0.65)";
 
@@ -92,68 +91,59 @@ export function LiquidTabBar({ state, descriptors, navigation }: BottomTabBarPro
     });
   };
 
+  const isHidden = (() => {
+    const focusedRoute = state.routes[state.index];
+    const options = descriptors[focusedRoute.key]?.options;
+    // React Navigation flattar ner tabBarStyle.display åt oss
+    const displayStyle = (options?.tabBarStyle as any)?.display;
+    const tabBarVisible = (options as any)?.tabBarVisible;
+    return displayStyle === "none" || tabBarVisible === false;
+  })();
+
+  if (isHidden) {
+    return null;
+  }
+
   return (
     <PanGestureHandler onEnded={handleSwipeEnd}>
       <View style={[styles.root, { paddingBottom: insets.bottom + 8 }]}>
         <View style={styles.row}>
-        <View style={[styles.pill, { borderColor, backgroundColor: pillBg }]}>
-          <BlurView intensity={20} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
-          <View style={styles.pillContent}>
-            {primaryRoutes.map(({ key, index }) => {
-              const isFocused = state.index === index;
-              return (
-                <Pressable
-                  key={key}
-                  onPress={() => handlePress(index)}
-                  onLongPress={() => handleLongPress(index)}
-                  style={({ pressed }) => [
-                    styles.item,
-                    pressed && { opacity: 0.7 },
-                  ]}
-                >
-                  <Ionicons
-                    name={ICONS[key]}
-                    size={22}
-                    color={isFocused ? activeIconColor : inactiveIconColor}
-                  />
-                  <Text
-                    style={[
-                      styles.label,
-                      {
-                        color: isFocused ? activeIconColor : inactiveIconColor,
-                      },
+          <View style={[styles.pill, { borderColor, backgroundColor: pillBg }]}>
+            <BlurView intensity={20} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
+            <View style={styles.pillContent}>
+              {primaryRoutes.map(({ key, index }) => {
+                const isFocused = state.index === index;
+                return (
+                  <Pressable
+                    key={key}
+                    onPress={() => handlePress(index)}
+                    onLongPress={() => setShowSecondary((prev) => !prev)}
+                    style={({ pressed }) => [
+                      styles.item,
+                      pressed && { opacity: 0.7 },
                     ]}
-                    numberOfLines={1}
                   >
-                    {LABELS[key]}
-                  </Text>
-                </Pressable>
-              );
-            })}
+                    <Ionicons
+                      name={ICONS[key]}
+                      size={22}
+                      color={isFocused ? activeIconColor : inactiveIconColor}
+                    />
+                    <Text
+                      style={[
+                        styles.label,
+                        {
+                          color: isFocused ? activeIconColor : inactiveIconColor,
+                        },
+                      ]}
+                      numberOfLines={1}
+                    >
+                      {LABELS[key]}
+                    </Text>
+                  </Pressable>
+                );
+              })}
+            </View>
           </View>
-        </View>
-
-        <Pressable
-          onPress={() => setShowSecondary((prev) => !prev)}
-          style={({ pressed }) => [
-            styles.searchButton,
-            {
-              backgroundColor: searchBg,
-              transform: [{ scale: pressed ? 0.96 : 1 }],
-            },
-          ]}
-        >
-          <BlurView
-            intensity={34}
-            tint={isDark ? "dark" : "light"}
-            style={StyleSheet.absoluteFill}
-          />
-          <Ionicons
-            name={showSecondary ? "close" : "search"}
-            size={22}
-            color={activeIconColor}
-          />
-        </Pressable>
         </View>
 
         {showSecondary && (

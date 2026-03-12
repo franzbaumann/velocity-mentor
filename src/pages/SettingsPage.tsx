@@ -9,8 +9,8 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Check, Unlink, Loader2, RefreshCw, Upload, Heart } from "lucide-react";
-import { Link } from "react-router-dom";
+import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2 } from "lucide-react";
+import { Link, useNavigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { format, subDays } from "date-fns";
@@ -264,6 +264,73 @@ function StravaConnectionBlock({ queryClient }: { queryClient: ReturnType<typeof
   );
 }
 
+function TrainingPlanSection({ queryClient }: { queryClient: ReturnType<typeof useQueryClient> }) {
+  const navigate = useNavigate();
+  const { user } = useAuth();
+  const { data: plan, isLoading } = useQuery({
+    queryKey: ["training-plan"],
+    queryFn: async () => {
+      if (!user) return null;
+      const { data } = await supabase
+        .from("training_plan")
+        .select("id, plan_name, start_date, end_date")
+        .eq("user_id", user.id)
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      return data;
+    },
+    enabled: !!user,
+  });
+
+  const [deleting, setDeleting] = useState(false);
+  const handleDeletePlanAndRestart = async () => {
+    if (!user || !confirm("Delete your current training plan and create a new one? You'll go through onboarding again.")) return;
+    setDeleting(true);
+    try {
+      const { data: plans } = await supabase.from("training_plan").select("id").eq("user_id", user.id);
+      for (const p of plans ?? []) {
+        await supabase.from("training_plan").delete().eq("id", p.id);
+      }
+      await supabase.from("athlete_profile").upsert(
+        { user_id: user.id, onboarding_complete: false, onboarding_answers: null, updated_at: new Date().toISOString() },
+        { onConflict: "user_id" }
+      );
+      queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+      queryClient.invalidateQueries({ queryKey: ["athlete_profile"] });
+      toast.success("Plan deleted. Starting fresh onboarding…");
+      navigate("/coach", { replace: true });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to delete plan");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
+  if (isLoading || !plan) return null;
+
+  return (
+    <div className="glass-card p-5">
+      <p className="section-header">Training Plan (PaceIQ)</p>
+      <p className="text-sm text-muted-foreground mb-4">
+        {plan.plan_name ?? "Your plan"} · {plan.start_date && plan.end_date
+          ? `${plan.start_date} – ${plan.end_date}`
+          : "Active"}
+      </p>
+      <Button
+        variant="outline"
+        size="sm"
+        className="rounded-full gap-2"
+        onClick={handleDeletePlanAndRestart}
+        disabled={deleting}
+      >
+        {deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+        Delete plan and create new one
+      </Button>
+    </div>
+  );
+}
+
 function LabTestSection() {
   const [uploading, setUploading] = useState(false);
   const [labData, setLabData] = useState<Record<string, unknown> | null>(null);
@@ -493,22 +560,37 @@ export default function SettingsPage() {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
-        toast.error("Not signed in — sign in and try again");
+        toast.error("Not signed in — sign out and sign back in, then try again");
         return;
       }
-      const newest = format(new Date(), "yyyy-MM-dd");
-      const oldest = format(subDays(new Date(), 7), "yyyy-MM-dd");
-      const { data } = await supabase.functions.invoke("intervals-proxy", {
+      const { data, error } = await supabase.functions.invoke("intervals-proxy", {
         headers: { Authorization: `Bearer ${session.access_token}` },
-        body: { endpoint: "wellness", oldest, newest },
+        body: { action: "test_connection" },
       });
-      if (data && typeof data === "object" && "error" in data) {
-        toast.error((data as { error: string }).error);
+      if (error) {
+        const msg = error.message ?? "Connection failed";
+        const hint = msg.includes("Refresh Token") || msg.includes("401") || msg.includes("403")
+          ? " Try signing out and signing back in first."
+          : "";
+        toast.error(msg + hint);
+        return;
+      }
+      const result = data as { ok?: boolean; error?: string } | null;
+      if (result?.ok === false && result.error) {
+        toast.error(`intervals.icu: ${result.error}`);
+        return;
+      }
+      if (result?.ok === true) {
+        toast.success("Connection works! API key is valid.");
       } else {
-        toast.success("Connection works! Data synced.");
+        toast.error("Connection failed");
       }
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Connection failed");
+      const msg = e instanceof Error ? e.message : "Connection failed";
+      const hint = msg.includes("Refresh Token") || msg.includes("401") || msg.includes("403")
+        ? " Sign out and sign back in, then verify your intervals.icu API key in Settings → API."
+        : "";
+      toast.error(msg + hint);
     } finally {
       setIsTesting(false);
     }
@@ -524,7 +606,7 @@ export default function SettingsPage() {
           <div className="glass-card p-5">
             <p className="section-header">Connected Accounts</p>
             <p className="text-sm text-muted-foreground mb-4">
-              Connect your accounts to sync activities and see fitness charts.
+              Connect intervals.icu to sync activities, wellness, and fitness data.
             </p>
             <div className="space-y-3">
               {/* intervals.icu */}
@@ -565,12 +647,9 @@ export default function SettingsPage() {
                 </div>
                 {showIntervalsForm && !isConnected && (
                   <div className="pl-11 space-y-2 pt-2 border-l-2 border-border ml-4">
-                    <p className="text-xs text-muted-foreground">
-                      API key from intervals.icu → Settings → API. Athlete ID is optional, numeric
-                      only, and used for display – leave empty if unsure.
-                    </p>
+                    <p className="text-xs text-muted-foreground">API key from intervals.icu → Settings → API (Athlete ID optional, used for display)</p>
                     <Input
-                      placeholder="Athlete ID (e.g. 123456, optional)"
+                      placeholder="Athlete ID (e.g. i123456)"
                       value={athleteId}
                       onChange={(e) => setAthleteId(e.target.value)}
                       className="max-w-xs bg-secondary/50"
@@ -607,34 +686,20 @@ export default function SettingsPage() {
                 )}
               </div>
 
-              <div className="space-y-2">
-                <div className="flex items-center gap-3">
-                  <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center">
-                    <span className="text-xs font-semibold text-muted-foreground">G</span>
-                  </div>
-                  <div>
-                    <p className="text-sm font-medium text-foreground">Garmin import</p>
-                    <p className="text-xs text-muted-foreground">
-                      Drop DI-Connect-Fitness, Wellness, and Metrics (extract from your Garmin export). Supports runs, wellness, and training metrics.
-                      {activityCount > 0 && ` · ${activityCount} activities in database`}
-                      {" · "}
-                      <Link to="/coach?import=1" className="text-primary hover:underline">Quick import on Coach</Link>
-                    </p>
-                  </div>
-                </div>
-                <GarminImportBlock />
-                {activityCount > 0 && (
+              {/* Garmin + Strava hidden — intervals.icu is the primary data source */}
+              {activityCount > 0 && (
+                <div className="pl-11 ml-4 flex items-center gap-4 text-xs text-muted-foreground">
+                  <span>{activityCount} activities synced</span>
                   <button
                     type="button"
                     onClick={handleClearAllData}
                     disabled={clearing}
-                    className="text-xs text-muted-foreground hover:text-destructive"
+                    className="text-muted-foreground hover:text-destructive"
                   >
-                    {clearing ? "Clearing…" : "Clear all imported data"}
+                    {clearing ? "Clearing…" : "Clear all data"}
                   </button>
-                )}
-              </div>
-              <StravaConnectionBlock queryClient={queryClient} />
+                </div>
+              )}
             </div>
           </div>
 
@@ -642,7 +707,7 @@ export default function SettingsPage() {
           <div className="glass-card p-5">
             <p className="section-header">Heart Rate</p>
             <p className="text-sm text-muted-foreground mb-4">
-              Max HR is used for smart activity names (Easy vs Tempo) when importing Garmin FIT files. Set if your device doesn&apos;t provide it.
+              Max HR is used for smart activity names (Easy vs Tempo) and zone calculations. Set if your device doesn&apos;t provide it.
             </p>
             <div className="flex flex-wrap items-end gap-4">
               <div className="space-y-1">
@@ -677,6 +742,9 @@ export default function SettingsPage() {
 
           {/* Lab Test Upload */}
           <LabTestSection />
+
+          {/* Training Plan */}
+          <TrainingPlanSection queryClient={queryClient} />
 
           {/* Training Preferences */}
           <div className="glass-card p-5">

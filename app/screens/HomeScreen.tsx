@@ -1,5 +1,5 @@
-import { FC, useMemo } from "react";
-import { RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { FC, useMemo, useRef, useState } from "react";
+import { Animated, Easing, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
@@ -12,6 +12,7 @@ import { useDashboardData } from "../hooks/useDashboardData";
 import { getLocalDateString } from "../lib/date";
 import { formatDuration, formatSleepHours } from "../lib/format";
 import { spacing, typography } from "../theme/theme";
+import { calculateZonePaces, findBestEffort, formatRaceTime, predictRaceTime } from "../lib/race-prediction";
 
 export const HomeScreen: FC = () => {
   const { colors } = useTheme();
@@ -34,6 +35,29 @@ export const HomeScreen: FC = () => {
   const todayStr = getLocalDateString();
   const todaysActual = activities?.filter((a) => a.date === todayStr)?.[0] ?? null;
   const todaysPlan = weekPlan?.find((d) => d.isToday) ?? null;
+
+  const flipAnim = useRef(new Animated.Value(0)).current;
+  const [isFlipped, setIsFlipped] = useState(false);
+
+  const frontRotation = flipAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "180deg"],
+  });
+  const backRotation = flipAnim.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["180deg", "360deg"],
+  });
+
+  const flipCard = () => {
+    Animated.timing(flipAnim, {
+      toValue: isFlipped ? 0 : 1,
+      duration: 400,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: true,
+    }).start(() => {
+      setIsFlipped((prev) => !prev);
+    });
+  };
 
   const styles = useMemo(
     () =>
@@ -64,6 +88,19 @@ export const HomeScreen: FC = () => {
         readinessSummary: { fontSize: 13, color: colors.mutedForeground, lineHeight: 20 },
         readinessMeta: { flexDirection: "row", gap: 16, marginTop: 12 },
         metaText: { fontSize: 11, color: colors.mutedForeground },
+        flipContainer: {
+          position: "relative",
+        },
+        flipCard: {
+          backfaceVisibility: "hidden",
+        },
+        flipCardBack: {
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          backfaceVisibility: "hidden",
+        },
         activityCard: { padding: 20 },
         activityTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
         activityLabel: { fontSize: 12, fontWeight: "600", color: colors.mutedForeground, textTransform: "uppercase", letterSpacing: 0.5 },
@@ -126,6 +163,55 @@ export const HomeScreen: FC = () => {
     [colors]
   );
 
+  const goalRaceType = athlete.goalRace?.type ?? "Half Marathon";
+
+  const goalRaceKm = (() => {
+    const t = String(goalRaceType || "").toLowerCase();
+    if (t.includes("marathon") && !t.includes("half")) return 42.195;
+    if (t.includes("half")) return 21.0975;
+    if (t.includes("10")) return 10;
+    if (t.includes("5")) return 5;
+    return 21.0975;
+  })();
+
+  const goalRaceLabel = (() => {
+    const t = String(goalRaceType || "").toLowerCase();
+    if (t.includes("marathon") && !t.includes("half")) return "Marathon";
+    if (t.includes("half")) return "Half Marathon";
+    if (t.includes("10")) return "10K";
+    if (t.includes("5")) return "5K";
+    return "Half Marathon";
+  })();
+
+  const racePrediction = useMemo(() => {
+    if (!activities || !readiness?.ctl) return null;
+    const best = findBestEffort(
+      activities.map((a) => ({
+        distance_km: a.distance_km,
+        duration_seconds: a.duration_seconds,
+        date: a.date,
+      })),
+    );
+    if (!best) return null;
+    const ctl = readiness.ctl;
+    const baselineCTL = Math.max(ctl * 0.7, 20);
+    const predictedSeconds = predictRaceTime(
+      best.timeSeconds,
+      best.distanceKm,
+      goalRaceKm,
+      ctl,
+      baselineCTL,
+    );
+    const paces = calculateZonePaces(predictedSeconds, goalRaceKm);
+    return {
+      time: formatRaceTime(predictedSeconds),
+      zone2: paces.zone2,
+      threshold: paces.threshold,
+      vo2max: paces.vo2max,
+      ctl,
+    };
+  }, [activities, readiness, goalRaceKm]);
+
   if (!readiness || !weekStats) {
     return (
       <ScreenContainer contentContainerStyle={styles.content}>
@@ -143,16 +229,6 @@ export const HomeScreen: FC = () => {
         <RefreshControl refreshing={!!isRefetching} onRefresh={() => refetch()} tintColor={colors.primary} />
       }
     >
-      {/* Garmin banner – matches web (tap → Settings) */}
-      <TouchableOpacity
-        style={styles.garminBanner}
-        onPress={() => navigation.navigate("Settings")}
-        activeOpacity={0.8}
-      >
-        <Text style={styles.garminBannerText}>Import your Garmin data to unlock real stats</Text>
-        <Text style={styles.garminBannerLink}>Settings</Text>
-      </TouchableOpacity>
-
       {/* Page header – matches web */}
       <View style={styles.header}>
         <Text style={styles.title}>{greeting}</Text>
@@ -161,26 +237,51 @@ export const HomeScreen: FC = () => {
         </Text>
       </View>
 
-      {/* Readiness Card – same layout as web */}
-      <GlassCard style={styles.readinessCard}>
-        <View style={styles.readinessRow}>
-          <ReadinessRing score={readiness.score} size={96} />
-          <View style={styles.readinessBody}>
-            <View style={styles.readinessTitleRow}>
-              <Text style={styles.readinessTitle}>Today's Readiness</Text>
-              <WorkoutBadge type={todaysWorkout.type} />
-            </View>
-            <Text style={styles.readinessSummary}>{readiness.aiSummary}</Text>
-            <View style={styles.readinessMeta}>
-              <Text style={styles.metaText}>HRV {readiness.hrv}ms</Text>
-              <Text style={styles.metaText}>{formatSleepHours(readiness.sleepHours)} sleep</Text>
-              <Text style={[styles.metaText, typography.mono]}>
-                TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}
-              </Text>
-            </View>
-          </View>
+      {/* Readiness Card – flip for explanation */}
+      <TouchableOpacity activeOpacity={0.9} onPress={flipCard}>
+        <View style={styles.flipContainer}>
+          <Animated.View style={[styles.flipCard, { transform: [{ rotateY: frontRotation }] }]}>
+            <GlassCard style={styles.readinessCard}>
+              <View style={styles.readinessRow}>
+                <ReadinessRing score={readiness.score} size={96} />
+                <View style={styles.readinessBody}>
+                  <View style={styles.readinessTitleRow}>
+                    <Text style={styles.readinessTitle}>Today's Readiness</Text>
+                    <WorkoutBadge type={todaysWorkout.type} />
+                  </View>
+                  <Text style={styles.readinessSummary}>{readiness.aiSummary}</Text>
+                  <View style={styles.readinessMeta}>
+                    <Text style={styles.metaText}>HRV {readiness.hrv}ms</Text>
+                    <Text style={styles.metaText}>{formatSleepHours(readiness.sleepHours)} sleep</Text>
+                    <Text style={[styles.metaText, typography.mono]}>
+                      TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}
+                    </Text>
+                  </View>
+                </View>
+              </View>
+            </GlassCard>
+          </Animated.View>
+
+          <Animated.View style={[styles.flipCardBack, { transform: [{ rotateY: backRotation }] }]}>
+            <GlassCard style={styles.readinessCard}>
+              <View style={styles.readinessBody}>
+                <View style={styles.readinessTitleRow}>
+                  <Text style={styles.readinessTitle}>What this means</Text>
+                </View>
+                <Text style={styles.readinessSummary}>
+                  Readiness blends today&apos;s HRV, sleep, load (CTL/ATL/TSB) and resting HR into a 0–100 score.
+                  Higher means your body is fresh and can handle more intensity; lower means bias towards easy or recovery.
+                </Text>
+                <View style={styles.readinessMeta}>
+                  <Text style={styles.metaText}>Score {readiness.score}</Text>
+                  <Text style={styles.metaText}>CTL {Math.round(readiness.ctl)}</Text>
+                  <Text style={styles.metaText}>ATL {Math.round(readiness.atl)}</Text>
+                </View>
+              </View>
+            </GlassCard>
+          </Animated.View>
         </View>
-      </GlassCard>
+      </TouchableOpacity>
 
       {/* Today's Activity – planned or completed */}
       <GlassCard style={styles.activityCard}>
@@ -349,23 +450,51 @@ export const HomeScreen: FC = () => {
       </GlassCard>
 
       {/* Race Prediction – same layout as web */}
+      {racePrediction && (
+        <GlassCard>
+          <View style={styles.raceHeader}>
+            <View style={styles.raceIcon}>
+              <Text style={styles.raceEmoji}>🏁</Text>
+            </View>
+            <View>
+              <Text style={styles.raceTitle}>Race Prediction</Text>
+              <Text style={styles.raceSubtitle}>{goalRaceLabel}</Text>
+            </View>
+          </View>
+          <Text style={[styles.raceTime, typography.mono]}>{racePrediction.time}</Text>
+          <View style={styles.racePaces}>
+            <Text style={styles.metaText}>Z2 pace: {racePrediction.zone2}</Text>
+            <Text style={styles.metaText}>Threshold: {racePrediction.threshold}</Text>
+            <Text style={styles.metaText}>VO2max: {racePrediction.vo2max}</Text>
+          </View>
+          <Text style={styles.raceFootnote}>
+            Based on best effort · CTL {Math.round(racePrediction.ctl)}
+          </Text>
+        </GlassCard>
+      )}
+
+      {/* Ask Kipcoachee – CTA mirroring web dashboard */}
       <GlassCard>
-        <View style={styles.raceHeader}>
-          <View style={styles.raceIcon}>
-            <Text style={styles.raceEmoji}>🏁</Text>
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => navigation.navigate("Coach" as never)}
+          style={{ alignItems: "center", justifyContent: "center", paddingVertical: 20, gap: 8 }}
+        >
+          <View style={{ width: 48, height: 48, borderRadius: 999, backgroundColor: colors.primary + "20", alignItems: "center", justifyContent: "center" }}>
+            <Text style={{ fontSize: 22 }}>💬</Text>
           </View>
-          <View>
-            <Text style={styles.raceTitle}>Race Prediction</Text>
-            <Text style={styles.raceSubtitle}>Half Marathon</Text>
-          </View>
-        </View>
-        <Text style={[styles.raceTime, typography.mono]}>1:32:45</Text>
-        <View style={styles.racePaces}>
-          <Text style={styles.metaText}>Z2 pace: 5:20/km</Text>
-          <Text style={styles.metaText}>Threshold: 4:25/km</Text>
-          <Text style={styles.metaText}>VO2max: 4:00/km</Text>
-        </View>
-        <Text style={styles.raceFootnote}>Based on best effort · CTL {Math.round(readiness.ctl)}</Text>
+          <Text style={{ fontSize: 16, fontWeight: "600", color: colors.foreground }}>Ask Kipcoachee</Text>
+          <Text
+            style={{
+              fontSize: 12,
+              color: colors.mutedForeground,
+              textAlign: "center",
+              paddingHorizontal: 16,
+            }}
+          >
+            Get training advice, adjust your plan, or chat about your goals.
+          </Text>
+        </TouchableOpacity>
       </GlassCard>
 
       {/* Next 7 Days – matches web */}

@@ -167,6 +167,15 @@ export type Database = {
           vdot: number | null
           vlamax: number | null
           vo2max: number | null
+          onboarding_complete: boolean | null
+          onboarding_answers: Json | null
+          recommended_philosophy: string | null
+          goal_race_name: string | null
+          goal_race_date: string | null
+          goal_time: string | null
+          goal_distance: string | null
+          days_per_week: number | null
+          injury_history_text: string | null
         }
         Insert: {
           created_at?: string
@@ -191,6 +200,15 @@ export type Database = {
           vdot?: number | null
           vlamax?: number | null
           vo2max?: number | null
+          onboarding_complete?: boolean | null
+          onboarding_answers?: Json | null
+          recommended_philosophy?: string | null
+          goal_race_name?: string | null
+          goal_race_date?: string | null
+          goal_time?: string | null
+          goal_distance?: string | null
+          days_per_week?: number | null
+          injury_history_text?: string | null
         }
         Update: {
           created_at?: string
@@ -215,6 +233,15 @@ export type Database = {
           vdot?: number | null
           vlamax?: number | null
           vo2max?: number | null
+          onboarding_complete?: boolean | null
+          onboarding_answers?: Json | null
+          recommended_philosophy?: string | null
+          goal_race_name?: string | null
+          goal_race_date?: string | null
+          goal_time?: string | null
+          goal_distance?: string | null
+          days_per_week?: number | null
+          injury_history_text?: string | null
         }
         Relationships: []
       }
@@ -228,6 +255,8 @@ export type Database = {
           timestamp: string
           triggered_by: Database["public"]["Enums"]["coach_trigger"] | null
           user_id: string
+          ui_component: string | null
+          ui_data: Json | null
         }
         Insert: {
           content: string
@@ -238,6 +267,8 @@ export type Database = {
           timestamp?: string
           triggered_by?: Database["public"]["Enums"]["coach_trigger"] | null
           user_id: string
+          ui_component?: string | null
+          ui_data?: Json | null
         }
         Update: {
           content?: string
@@ -248,6 +279,8 @@ export type Database = {
           timestamp?: string
           triggered_by?: Database["public"]["Enums"]["coach_trigger"] | null
           user_id?: string
+          ui_component?: string | null
+          ui_data?: Json | null
         }
         Relationships: []
       }
@@ -350,6 +383,8 @@ export type Database = {
           end_date: string | null
           created_at: string
           updated_at: string
+          peak_weekly_km: number | null
+          total_weeks: number | null
         }
         Insert: {
           id?: string
@@ -368,6 +403,8 @@ export type Database = {
           end_date?: string | null
           created_at?: string
           updated_at?: string
+          peak_weekly_km?: number | null
+          total_weeks?: number | null
         }
         Update: {
           id?: string
@@ -386,6 +423,8 @@ export type Database = {
           end_date?: string | null
           created_at?: string
           updated_at?: string
+          peak_weekly_km?: number | null
+          total_weeks?: number | null
         }
         Relationships: []
       }
@@ -476,6 +515,81 @@ export type Database = {
           completed_at?: string | null
           created_at?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      training_plan_workout: {
+        Row: {
+          id: string
+          user_id: string
+          plan_id: string
+          date: string | null
+          week_number: number | null
+          phase: string | null
+          day_of_week: number | null
+          type: string | null
+          name: string | null
+          description: string | null
+          key_focus: string | null
+          distance_km: number | null
+          duration_minutes: number | null
+          target_pace: string | null
+          target_hr_zone: number | null
+          tss_estimate: number | null
+          completed: boolean | null
+          completed_activity_id: string | null
+          actual_distance_km: number | null
+          actual_avg_hr: number | null
+          notes: string | null
+          created_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          plan_id: string
+          date?: string | null
+          week_number?: number | null
+          phase?: string | null
+          day_of_week?: number | null
+          type?: string | null
+          name?: string | null
+          description?: string | null
+          key_focus?: string | null
+          distance_km?: number | null
+          duration_minutes?: number | null
+          target_pace?: string | null
+          target_hr_zone?: number | null
+          tss_estimate?: number | null
+          completed?: boolean | null
+          completed_activity_id?: string | null
+          actual_distance_km?: number | null
+          actual_avg_hr?: number | null
+          notes?: string | null
+          created_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          plan_id?: string
+          date?: string | null
+          week_number?: number | null
+          phase?: string | null
+          day_of_week?: number | null
+          type?: string | null
+          name?: string | null
+          description?: string | null
+          key_focus?: string | null
+          distance_km?: number | null
+          duration_minutes?: number | null
+          target_pace?: string | null
+          target_hr_zone?: number | null
+          tss_estimate?: number | null
+          completed?: boolean | null
+          completed_activity_id?: string | null
+          actual_distance_km?: number | null
+          actual_avg_hr?: number | null
+          notes?: string | null
+          created_at?: string | null
         }
         Relationships: []
       }

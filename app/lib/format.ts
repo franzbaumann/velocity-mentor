@@ -1,3 +1,10 @@
+export function formatPaceFromMinPerKm(minPerKm: number | null | undefined): string {
+  if (minPerKm == null || isNaN(minPerKm) || minPerKm <= 0) return "—";
+  const min = Math.floor(minPerKm);
+  const sec = Math.round((minPerKm - min) * 60);
+  return `${min}:${String(sec).padStart(2, "0")}/km`;
+}
+
 export function formatSleepHours(hours: number | null | undefined): string {
   if (hours == null || isNaN(hours) || hours <= 0) return "—";
   const h = Math.floor(hours);
