@@ -15,7 +15,7 @@ import {
   type PaceProgressionFilter,
 } from "@/lib/analytics";
 import { formatDuration, formatPaceFromMinPerKm } from "@/lib/format";
-import { Link2, ArrowRight, TrendingUp, BarChart3, Activity, Trophy, Heart, Moon, Zap, Wind, Info, Scale, Footprints, Smile, Battery, AlertCircle } from "lucide-react";
+import { Link2, ArrowRight, TrendingUp, BarChart3, Activity, Trophy, Heart, Moon, Zap, Wind, Info, Scale, Footprints, Smile, Battery, AlertCircle, ChevronLeft, ChevronRight } from "lucide-react";
 import { useNavigate } from "react-router-dom";
 import { format, subDays, subWeeks, startOfWeek, subMonths } from "date-fns";
 import { useMemo, useState, useEffect } from "react";
@@ -357,8 +357,12 @@ function FitnessChart({
 }
 
 // ── 2. Weekly Mileage (running only, pre-filtered) ──
+const WEEKS_PER_PAGE = 16;
+
 function WeeklyMileageChartSimple({ activities }: { activities: { date: string; type: string | null; distance_km: number | null }[] }) {
-  const chartData = useMemo(() => {
+  const [weekOffset, setWeekOffset] = useState(0);
+
+  const { allWeeks, chartData, dateRangeLabel, canGoBack, canGoForward, yDomain } = useMemo(() => {
     const weeks: Record<string, number> = {};
     for (const a of activities) {
       if (!a.date || !a.distance_km) continue;
@@ -366,25 +370,76 @@ function WeeklyMileageChartSimple({ activities }: { activities: { date: string; 
       const wk = fmt(startOfWeek(d, { weekStartsOn: 1 }));
       weeks[wk] = (weeks[wk] ?? 0) + a.distance_km;
     }
-    return Object.entries(weeks)
+    const sorted = Object.entries(weeks)
       .sort(([a], [b]) => a.localeCompare(b))
-      .slice(-16)
-      .map(([week, km]) => ({ week: format(new Date(week), "MMM d"), km: Math.round(km * 10) / 10 }));
-  }, [activities]);
+      .map(([week, km]) => ({ week, weekLabel: format(new Date(week), "MMM d"), km: Math.round(km * 10) / 10 }));
 
-  if (!chartData.length) return <EmptyState message="No weekly mileage yet" sub="Connect intervals.icu in Settings to sync your runs" />;
+    const len = sorted.length;
+    const startIdx = Math.max(0, len - WEEKS_PER_PAGE * (weekOffset + 1));
+    const endIdx = len - WEEKS_PER_PAGE * weekOffset;
+    const visible = sorted.slice(startIdx, endIdx);
+
+    const maxKm = visible.length ? Math.max(...visible.map((v) => v.km)) : 0;
+    const yDomain: [number, number] = [0, Math.max(10, Math.ceil(maxKm * 1.15))];
+
+    const dateRangeLabel =
+      visible.length >= 2
+        ? `${format(new Date(visible[0].week), "MMM d")} – ${format(new Date(visible[visible.length - 1].week), "MMM d")}`
+        : visible.length === 1
+          ? format(new Date(visible[0].week), "MMM d")
+          : "";
+
+    return {
+      allWeeks: sorted,
+      chartData: visible.map((v) => ({ week: v.weekLabel, km: v.km })),
+      dateRangeLabel,
+      canGoBack: startIdx > 0,
+      canGoForward: weekOffset > 0,
+      yDomain,
+    };
+  }, [activities, weekOffset]);
+
+  const goBack = () => setWeekOffset((o) => o + 1);
+  const goForward = () => setWeekOffset((o) => Math.max(0, o - 1));
+
+  if (!allWeeks.length) return <EmptyState message="No weekly mileage yet" sub="Connect intervals.icu in Settings to sync your runs" />;
 
   return (
-    <div className="h-[260px]">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
-          <XAxis dataKey="week" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
-          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} unit=" km" />
-          <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
-          <Bar dataKey="km" fill="hsl(211 100% 52%)" radius={[6, 6, 0, 0]} />
-        </BarChart>
-      </ResponsiveContainer>
+    <div>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-medium text-muted-foreground">
+          {dateRangeLabel ? `${dateRangeLabel}` : "Weekly Mileage"}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={goBack}
+            disabled={!canGoBack}
+            aria-label="Earlier period"
+            className="p-1 rounded-md hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button
+            onClick={goForward}
+            disabled={!canGoForward}
+            aria-label="Later period"
+            className="p-1 rounded-md hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
+      <div className="h-[260px]">
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+            <XAxis dataKey="week" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+            <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} unit=" km" domain={yDomain} />
+            <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12, fontSize: 12 }} />
+            <Bar dataKey="km" fill="hsl(211 100% 52%)" radius={[6, 6, 0, 0]} />
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
     </div>
   );
 }
@@ -397,6 +452,8 @@ const PACE_FILTER_LABELS: Record<PaceProgressionFilter, string> = {
   lt2: "LT2",
 };
 
+const PACE_POINTS_PER_PAGE = 90;
+
 function PaceProgressionChart({
   activities,
   maxHr,
@@ -406,8 +463,9 @@ function PaceProgressionChart({
 }) {
   const runningOnly = useMemo(() => activities.filter((a) => isRunningActivity(a.type)), [activities]);
   const [filter, setFilter] = useState<PaceProgressionFilter>("all");
+  const [dayOffset, setDayOffset] = useState(0);
 
-  const { points, trendline } = useMemo(() => {
+  const { points, visibleTrendline, dateRangeLabel, canGoBack, canGoForward, yDomain } = useMemo(() => {
     const pts = runningOnly
       .filter((a) => {
         const pace = parsePaceToMinPerKm(a.avg_pace);
@@ -433,8 +491,38 @@ function PaceProgressionChart({
       return { ...p, trend: Math.round(avg * 100) / 100 };
     });
 
-    return { points: pts, trendline: trend };
-  }, [runningOnly, filter, maxHr]);
+    const len = trend.length;
+    const startIdx = Math.max(0, len - PACE_POINTS_PER_PAGE * (dayOffset + 1));
+    const endIdx = len - PACE_POINTS_PER_PAGE * dayOffset;
+    const visible = trend.slice(startIdx, endIdx);
+
+    const paces = visible.map((v) => v.pace);
+    const dataMin = paces.length ? Math.min(...paces) : 5;
+    const dataMax = paces.length ? Math.max(...paces) : 8;
+    const padding = 0.5;
+    const yMin = Math.max(3, dataMin - padding);
+    const yMax = Math.min(15, dataMax + padding);
+    const yDomain: [number, number] = [yMin, yMax];
+
+    const dateRangeLabel =
+      visible.length >= 2
+        ? `${format(new Date(visible[0].date), "MMM d")} – ${format(new Date(visible[visible.length - 1].date), "MMM d")}`
+        : visible.length === 1
+          ? format(new Date(visible[0].date), "MMM d")
+          : "";
+
+    return {
+      points: pts,
+      visibleTrendline: visible,
+      dateRangeLabel,
+      canGoBack: startIdx > 0,
+      canGoForward: dayOffset > 0,
+      yDomain,
+    };
+  }, [runningOnly, filter, maxHr, dayOffset]);
+
+  const goBack = () => setDayOffset((o) => o + 1);
+  const goForward = () => setDayOffset((o) => Math.max(0, o - 1));
 
   if (!points.length) {
     const needsMaxHr = (filter === "easy" || filter === "lt1" || filter === "lt2") && !maxHr;
@@ -453,19 +541,42 @@ function PaceProgressionChart({
         {(["all", "easy", "lt1", "lt2"] as const).map((f) => (
           <button
             key={f}
-            onClick={() => setFilter(f)}
+            onClick={() => { setFilter(f); setDayOffset(0); }}
             className={`px-3 py-1.5 rounded-full text-xs font-medium transition-colors ${filter === f ? "bg-primary text-primary-foreground" : "bg-secondary text-muted-foreground hover:bg-secondary/80"}`}
           >
             {PACE_FILTER_LABELS[f]}
           </button>
         ))}
       </div>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-medium text-muted-foreground">
+          {dateRangeLabel || "Pace Progression"}
+        </span>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={goBack}
+            disabled={!canGoBack}
+            aria-label="Earlier period"
+            className="p-1 rounded-md hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground"
+          >
+            <ChevronLeft className="w-4 h-4" />
+          </button>
+          <button
+            onClick={goForward}
+            disabled={!canGoForward}
+            aria-label="Later period"
+            className="p-1 rounded-md hover:bg-secondary disabled:opacity-40 disabled:cursor-not-allowed text-muted-foreground hover:text-foreground"
+          >
+            <ChevronRight className="w-4 h-4" />
+          </button>
+        </div>
+      </div>
       <div className="h-[260px]">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={trendline} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
+          <LineChart data={visibleTrendline} margin={{ top: 5, right: 10, left: -10, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
             <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
-            <YAxis dataKey="pace" type="number" tick={{ fontSize: 11 }} domain={[2, 12]} tickFormatter={formatPaceTick} reversed />
+            <YAxis dataKey="pace" type="number" tick={{ fontSize: 11 }} domain={yDomain} tickFormatter={formatPaceTick} reversed />
             <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [formatPaceFromMinPerKm(val), "Pace"]} />
             <Line type="natural" dataKey="pace" stroke="hsl(211 100% 52%)" strokeWidth={1} dot={false} name="Pace" />
             <Line type="natural" dataKey="trend" stroke="hsl(var(--foreground))" strokeWidth={2} dot={false} strokeDasharray="4 4" name="4w avg" />
