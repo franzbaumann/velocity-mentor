@@ -104,9 +104,9 @@ function FitnessMiniChart({ data }: { data: ChartDataPoint[] }) {
         />
         <Tooltip content={<MiniTooltip unit="" />} />
         <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" opacity={0.4} />
-        <Line type="monotone" dataKey="CTL" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} name="CTL" connectNulls animationDuration={800} animationEasing="ease-out" />
-        <Line type="monotone" dataKey="ATL" stroke="hsl(36 100% 52%)" strokeWidth={2} dot={false} name="ATL" connectNulls animationDuration={900} animationEasing="ease-out" />
-        <Line type="monotone" dataKey="TSB" stroke="hsl(141 72% 50%)" strokeWidth={1.5} dot={false} name="TSB" connectNulls animationDuration={1000} animationEasing="ease-out" />
+        <Line type="natural" dataKey="CTL" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} name="CTL" connectNulls animationDuration={800} animationEasing="ease-out" />
+        <Line type="natural" dataKey="ATL" stroke="hsl(36 100% 52%)" strokeWidth={2} dot={false} name="ATL" connectNulls animationDuration={900} animationEasing="ease-out" />
+        <Line type="natural" dataKey="TSB" stroke="hsl(141 72% 50%)" strokeWidth={1.5} dot={false} name="TSB" connectNulls animationDuration={1000} animationEasing="ease-out" />
       </LineChart>
     </ResponsiveContainer>
   );
@@ -142,7 +142,7 @@ function SimpleMiniLine({
         />
         <Tooltip content={<MiniTooltip unit={unit} />} />
         <Line
-          type="monotone"
+          type="natural"
           dataKey={dataKey}
           stroke={color}
           strokeWidth={2}

@@ -1041,7 +1041,7 @@ function MeanMaxHrChart({ chartData }: { chartData: ChartPoint[] }) {
             <XAxis dataKey="label" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} tickLine={false} axisLine={false} />
             <YAxis domain={["dataMin - 5", "dataMax + 5"]} tick={{ fontSize: 9, fill: HR_COLOR }} tickLine={false} axisLine={false} width={36} />
             <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} formatter={(v: number) => [`${v} bpm`, "Max Avg HR"]} />
-            <Area type="monotone" dataKey="maxAvgHr" fill="url(#mmhrGrad)" stroke={HR_COLOR} strokeWidth={2} dot={{ r: 2, fill: HR_COLOR }} activeDot={{ r: 3 }} />
+            <Area type="natural" dataKey="maxAvgHr" fill="url(#mmhrGrad)" stroke={HR_COLOR} strokeWidth={2} dot={false} activeDot={{ r: 2 }} />
           </ComposedChart>
         </ResponsiveContainer>
       </div>

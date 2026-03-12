@@ -340,9 +340,9 @@ function FitnessChart({
           <ReferenceLine y={0} stroke="hsl(var(--muted-foreground))" strokeDasharray="3 3" />
           <ReferenceLine y={5} stroke="hsl(141 72% 50% / 0.5)" strokeDasharray="2 2" />
           <ReferenceLine y={-10} stroke="hsl(0 84% 60% / 0.5)" strokeDasharray="2 2" />
-          <Line type="monotone" dataKey="TSB" stroke="hsl(141 72% 50%)" strokeWidth={1.5} dot={false} connectNulls name="TSB (form)" />
-          <Line type="monotone" dataKey="CTL" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} connectNulls name="CTL (fitness)" />
-          <Line type="monotone" dataKey="ATL" stroke="hsl(36 100% 52%)" strokeWidth={2} dot={false} connectNulls name="ATL (fatigue)" />
+          <Line type="natural" dataKey="TSB" stroke="hsl(141 72% 50%)" strokeWidth={1.5} dot={false} connectNulls name="TSB (form)" />
+          <Line type="natural" dataKey="CTL" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} connectNulls name="CTL (fitness)" />
+          <Line type="natural" dataKey="ATL" stroke="hsl(36 100% 52%)" strokeWidth={2} dot={false} connectNulls name="ATL (fatigue)" />
           <Legend wrapperStyle={{ fontSize: 11 }} verticalAlign="bottom" height={28} />
         </LineChart>
       </ResponsiveContainer>
@@ -442,8 +442,8 @@ function PaceProgressionChart({ activities }: { activities: { date: string; type
             <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
             <YAxis dataKey="pace" type="number" tick={{ fontSize: 11 }} domain={[2, 12]} tickFormatter={formatPaceTick} reversed />
             <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [formatPaceFromMinPerKm(val), "Pace"]} />
-            <Line type="monotone" dataKey="pace" stroke="hsl(211 100% 52%)" strokeWidth={1} dot={{ r: 3 }} name="Pace" />
-            <Line type="monotone" dataKey="trend" stroke="hsl(var(--foreground))" strokeWidth={2} dot={false} strokeDasharray="4 4" name="4w avg" />
+            <Line type="natural" dataKey="pace" stroke="hsl(211 100% 52%)" strokeWidth={1} dot={false} name="Pace" />
+            <Line type="natural" dataKey="trend" stroke="hsl(var(--foreground))" strokeWidth={2} dot={false} strokeDasharray="4 4" name="4w avg" />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -585,7 +585,7 @@ function HREfficiencyChart({ activities }: { activities: { date: string; avg_hr:
             <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
             <YAxis tick={{ fontSize: 11 }} domain={[yMin, yMax]} tickFormatter={formatPaceTick} reversed />
             <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [formatPaceFromMinPerKm(val), "Pace"]} />
-            <Line type="monotone" dataKey="pace" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={{ r: 3 }} connectNulls />
+            <Line type="natural" dataKey="pace" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} connectNulls />
           </LineChart>
         </ResponsiveContainer>
       </div>
@@ -609,7 +609,7 @@ function HRVChart({ readiness }: { readiness: { date: string; hrv: number | null
           <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
           <YAxis tick={{ fontSize: 11 }} unit=" ms" tickFormatter={(v) => Math.round(v).toString()} />
           <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [`${Math.round(val)} ms`, "HRV"]} />
-          <Line type="monotone" dataKey="hrv" stroke="hsl(280 70% 55%)" strokeWidth={2} dot={{ r: 2 }} name="HRV" />
+          <Line type="natural" dataKey="hrv" stroke="hsl(280 70% 55%)" strokeWidth={2} dot={false} name="HRV" />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -640,7 +640,7 @@ function ReadinessScoreChart({ readiness }: { readiness: { date: string; score?:
           <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
           <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} unit="" />
           <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [`${Math.round(val)}`, "Score"]} />
-          <Line type="monotone" dataKey="score" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={{ r: 2 }} name="Score" />
+          <Line type="natural" dataKey="score" stroke="hsl(211 100% 52%)" strokeWidth={2} dot={false} name="Score" />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -663,7 +663,7 @@ function VO2maxChart({ readiness }: { readiness: { date: string; vo2max?: number
           <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
           <YAxis tick={{ fontSize: 11 }} domain={["dataMin - 2", "dataMax + 2"]} unit="" tickFormatter={(v) => `${Number(v).toFixed(1)}`} />
           <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [`${val?.toFixed(1)} ml/kg/min`, "VO2max"]} />
-          <Line type="monotone" dataKey="vo2max" stroke="hsl(160 70% 45%)" strokeWidth={2} dot={{ r: 2 }} name="VO2max" />
+          <Line type="natural" dataKey="vo2max" stroke="hsl(160 70% 45%)" strokeWidth={2} dot={false} name="VO2max" />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -686,7 +686,7 @@ function RampRateChart({ readiness }: { readiness: { date: string; ramp_rate?: n
           <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
           <YAxis tick={{ fontSize: 11 }} unit="" tickFormatter={(v) => `${Number(v).toFixed(1)}`} />
           <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [`${val?.toFixed(2)} /week`, "Ramp rate"]} />
-          <Line type="monotone" dataKey="rampRate" stroke="hsl(280 70% 55%)" strokeWidth={2} dot={{ r: 2 }} name="Ramp rate" />
+          <Line type="natural" dataKey="rampRate" stroke="hsl(280 70% 55%)" strokeWidth={2} dot={false} name="Ramp rate" />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -709,7 +709,7 @@ function SleepScoreChart({ readiness }: { readiness: { date: string; sleep_score
           <XAxis dataKey="date" tick={{ fontSize: 11 }} tickFormatter={(v) => format(new Date(v), "MMM d")} />
           <YAxis tick={{ fontSize: 11 }} domain={[0, 100]} unit="" />
           <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 12 }} labelFormatter={(v) => format(new Date(v), "MMM d")} formatter={(val: number) => [`${Math.round(val)}`, "Sleep score"]} />
-          <Line type="monotone" dataKey="score" stroke="hsl(220 70% 55%)" strokeWidth={2} dot={{ r: 2 }} name="Sleep score" />
+          <Line type="natural" dataKey="score" stroke="hsl(220 70% 55%)" strokeWidth={2} dot={false} name="Sleep score" />
         </LineChart>
       </ResponsiveContainer>
     </div>
@@ -741,8 +741,8 @@ function SleepRestingChart({ readiness }: { readiness: { date: string; sleep_hou
               return [String(val), name];
             }}
           />
-          <Line yAxisId="left" type="monotone" dataKey="sleep" stroke="hsl(220 70% 50%)" strokeWidth={2} dot={{ r: 2 }} name="Sleep (h)" />
-          <Line yAxisId="right" type="monotone" dataKey="restingHr" stroke="hsl(0 70% 55%)" strokeWidth={2} dot={{ r: 2 }} name="Resting HR" />
+          <Line yAxisId="left" type="natural" dataKey="sleep" stroke="hsl(220 70% 50%)" strokeWidth={2} dot={false} name="Sleep (h)" />
+          <Line yAxisId="right" type="natural" dataKey="restingHr" stroke="hsl(0 70% 55%)" strokeWidth={2} dot={false} name="Resting HR" />
         </LineChart>
       </ResponsiveContainer>
     </div>

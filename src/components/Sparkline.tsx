@@ -13,7 +13,7 @@ export function Sparkline({ data, color = "hsl(var(--primary))" }: SparklineProp
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={chartData}>
           <Line
-            type="monotone"
+            type="natural"
             dataKey="value"
             stroke={color}
             strokeWidth={2}

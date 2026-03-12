@@ -25,6 +25,9 @@
 - Edge functions use Deno imports (https://deno.land/std, https://esm.sh/) — never npm imports
 - Never use ## or ### markdown headers in coach responses — use **bold** for section titles
 
+## Deployment
+- After pushing changes to git, always run `vercel --prod --yes` to deploy to Vercel production
+
 ## Architecture
 - src/lib/kipcoachee/ — canonical types and prompt (TypeScript, client-compatible)
 - supabase/functions/coach-chat/ — main conversational AI endpoint
