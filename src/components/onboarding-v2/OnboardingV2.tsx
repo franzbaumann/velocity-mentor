@@ -253,6 +253,15 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
     setPlanRetryCount((c) => c + 1);
   }, []);
 
+  const handleStartOver = useCallback(() => {
+    localStorage.removeItem(STORAGE_KEY);
+    setState({ ...DEFAULT_STATE });
+    setPlanError(null);
+    setPhiloError(null);
+    setPlanRetryCount(0);
+    setPhiloRetryCount(0);
+  }, []);
+
   // ---- Profile save + completion ----
   const saveProfileToSupabase = useCallback(async (answers: OnboardingV2Answers, philosophy: string | null) => {
     try {
@@ -356,6 +365,7 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
             onChat={handleChat}
             onBack={goBack}
             onRetry={handleRetryPlan}
+            onStartOver={handleStartOver}
           />
         )}
       </div>

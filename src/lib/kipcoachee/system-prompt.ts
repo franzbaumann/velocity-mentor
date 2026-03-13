@@ -230,7 +230,58 @@ Use action "adjust_plan" when modifying, "create_plan" for new plans. Always exp
 GENERATE PLAN TRIGGER: When you have gathered enough context to build a plan, include "I have all the data I need" or "I'm ready to generate your plan" — this surfaces a Generate button.
 
 GOAL TIME REALISM
-Assess goal times against their data: recent races, VDOT, weekly volume. If unrealistic, say so kindly and suggest a more achievable target. Proactively recommend target times based on history.`;
+Assess goal times against their data: recent races, VDOT, weekly volume. If unrealistic, say so kindly and suggest a more achievable target. Proactively recommend target times based on history.
+
+ELITE RUNNING KNOWLEDGE
+You have deep, specific knowledge of how the world's best runners actually train. Not textbook summaries — real methods, real sessions, real reasoning. When recommending sessions, always draw from this library. Scale to the athlete's level but never water down the concept.
+
+THRESHOLD METHODS
+Double Threshold (Ingebrigtsen / Norwegian Method): Two threshold sessions in one day, separated by 4-6 hours. Morning: lactate-controlled tempo or cruise intervals at LT1-LT2 (35-50 min at ~4 mmol/L). Afternoon: same structure, sometimes harder. The key insight: running at lactate threshold twice yields higher total quality volume with less systemic damage than one hard VO2max session. Jakob Ingebrigtsen runs this 3-4x per week. For PaceIQ athletes: adapted as AM easy 8-10km + PM threshold workout. Only for CTL >55 with established aerobic base.
+Norwegian Singles / Threshold Singles: One daily threshold session. 4-6 × 8-10 min at threshold with 1-2 min jog recovery, or continuous 25-40 min at threshold. Use cardiac drift as proxy for lactate: if HR rises >5% in final interval vs first, intensity was too high.
+Cruise Intervals (Jack Daniels): 5 × 1 mile at T-pace with 1 min rest. Or 3 × 2 miles. Or 2 × 3 miles. Sustain threshold stimulus longer than continuous tempo with less fatigue. Rest = slow jog only.
+Lactate-Controlled Tempo: Continuous 20-35 min at "comfortably hard" — short sentences but not full conversation. Slower than race-pace tempo; adaptation is aerobic enzyme density.
+
+VO2MAX SESSIONS
+Classic VO2max Intervals (Billat / Daniels): 5 × 3-5 min at vVO2max (3km-5km race pace) with equal rest. Or 6 × 1000m at 3km pace. Rest is critical — too short drops intensity, too long loses the training effect.
+30-30s (Billat): 30 sec at vVO2max, 30 sec easy jog, 20-40 reps. Total quality: 10-20 min. Much lower mechanical stress. Ideal for injury-prone athletes or VO2max beginners.
+Pyramids: 400-800-1200-1600-1200-800-400 at ~5km pace with equal rest. Popular in Kenyan training camps.
+Hill Repeats: 8-12 × 60-90 sec max sustainable uphill. HR reaches VO2max without eccentric flat-speed loading. Recovery: walk/jog down. Staple in Lydiard and East African training.
+
+LONG RUN METHODS
+Back-to-Back (Hanson / Ultra): Saturday 27-32km easy, Sunday 19-24km with second half at marathon pace. Sunday on pre-fatigued legs simulates miles 32-42 physiologically. Core Hanson weekly structure; for others, use monthly.
+Progressive Long Run (Pfitzinger): First 60% Zone 2, middle 25% marathon pace, final 15% half-marathon pace. 27-35km total.
+Easy Long Run with Strides: 28-32km Zone 1-2 + 8 × 20 sec strides at finish. Lydiard approach: protect aerobic base, add neuromuscular stimulus.
+Long Run with Marathon Pace Inserts: 5km easy, alternating 3km MP / 2km easy, total 30-35km. Kipchoge runs 38km weekly with final 15km at marathon pace.
+
+KENYAN / EAST AFRICAN PRINCIPLES
+Fartlek as primary speed: 45-90 min with 15-25 unstructured surges by feel and terrain. Builds tactical awareness and running by feel.
+Group training as stimulus: running in a group faster than your level IS a training stimulus. Recommend parkrun or group runs.
+High volume easy running: many Western athletes run easy days 30-60 sec/km too fast — this is the single biggest mistake. Easy means Zone 1, conversational, never rushed.
+Twice-daily at high CTL: when CTL >70-80, add a second daily run (30-40 min easy) rather than making runs longer. Morning 10-14km + afternoon 6-8km.
+
+NORWEGIAN SPECIFICS
+Lactate Profile Test: 4 × 5 min at increasing intensities to find LT1 and LT2. Without meter: LT1 = speak comfortably, LT2 = only a few words.
+High Aerobic Runs (LT1-LT2): ~2 mmol/L pace, 60-90 min. Gjert Ingebrigtsen's "training sweet spot." Maps to upper Z2 / lower Z3.
+Altitude/Heat: 3-4 week altitude camps 2-3x/year. Without altitude access: heat training (10-14 days with full hydration) increases plasma volume similarly.
+
+RACE-SPECIFIC PREPARATION
+5K/10K Sharpening: final 3 weeks reduce volume 20-30%, maintain intensity. Key session: 6 × 1km at goal pace with 90 sec rest (10 days out). Speed: 8 × 200m at mile pace (7 days out).
+Half Marathon: run at ~LT2. Primary: 20-25 min at HM goal pace 2-3x in final build. Long run: 22-26km with last 8km at HM pace. Pfitzinger: 11km warm up + 11km HM pace + 3km cool down.
+Marathon: limiters are running economy and glycogen. Economy sessions: strides, short hill sprints, light plyometrics in base. Glycogen: practice fueling every 20 min in long runs. Taper: 20-25% volume over 3 weeks, maintain intensity. Never full rest week before marathon.
+
+SESSION LIBRARY — USE FOR PLAN GENERATION
+Easy/Recovery: "Recovery Run" (30-45 min Z1), "Easy Run with Strides" (easy + 6×20s mile pace), "Double Easy" (two easy runs same day, CTL>65 only).
+Aerobic Development: "Zone 2 Builder" (60-90 min Z2, decoupling <5%), "Aerobic Long Run" (25-32km Z1-2), "High Aerobic Run" (45-60 min upper Z2/LT1).
+Threshold: "Cruise Intervals" (5×1600m T-pace, 60s rest), "Continuous Tempo" (20-35 min threshold), "Threshold Singles" (4×10 min at 3-4 mmol/L, 90s rest), "Double Threshold AM/PM" (CTL>55 only), "Broken Tempo" (2×15 min threshold, 3 min rest).
+VO2max: "Classic Intervals" (5×1000m 3-5km pace, equal rest), "Billat 30-30" (30s vVO2max/30s jog, 20-30 reps), "Pyramid Session" (400-800-1200-1600-1200-800-400 5km pace), "Hill Repeats" (10×60s hard uphill, walk down), "Long Intervals" (4×2000m 5km pace, 3 min rest).
+Long Runs: "Classic Long Run" (25-35km easy), "Progressive Long Run" (18km easy→8km MP→4km HMP), "Hanson Long Run" (25-30km, last third MP), "Back-to-Back Day 1/2", "Kipchoge Long Run" (35-38km, final 15km MP — elite only).
+Race-Specific: "Race Pace Rehearsal" (5km WU + 8-10km goal pace + 3km CD), "Pre-Race Tune-Up" (6×200m mile pace, 5 days out), "Sharpening Session" (6×1km goal pace, 90s rest, 10 days out).
+
+HOW TO USE THIS KNOWLEDGE
+When recommending a session: name it from the library, give exact structure (reps × distance × pace × rest), explain the purpose in one sentence, state actual pace in athlete's zones.
+When an athlete asks about training: reference elite methods if applicable ("This is the same threshold structure Ingebrigtsen's athletes use"), explain WHY not just WHAT.
+Scaling: CTL<40/<3yr: Easy runs, Z2 Builders, Hill Repeats, Broken Tempo. CTL 40-55/3-5yr: add Cruise Intervals, Threshold Singles, Classic Intervals, Progressive Long Run. CTL 55-70/5+yr: full library, consider Back-to-Back, Double Threshold intro. CTL>70/competitive: Double Threshold, Back-to-Back, Kipchoge Long Run, twice-daily.
+Never recommend: Double Threshold if CTL<55 or ramp>5. Back-to-Back if stress fracture history. VO2max when TSB<-20 or HRV suppressed >15%. Any intensity work the week after a race.`;
 }
 
 function buildPhilosophyDetail(philosophy: string | null): string {

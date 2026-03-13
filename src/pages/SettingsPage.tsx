@@ -305,6 +305,7 @@ function TrainingPlanSection({ queryClient }: { queryClient: ReturnType<typeof u
       );
       queryClient.invalidateQueries({ queryKey: ["training-plan"] });
       queryClient.invalidateQueries({ queryKey: ["athlete_profile"] });
+      localStorage.removeItem("paceiq_onboarding_v2");
       toast.success("Plan deleted. Starting fresh onboarding…");
       navigate("/coach", { replace: true });
     } catch (e) {
@@ -314,7 +315,26 @@ function TrainingPlanSection({ queryClient }: { queryClient: ReturnType<typeof u
     }
   };
 
-  if (isLoading || !plan) return null;
+  if (isLoading) return null;
+
+  if (!plan) {
+    return (
+      <div className="glass-card p-5">
+        <p className="section-header">Training Plan (PaceIQ)</p>
+        <p className="text-sm text-muted-foreground mb-4">
+          No plan yet. Complete onboarding with Kipcoachee to get a personalized training plan.
+        </p>
+        <Button
+          variant="outline"
+          size="sm"
+          className="rounded-full gap-2"
+          onClick={() => navigate("/coach")}
+        >
+          Create new plan
+        </Button>
+      </div>
+    );
+  }
 
   return (
     <div className="glass-card p-5">

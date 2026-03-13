@@ -10,6 +10,7 @@ interface Step9Props {
   onChat: () => void;
   onBack: () => void;
   onRetry?: () => void;
+  onStartOver?: () => void;
 }
 
 const PROGRESS_STEPS = [
@@ -38,6 +39,7 @@ export function Step9PlanGeneration({
   onChat,
   onBack,
   onRetry,
+  onStartOver,
 }: Step9Props) {
   const [visibleSteps, setVisibleSteps] = useState(0);
   const [showResult, setShowResult] = useState(false);
@@ -249,6 +251,14 @@ export function Step9PlanGeneration({
                 Chat with Kipcoachee
               </button>
             </div>
+            {onStartOver && (
+              <button
+                onClick={onStartOver}
+                className="text-sm text-muted-foreground/70 hover:text-muted-foreground"
+              >
+                Need a different plan? Start over
+              </button>
+            )}
           </div>
         )}
       </div>
