@@ -57,11 +57,21 @@ const geminiKeyList = () =>
     (k): k is string => !!k
   );
 
+async function fetchWith429Retry(url: string, init: RequestInit, maxRetries = 2): Promise<Response> {
+  let res = await fetch(url, init);
+  for (let r = 0; r < maxRetries && res.status === 429; r++) {
+    await new Promise((x) => setTimeout(x, (5 + r * 5) * 1000));
+    res = await fetch(url, init);
+  }
+  return res;
+}
+
 async function callClaude(systemPrompt: string, userContent: string): Promise<ApiResult> {
   const keys = anthropicKeyList();
   let last429 = false;
   for (const key of keys) {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const url = "https://api.anthropic.com/v1/messages";
+    const init: RequestInit = {
       method: "POST",
       headers: {
         "x-api-key": key,
@@ -74,7 +84,8 @@ async function callClaude(systemPrompt: string, userContent: string): Promise<Ap
         system: systemPrompt,
         messages: [{ role: "user", content: userContent }],
       }),
-    });
+    };
+    const res = await fetchWith429Retry(url, init);
     if (res.status === 429) {
       last429 = true;
       continue;
@@ -95,7 +106,8 @@ async function callGroq(systemPrompt: string, userContent: string): Promise<ApiR
   const keys = groqKeyList();
   let last429 = false;
   for (const key of keys) {
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const url = "https://api.groq.com/openai/v1/chat/completions";
+    const init: RequestInit = {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -104,7 +116,8 @@ async function callGroq(systemPrompt: string, userContent: string): Promise<ApiR
         temperature: 0.5,
         max_tokens: 256,
       }),
-    });
+    };
+    const res = await fetchWith429Retry(url, init);
     if (res.status === 429) {
       last429 = true;
       continue;
@@ -124,17 +137,16 @@ async function callGemini(systemPrompt: string, userContent: string): Promise<Ap
   const keys = geminiKeyList();
   let last429 = false;
   for (const key of keys) {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
-          generationConfig: { temperature: 0.5, maxOutputTokens: 256 },
-        }),
-      }
-    );
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`;
+    const init: RequestInit = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: `${systemPrompt}\n\n${userContent}` }] }],
+        generationConfig: { temperature: 0.5, maxOutputTokens: 256 },
+      }),
+    };
+    const res = await fetchWith429Retry(url, init);
     if (res.status === 429) {
       last429 = true;
       continue;

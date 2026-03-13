@@ -7,6 +7,15 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
+async function fetchWith429Retry(url: string, init: RequestInit, maxRetries = 2): Promise<Response> {
+  let res = await fetch(url, init);
+  for (let r = 0; r < maxRetries && res.status === 429; r++) {
+    await new Promise((x) => setTimeout(x, (5 + r * 5) * 1000));
+    res = await fetch(url, init);
+  }
+  return res;
+}
+
 // ---------------------------------------------------------------------------
 // Types — mirrors src/lib/kipcoachee/types.ts
 // ---------------------------------------------------------------------------
@@ -830,7 +839,8 @@ ${conversationText}`;
         const claudeMessages = chatMessages
           .filter((m) => m.role !== "system")
           .map((m) => ({ role: m.role as "user" | "assistant", content: m.content }));
-        const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+        const url = "https://api.anthropic.com/v1/messages";
+        const init: RequestInit = {
           method: "POST",
           headers: {
             "x-api-key": key,
@@ -843,7 +853,8 @@ ${conversationText}`;
             system: systemPrompt,
             messages: claudeMessages,
           }),
-        });
+        };
+        const claudeRes = await fetchWith429Retry(url, init);
         if (claudeRes.status === 429) any429 = true;
         else if (claudeRes.ok) {
           const claudeJson = await claudeRes.json();
@@ -854,11 +865,13 @@ ${conversationText}`;
       }
       if (!text) {
         for (const GROQ_API_KEY of groqKeys) {
-          const groqRes = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          const groqUrl = "https://api.groq.com/openai/v1/chat/completions";
+          const groqInit: RequestInit = {
             method: "POST",
             headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
             body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: chatMessages, temperature: 0.6, max_tokens: 4096 }),
-          });
+          };
+          const groqRes = await fetchWith429Retry(groqUrl, groqInit);
           if (groqRes.status === 429) any429 = true;
           else if (groqRes.ok) {
             const groqJson = await groqRes.json();
@@ -872,18 +885,17 @@ ${conversationText}`;
           const contents = chatMessages
             .filter((m) => m.role !== "system")
             .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
-          const gemRes = await fetch(
-            `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                contents,
-                systemInstruction: { parts: [{ text: systemPrompt }] },
-                generationConfig: { temperature: 0.6, maxOutputTokens: 4096 },
-              }),
-            },
-          );
+          const gemUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
+          const gemInit: RequestInit = {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              contents,
+              systemInstruction: { parts: [{ text: systemPrompt }] },
+              generationConfig: { temperature: 0.6, maxOutputTokens: 4096 },
+            }),
+          };
+          const gemRes = await fetchWith429Retry(gemUrl, gemInit);
           if (gemRes.status === 429) any429 = true;
           else if (gemRes.ok) {
             const gemJson = await gemRes.json();

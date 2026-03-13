@@ -47,6 +47,15 @@ function jsonErr(msg: string, status: number): Response {
   });
 }
 
+async function fetchWith429Retry(url: string, init: RequestInit, maxRetries = 2): Promise<Response> {
+  let res = await fetch(url, init);
+  for (let r = 0; r < maxRetries && res.status === 429; r++) {
+    await new Promise((x) => setTimeout(x, (5 + r * 5) * 1000));
+    res = await fetch(url, init);
+  }
+  return res;
+}
+
 function toArray(stream: unknown): number[] {
   if (!stream || typeof stream !== "object") return [];
   const s = stream as Record<string, unknown>;
@@ -1648,7 +1657,8 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
       async function tryClaude(): Promise<string | null> {
         for (const key of anthropicKeys) {
           try {
-            const res = await fetch("https://api.anthropic.com/v1/messages", {
+            const url = "https://api.anthropic.com/v1/messages";
+            const init: RequestInit = {
               method: "POST",
               headers: {
                 "x-api-key": key,
@@ -1660,7 +1670,8 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
                 max_tokens: 300,
                 messages: [{ role: "user", content: prompt }],
               }),
-            });
+            };
+            const res = await fetchWith429Retry(url, init);
             if (res.status === 429) continue;
             if (!res.ok) {
               console.error("Claude error:", res.status, await res.text());
@@ -1681,17 +1692,16 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
       async function tryGemini(): Promise<string | null> {
         for (const key of geminiKeys) {
           try {
-            const res = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: prompt }] }],
-                  generationConfig: { maxOutputTokens: 300, temperature: 0.6 },
-                }),
-              }
-            );
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`;
+            const init: RequestInit = {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { maxOutputTokens: 300, temperature: 0.6 },
+              }),
+            };
+            const res = await fetchWith429Retry(url, init);
             if (res.status === 429) continue;
             if (!res.ok) {
               console.error("Gemini error:", res.status, await res.text());
@@ -1712,7 +1722,8 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
       async function tryGroq(): Promise<string | null> {
         for (const key of groqKeys) {
           try {
-            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            const url = "https://api.groq.com/openai/v1/chat/completions";
+            const init: RequestInit = {
               method: "POST",
               headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -1722,7 +1733,8 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
                 temperature: 0.6,
                 max_tokens: 300,
               }),
-            });
+            };
+            const res = await fetchWith429Retry(url, init);
             if (res.status === 429) continue;
             if (!res.ok) {
               console.error("Groq error:", res.status, await res.text());
@@ -1779,6 +1791,17 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
       if (workout.coach_note && !regenerate) {
         return jsonOk({ note: workout.coach_note, cached: true });
       }
+
+      // Future workout = scheduled after end of current week (next Monday or later)
+      const workoutDateStr = String(workout.date ?? "").slice(0, 10);
+      const now = new Date();
+      const dow = now.getDay();
+      const monday = new Date(now);
+      monday.setDate(now.getDate() + (dow === 0 ? -6 : 1 - dow));
+      const sunday = new Date(monday);
+      sunday.setDate(monday.getDate() + 6);
+      const endOfCurrentWeekStr = sunday.toISOString().slice(0, 10);
+      const isFutureWorkout = workoutDateStr > endOfCurrentWeekStr;
 
       const { data: planRow } = await supabaseAdmin
         .from("training_plan")
@@ -1843,15 +1866,17 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
       const adjustmentNotes = (workout as Record<string, unknown>).notes as string | null;
       const hasAdjustment = adjustmentNotes && (adjustmentNotes.startsWith("[Adjustment]") || adjustmentNotes.startsWith("[Transition]"));
 
-      const prompt = `You are Kipcoachee — an elite AI running coach built into PaceIQ. You CREATED this session as part of the athlete's plan. Write a brief, personalized description (2-4 sentences) explaining WHY this specific session is good for THIS athlete right now. Reference their current fitness state (CTL/TSB), the week's load pattern, their philosophy, and race goal. Be direct, data-driven, and specific — use actual numbers. Never use ## headers or emojis.${hasAdjustment ? `\n\nIMPORTANT: This session was modified due to a plan adjustment. The athlete's context for the change: "${adjustmentNotes}". You MUST reference this reason in your explanation — explain how this session helps given that specific situation.` : ""}
-
-=== SESSION ===
+      const sessionBlock = `=== SESSION ===
 Type: ${workout.type ?? "?"} | Week ${workout.week_number ?? "?"} | Phase: ${workout.phase ?? "?"}
 Name: ${workout.name ?? workout.description ?? "?"}
 ${workout.description ? `Description: ${workout.description}` : ""}
 ${workout.key_focus ? `Key focus: ${workout.key_focus}` : ""}
 Distance: ${workout.distance_km != null ? `${workout.distance_km} km` : "?"} | Duration: ${workout.duration_minutes != null ? `${workout.duration_minutes} min` : "?"}
-Target pace: ${workout.target_pace ?? "?"} | HR zone: ${workout.target_hr_zone ?? "?"}
+Target pace: ${workout.target_pace ?? "?"} | HR zone: ${workout.target_hr_zone ?? "?"}`;
+
+      const promptCurrentWeek = `You are Kipcoachee — an elite AI running coach built into PaceIQ. You CREATED this session as part of the athlete's plan. Write a brief, personalized description (2-4 sentences) explaining WHY this specific session is good for THIS athlete right now. Reference their current fitness state (CTL/TSB), the week's load pattern, their philosophy, and race goal. Be direct, data-driven, and specific — use actual numbers. Never use ## headers or emojis.${hasAdjustment ? `\n\nIMPORTANT: This session was modified due to a plan adjustment. The athlete's context for the change: "${adjustmentNotes}". You MUST reference this reason in your explanation — explain how this session helps given that specific situation.` : ""}
+
+${sessionBlock}
 
 === THIS WEEK'S FULL SCHEDULE ===
 ${weekSummary || "No other sessions"}
@@ -1865,10 +1890,23 @@ ${readinessContext || "No readiness data"}
 
 Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, personalized sentences.`;
 
+      const promptFutureWeek = `You are Kipcoachee — an elite AI running coach built into PaceIQ. This session is scheduled for a future week. Write 1-2 short sentences: describe the session purpose, why it fits this athlete's plan and philosophy, and how it builds toward their goal. Do NOT use current CTL, TSB, HRV, or other live data — those will change. Be generic and philosophy-focused. No ## headers or emojis.
+
+${sessionBlock}
+
+=== ATHLETE ===
+${profileLines.length ? profileLines.join(" | ") : "Limited profile"}
+${planContext}
+
+Reply with ONLY the coach description. No greeting or sign-off. 1-2 concise sentences.`;
+
+      const prompt = isFutureWorkout ? promptFutureWeek : promptCurrentWeek;
+
       async function tryClaude(): Promise<string | null> {
         for (const key of anthropicKeys) {
           try {
-            const res = await fetch("https://api.anthropic.com/v1/messages", {
+            const url = "https://api.anthropic.com/v1/messages";
+            const init: RequestInit = {
               method: "POST",
               headers: {
                 "x-api-key": key,
@@ -1880,7 +1918,8 @@ Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, pers
                 max_tokens: 300,
                 messages: [{ role: "user", content: prompt }],
               }),
-            });
+            };
+            const res = await fetchWith429Retry(url, init);
             if (res.status === 429) continue;
             if (!res.ok) return null;
             const json = (await res.json()) as Record<string, unknown>;
@@ -1898,17 +1937,16 @@ Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, pers
       async function tryGemini(): Promise<string | null> {
         for (const key of geminiKeys) {
           try {
-            const res = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
-              {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  contents: [{ parts: [{ text: prompt }] }],
-                  generationConfig: { maxOutputTokens: 300, temperature: 0.6 },
-                }),
-              }
-            );
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`;
+            const init: RequestInit = {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { maxOutputTokens: 300, temperature: 0.6 },
+              }),
+            };
+            const res = await fetchWith429Retry(url, init);
             if (res.status === 429) continue;
             if (!res.ok) return null;
             const data = (await res.json()) as Record<string, unknown>;
@@ -1926,7 +1964,8 @@ Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, pers
       async function tryGroq(): Promise<string | null> {
         for (const key of groqKeys) {
           try {
-            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            const url = "https://api.groq.com/openai/v1/chat/completions";
+            const init: RequestInit = {
               method: "POST",
               headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
               body: JSON.stringify({
@@ -1936,7 +1975,8 @@ Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, pers
                 temperature: 0.6,
                 max_tokens: 300,
               }),
-            });
+            };
+            const res = await fetchWith429Retry(url, init);
             if (res.status === 429) continue;
             if (!res.ok) return null;
             const data = (await res.json()) as Record<string, unknown>;
@@ -2080,11 +2120,13 @@ No markdown, no explanation — ONLY the JSON array.`;
       async function tryClaudeWS(): Promise<unknown[] | null> {
         for (const key of anthropicKeysWS) {
           try {
-            const res = await fetch("https://api.anthropic.com/v1/messages", {
+            const url = "https://api.anthropic.com/v1/messages";
+            const init: RequestInit = {
               method: "POST",
               headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
               body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1000, messages: [{ role: "user", content: stepsPrompt }] }),
-            });
+            };
+            const res = await fetchWith429Retry(url, init);
             if (res.status === 429) continue;
             if (!res.ok) {
               console.error("workout_steps Claude error:", res.status, await res.text());
@@ -2103,11 +2145,13 @@ No markdown, no explanation — ONLY the JSON array.`;
       async function tryGroqWS(): Promise<unknown[] | null> {
         for (const key of groqKeysWS) {
           try {
-            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+            const url = "https://api.groq.com/openai/v1/chat/completions";
+            const init: RequestInit = {
               method: "POST",
               headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
               body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: stepsPrompt }], temperature: 0.4, max_tokens: 1000 }),
-            });
+            };
+            const res = await fetchWith429Retry(url, init);
             if (res.status === 429) continue;
             if (!res.ok) { console.error("workout_steps Groq error:", res.status); continue; }
             const data = (await res.json()) as Record<string, unknown>;
@@ -2122,10 +2166,13 @@ No markdown, no explanation — ONLY the JSON array.`;
       async function tryGeminiWS(): Promise<unknown[] | null> {
         for (const key of geminiKeysWS) {
           try {
-            const res = await fetch(
-              `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
-              { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contents: [{ parts: [{ text: stepsPrompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 1000 } }) }
-            );
+            const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`;
+            const init: RequestInit = {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ contents: [{ parts: [{ text: stepsPrompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 1000 } }),
+            };
+            const res = await fetchWith429Retry(url, init);
             if (res.status === 429) continue;
             if (!res.ok) { console.error("workout_steps Gemini error:", res.status); continue; }
             const data = (await res.json()) as Record<string, unknown>;

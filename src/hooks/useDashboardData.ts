@@ -116,25 +116,40 @@ export function useDashboardData() {
   const weekStats = useMemo(() => {
     const runningActivities = activities.filter((a) => isRunningActivity(a.type) && (a.distance_km ?? 0) > 0 && (a.distance_km ?? 0) <= 150);
     const mon = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const sun = addDays(mon, 6);
     const monStr = mon.toISOString().slice(0, 10);
-    const sunStr = format(addDays(mon, 6), "yyyy-MM-dd");
+    const sunStr = format(sun, "yyyy-MM-dd");
     const thisWeekKm = runningActivities
       .filter((a) => a.date >= monStr && a.date <= sunStr)
       .reduce((sum, a) => sum + (a.distance_km ?? 0), 0);
 
-    let plannedKm = 81;
+    let plannedKm: number | null = null;
     let qualityPlanned = 3;
+    let isCurrentWeekInPlan = false;
+
     if (planData?.weeks?.length) {
-      const today = new Date();
-      const planStart = planData.plan?.start_date ? parseISO(planData.plan.start_date) : mon;
-      const weekStart = startOfWeek(planStart, { weekStartsOn: 1 });
-      const currentWeekNum = Math.floor((today.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
-      const thisWeekData = planData.weeks.find((w: { week_number: number }) => w.week_number === currentWeekNum)
-        ?? planData.weeks.find((w: { week_number: number }) => w.week_number <= currentWeekNum) ?? planData.weeks[planData.weeks.length - 1];
-      if (thisWeekData) {
-        plannedKm = Math.round((thisWeekData.total_km ?? 81) * 10) / 10;
-        const sess = (thisWeekData.sessions ?? []) as { type?: string }[];
-        qualityPlanned = sess.filter((s) => !/rest|recovery/i.test(s.type ?? "")).length || 3;
+      const weeks = planData.weeks as { start_date?: string; week_number?: number; total_km?: number; sessions?: { type?: string }[] }[];
+      const firstWeek = weeks[0];
+      const lastWeek = weeks[weeks.length - 1];
+      const planStartStr = planData.plan?.start_date ?? firstWeek?.start_date;
+      const planEndStr = planData.plan?.end_date ?? (lastWeek?.start_date ? format(addDays(parseISO(lastWeek.start_date), 6), "yyyy-MM-dd") : null);
+
+      if (planStartStr && planEndStr) {
+        isCurrentWeekInPlan = monStr >= planStartStr && sunStr <= planEndStr;
+      }
+
+      if (isCurrentWeekInPlan) {
+        const today = new Date();
+        const planStart = planData.plan?.start_date ? parseISO(planData.plan.start_date) : mon;
+        const weekStart = startOfWeek(planStart, { weekStartsOn: 1 });
+        const currentWeekNum = Math.floor((today.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
+        const thisWeekData = weeks.find((w) => w.week_number === currentWeekNum)
+          ?? weeks.find((w) => (w.week_number ?? 0) <= currentWeekNum) ?? lastWeek;
+        if (thisWeekData) {
+          plannedKm = Math.round((thisWeekData.total_km ?? 81) * 10) / 10;
+          const sess = thisWeekData.sessions ?? [];
+          qualityPlanned = sess.filter((s) => !/rest|recovery/i.test(s.type ?? "")).length || 3;
+        }
       }
     }
 
@@ -145,30 +160,27 @@ export function useDashboardData() {
       return Math.round((dailyTSS.get(key) ?? 0) * 10) / 10;
     });
 
+    const base = {
+      plannedKm,
+      actualKm: 0,
+      qualityDone: 0,
+      qualityPlanned,
+      isCurrentWeekInPlan,
+      tssData: tssData.some((v) => v > 0) ? tssData : mockWeekStats.tssData,
+    };
+
     if (runningActivities.length > 0) {
       const actualKm = Math.round(thisWeekKm * 10) / 10;
       const qualityDone = Math.min(qualityPlanned, Math.floor(actualKm / 20));
-      return {
-        plannedKm,
-        actualKm,
-        qualityDone,
-        qualityPlanned,
-        tssData: tssData.some((v) => v > 0) ? tssData : mockWeekStats.tssData,
-      };
+      return { ...base, actualKm, qualityDone };
     }
     if (weekStatsReal) {
       const rawKm = weekStatsReal.actualKm;
       const actualKm = rawKm > 500 ? 0 : Math.round(rawKm * 10) / 10;
       const qualityDone = Math.min(qualityPlanned, Math.floor(actualKm / 20));
-      return {
-        plannedKm,
-        actualKm,
-        qualityDone,
-        qualityPlanned,
-        tssData: tssData.some((v) => v > 0) ? tssData : mockWeekStats.tssData,
-      };
+      return { ...base, actualKm, qualityDone };
     }
-    return { ...mockWeekStats, plannedKm, qualityPlanned, tssData: tssData.some((v) => v > 0) ? tssData : mockWeekStats.tssData };
+    return { ...mockWeekStats, ...base, actualKm: mockWeekStats.actualKm };
   }, [weekStatsReal, activities, planData]);
 
   const recoveryMetrics = useMemo(() => {

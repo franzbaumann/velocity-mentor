@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useActivities } from "@/hooks/useActivities";
@@ -159,11 +160,22 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
     setPhiloLoading(true);
     setPhiloError(null);
 
-    supabase.functions
-      .invoke("paceiq-philosophy", { body: { answers: state.answers } })
-      .then(({ data, error }) => {
+    (async () => {
+      try {
+        const { data, error } = await supabase.functions.invoke("paceiq-philosophy", {
+          body: { answers: state.answers },
+        });
         if (error) {
-          setPhiloError(error.message ?? "Failed to get recommendation");
+          let msg = error.message ?? "Failed to get recommendation";
+          if (error instanceof FunctionsHttpError && error.context) {
+            try {
+              const body = (await error.context.json()) as { error?: string };
+              if (body?.error) msg = String(body.error);
+            } catch {
+              /* keep default */
+            }
+          }
+          setPhiloError(msg);
           return;
         }
         if (!data?.primary) {
@@ -171,9 +183,12 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
           return;
         }
         setState((prev) => ({ ...prev, recommendedPhilosophy: data as PhilosophyRecommendation }));
-      })
-      .catch((e) => setPhiloError(e.message ?? "Network error"))
-      .finally(() => setPhiloLoading(false));
+      } catch (e) {
+        setPhiloError(e instanceof Error ? e.message : "Network error");
+      } finally {
+        setPhiloLoading(false);
+      }
+    })();
   }, [state.currentStep, state.recommendedPhilosophy, state.answers, philoRetryCount]);
 
   const handleSelectPhilosophy = useCallback((philosophy: string) => {

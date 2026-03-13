@@ -243,8 +243,12 @@ function SessionDetailModal({
     } catch (e) {
       let msg = (e as Error).message ?? "Failed to generate";
       if (e instanceof FunctionsHttpError && e.context) {
-        const ctx = e.context as { error?: string };
-        if (ctx.error) msg = ctx.error;
+        try {
+          const body = (await e.context.json()) as { error?: string };
+          if (body?.error) msg = String(body.error);
+        } catch {
+          /* keep default */
+        }
       }
       setStepsError(msg);
     } finally {
@@ -274,8 +278,12 @@ function SessionDetailModal({
     } catch (e) {
       let msg = (e as Error).message ?? "Failed to generate";
       if (e instanceof FunctionsHttpError && e.context) {
-        const ctx = e.context as { error?: string };
-        if (ctx.error) msg = ctx.error;
+        try {
+          const body = (await e.context.json()) as { error?: string };
+          if (body?.error) msg = String(body.error);
+        } catch {
+          /* keep default */
+        }
       }
       setCoachNoteError(msg);
     } finally {

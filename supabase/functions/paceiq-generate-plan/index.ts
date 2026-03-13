@@ -69,6 +69,15 @@ const geminiKeys = () =>
     (k): k is string => !!k
   );
 
+async function fetchWith429Retry(url: string, init: RequestInit, maxRetries = 2): Promise<Response> {
+  let res = await fetch(url, init);
+  for (let r = 0; r < maxRetries && res.status === 429; r++) {
+    await new Promise((x) => setTimeout(x, (5 + r * 5) * 1000));
+    res = await fetch(url, init);
+  }
+  return res;
+}
+
 async function callClaude(
   answers: Record<string, unknown>,
   philosophy: string,
@@ -78,7 +87,8 @@ async function callClaude(
   const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks);
   const prompt = `${PLAN_PROMPT}\n\n${userContent}`;
   for (const key of anthropicKeys()) {
-    const res = await fetch("https://api.anthropic.com/v1/messages", {
+    const url = "https://api.anthropic.com/v1/messages";
+    const init: RequestInit = {
       method: "POST",
       headers: {
         "x-api-key": key,
@@ -91,7 +101,8 @@ async function callClaude(
         system: PLAN_PROMPT,
         messages: [{ role: "user", content: userContent }],
       }),
-    });
+    };
+    const res = await fetchWith429Retry(url, init);
     if (res.status === 429) continue;
     if (!res.ok) {
       console.error("Claude error:", res.status, await res.text());
@@ -115,7 +126,8 @@ async function callGroq(
   const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks);
   for (const key of groqKeys()) {
     console.log("paceiq-generate-plan: trying Groq...");
-    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+    const url = "https://api.groq.com/openai/v1/chat/completions";
+    const init: RequestInit = {
       method: "POST",
       headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -125,7 +137,8 @@ async function callGroq(
         max_tokens: 4000,
         response_format: { type: "json_object" },
       }),
-    });
+    };
+    const res = await fetchWith429Retry(url, init);
     if (res.status === 429) continue;
     if (!res.ok) {
       console.error("Groq error:", res.status, await res.text());
@@ -148,17 +161,16 @@ async function callGemini(
   const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks);
   const prompt = `${PLAN_PROMPT}\n\n${userContent}`;
   for (const key of geminiKeys()) {
-    const res = await fetch(
-      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`,
-      {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: { temperature: 0.4, maxOutputTokens: 4000 },
-        }),
-      }
-    );
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`;
+    const init: RequestInit = {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.4, maxOutputTokens: 4000 },
+      }),
+    };
+    const res = await fetchWith429Retry(url, init);
     if (res.status === 429) continue;
     if (!res.ok) {
       console.error("Gemini error:", res.status, await res.text());

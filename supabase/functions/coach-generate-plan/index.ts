@@ -83,14 +83,102 @@ Rules:
 - Progress: base → intensity → taper. Recovery weeks every 3-4 weeks.
 - Use metric (km, /km). Be specific: distance or duration, target pace.`;
 
+async function fetchWith429Retry(url: string, init: RequestInit, maxRetries = 2): Promise<Response> {
+  let res = await fetch(url, init);
+  for (let r = 0; r < maxRetries && res.status === 429; r++) {
+    await new Promise((x) => setTimeout(x, (5 + r * 5) * 1000));
+    res = await fetch(url, init);
+  }
+  return res;
+}
+
+async function callClaude(userPrompt: string): Promise<string | null> {
+  const keys = [Deno.env.get("ANTHROPIC_API_KEY"), Deno.env.get("ANTHROPIC_API_KEY_2"), Deno.env.get("ANTHROPIC_API_KEY_3")].filter((k): k is string => !!k);
+  for (const key of keys) {
+    const res = await fetchWith429Retry("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "claude-sonnet-4-5",
+        max_tokens: 8000,
+        system: PLAN_PROMPT,
+        messages: [{ role: "user", content: userPrompt }],
+      }),
+    });
+    if (res.status === 429) continue;
+    if (!res.ok) {
+      console.error("coach-generate-plan Claude error:", res.status, await res.text());
+      return null;
+    }
+    const json = await res.json();
+    const block = (json.content ?? []).find((b: { type: string }) => b.type === "text");
+    return block?.text ?? null;
+  }
+  return null;
+}
+
+async function callGroq(userPrompt: string): Promise<string | null> {
+  const keys = [Deno.env.get("GROQ_API_KEY"), Deno.env.get("GROQ_API_KEY_2"), Deno.env.get("GROQ_API_KEY_3")].filter((k): k is string => !!k);
+  for (const key of keys) {
+    const res = await fetchWith429Retry("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [{ role: "system", content: PLAN_PROMPT }, { role: "user", content: userPrompt }],
+        temperature: 0.4,
+        max_tokens: 4000,
+      }),
+    });
+    if (res.status === 429) continue;
+    if (!res.ok) {
+      console.error("coach-generate-plan Groq error:", res.status, await res.text());
+      return null;
+    }
+    const json = await res.json();
+    return json.choices?.[0]?.message?.content ?? null;
+  }
+  return null;
+}
+
+async function callGemini(userPrompt: string): Promise<string | null> {
+  const keys = [Deno.env.get("GEMINI_API_KEY"), Deno.env.get("GEMINI_API_KEY_2"), Deno.env.get("GEMINI_API_KEY_3")].filter((k): k is string => !!k);
+  const prompt = `${PLAN_PROMPT}\n\n${userPrompt}`;
+  for (const key of keys) {
+    const res = await fetchWith429Retry(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        contents: [{ parts: [{ text: prompt }] }],
+        generationConfig: { temperature: 0.4, maxOutputTokens: 4000 },
+      }),
+    });
+    if (res.status === 429) continue;
+    if (!res.ok) {
+      console.error("coach-generate-plan Gemini error:", res.status, await res.text());
+      return null;
+    }
+    const json = await res.json();
+    return json.candidates?.[0]?.content?.parts?.[0]?.text ?? null;
+  }
+  return null;
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
   }
 
   try {
-    const LOVABLE_API_KEY = Deno.env.get("LOVABLE_API_KEY");
-    if (!LOVABLE_API_KEY) throw new Error("LOVABLE_API_KEY is not configured");
+    const anthropicKeys = [Deno.env.get("ANTHROPIC_API_KEY"), Deno.env.get("ANTHROPIC_API_KEY_2"), Deno.env.get("ANTHROPIC_API_KEY_3")].filter((k): k is string => !!k);
+    const groqKeys = [Deno.env.get("GROQ_API_KEY"), Deno.env.get("GROQ_API_KEY_2"), Deno.env.get("GROQ_API_KEY_3")].filter((k): k is string => !!k);
+    const geminiKeys = [Deno.env.get("GEMINI_API_KEY"), Deno.env.get("GEMINI_API_KEY_2"), Deno.env.get("GEMINI_API_KEY_3")].filter((k): k is string => !!k);
+    if (anthropicKeys.length === 0 && groqKeys.length === 0 && geminiKeys.length === 0) {
+      return new Response(JSON.stringify({ error: "Set ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets" }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
 
     const authHeader = req.headers.get("authorization") ?? "";
     const token = authHeader.replace("Bearer ", "");
@@ -123,33 +211,15 @@ serve(async (req) => {
       ? `\n\nConversation context:\n${conversationContext.map((m: { role?: string; content?: string }) => `${m.role}: ${m.content}`).join("\n")}`
       : "";
     const userPrompt = `Generate a training plan. Intake: ${JSON.stringify(intakeAnswers)}${convStr}`;
-    const response = await fetch("https://ai.gateway.lovable.dev/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${LOVABLE_API_KEY}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "google/gemini-3-flash-preview",
-        messages: [
-          { role: "system", content: PLAN_PROMPT },
-          { role: "user", content: userPrompt },
-        ],
-        stream: false,
-      }),
-    });
 
-    if (!response.ok) {
-      const t = await response.text();
-      console.error("AI error:", response.status, t);
-      return new Response(JSON.stringify({ error: "Failed to generate plan" }), {
-        status: 500,
+    const rawContent =
+      (await callClaude(userPrompt)) ?? (await callGroq(userPrompt)) ?? (await callGemini(userPrompt));
+    if (!rawContent) {
+      return new Response(JSON.stringify({ error: "AI unavailable. Set ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets." }), {
+        status: 503,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
-
-    const json = await response.json();
-    const rawContent = json.choices?.[0]?.message?.content ?? "";
     let cleaned = rawContent.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
     const start = cleaned.indexOf("{");
     const end = cleaned.lastIndexOf("}");

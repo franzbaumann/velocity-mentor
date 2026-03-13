@@ -184,7 +184,7 @@ function KipcoacheeWidget() {
 
   return (
     <Link to="/coach?from=dashboard" className="block h-full">
-          <div className="glass-card p-6 h-full min-h-[120px] hover:opacity-95 transition-opacity cursor-pointer flex flex-col justify-between">
+          <div className="glass-card p-6 h-full hover:opacity-95 transition-opacity cursor-pointer flex flex-col">
         <div className="flex items-center gap-2 mb-3">
           <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
             <span className="text-sm font-semibold text-primary">K</span>
@@ -197,11 +197,13 @@ function KipcoacheeWidget() {
             <span>Reading your data…</span>
           </div>
         ) : (
-          <p className="text-sm text-foreground leading-relaxed flex-1">
-            {displayText ? `"${displayText}"` : isFallback ? (isConnected ? "Ask Kipcoachee for a quick training check-in." : "Connect intervals.icu in Settings to get personalized coaching.") : "\u2014"}
-          </p>
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            <p className="text-sm text-foreground leading-relaxed">
+              {displayText ? `"${displayText}"` : isFallback ? (isConnected ? "Ask Kipcoachee for a quick training check-in." : "Connect intervals.icu in Settings to get personalized coaching.") : "\u2014"}
+            </p>
+          </div>
         )}
-        <div className="flex items-center gap-1 mt-3 text-xs text-primary font-medium">
+        <div className="flex items-center gap-1 mt-3 text-xs text-primary font-medium shrink-0">
           Ask Kipcoachee <ChevronRight className="w-3.5 h-3.5" />
         </div>
       </div>
@@ -214,7 +216,8 @@ export default function Dashboard() {
   const zoneSource = useZoneSource();
   const { weekStats, lastActivity, recoveryMetrics, readiness, weekPlan, todaysWorkout, athlete, isSampleData, activities } = useDashboardData();
   const { isConnected: intervalsConnected } = useIntervalsIntegration();
-  const progressPct = Math.round((weekStats.actualKm / weekStats.plannedKm) * 100);
+  const isCurrentWeekInPlan = weekStats.isCurrentWeekInPlan && weekStats.plannedKm != null && weekStats.plannedKm > 0;
+  const progressPct = isCurrentWeekInPlan ? Math.round((weekStats.actualKm / weekStats.plannedKm!) * 100) : 0;
 
   return (
     <AppLayout>
@@ -258,6 +261,7 @@ export default function Dashboard() {
                 {todaysWorkout.type === "rest" &&
                   readiness.score != null &&
                   readiness.score > 75 &&
+                  isCurrentWeekInPlan &&
                   progressPct > 100 && (
                     <p className="text-xs text-amber-600 dark:text-amber-400 mt-2">
                       Rest recommended — weekly load is {progressPct}% of target
@@ -290,17 +294,24 @@ export default function Dashboard() {
             <div>
               <div className="flex justify-between text-sm mb-1.5">
                 <span className="text-foreground font-medium">
-                  {weekStats.actualKm} / {weekStats.plannedKm} km
+                  {isCurrentWeekInPlan
+                    ? `${weekStats.actualKm} / ${weekStats.plannedKm} km`
+                    : `${weekStats.actualKm} km`}
                 </span>
-                <span className="mono-text text-muted-foreground">{progressPct}%</span>
+                {isCurrentWeekInPlan && (
+                  <span className="mono-text text-muted-foreground">{progressPct}%</span>
+                )}
               </div>
-              <div className="h-2 bg-muted rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-primary rounded-full transition-all duration-500"
-                  style={{ width: `${progressPct}%` }}
-                />
-              </div>
+              {isCurrentWeekInPlan && (
+                <div className="h-2 bg-muted rounded-full overflow-hidden">
+                  <div
+                    className="h-full bg-primary rounded-full transition-all duration-500"
+                    style={{ width: `${Math.min(progressPct, 100)}%` }}
+                  />
+                </div>
+              )}
             </div>
+            {isCurrentWeekInPlan && (
             <div className="flex items-center justify-between text-sm gap-2">
               <span className="text-muted-foreground">Quality sessions</span>
               <Tooltip>
@@ -327,6 +338,7 @@ export default function Dashboard() {
                 </TooltipContent>
               </Tooltip>
             </div>
+            )}
             <div>
               <p className="text-xs text-muted-foreground mb-1">Load trend</p>
               <Sparkline data={weekStats.tssData} />
@@ -498,7 +510,7 @@ export default function Dashboard() {
             {weekPlan.map((day) => {
               const content = (
                 <div
-                  className={`glass-card glass-card-hover p-4 cursor-pointer min-w-[140px] flex-shrink-0 ${
+                  className={`glass-card glass-card-hover p-4 cursor-pointer min-w-[140px] min-h-[120px] flex-shrink-0 ${
                     day.isToday ? "ring-2 ring-primary/30" : ""
                   }`}
                 >
@@ -532,7 +544,7 @@ export default function Dashboard() {
         </div>
 
         {/* Race Prediction + Kipcoachee — equal width, side by side */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
           <RacePredictionCard
             activities={activities}
             ctl={readiness.ctl}

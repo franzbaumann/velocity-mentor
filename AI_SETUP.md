@@ -38,6 +38,12 @@ supabase secrets set ANTHROPIC_API_KEY=key1 GROQ_API_KEY=key1 GEMINI_API_KEY=key
 supabase functions deploy coach-chat coach-opening paceiq-generate-plan paceiq-philosophy intervals-proxy
 ```
 
+## Development
+
+- **Retry on 429:** All AI edge functions now retry with backoff (5s, 10s) when a provider returns rate limit. Transient limits often recover without failing.
+- **Multi-key:** For heavier dev use, add `ANTHROPIC_API_KEY_2`, `GROQ_API_KEY_2`, `GEMINI_API_KEY_2` — each key has its own quota.
+- **Groq:** The free tier is often more generous; ensure `GROQ_API_KEY` is set for reliable fallback.
+
 ## Verify project
 
 Your `.env` must use the same project as where you set secrets:
