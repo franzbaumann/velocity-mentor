@@ -24,7 +24,9 @@ export const AuthScreen: FC = () => {
   const navigation =
     useNavigation<NativeStackNavigationProp<AuthStackParamList, "Auth">>();
   const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [authMode, setAuthMode] = useState<"signin" | "signup">("signup");
   const [status, setStatus] = useState<"idle" | "sending" | "sent" | "error">(
     "idle",
@@ -107,8 +109,10 @@ export const AuthScreen: FC = () => {
       }),
     [colors]
   );
+  const nameInputRef = useRef<TextInput | null>(null);
   const emailInputRef = useRef<TextInput | null>(null);
   const passwordInputRef = useRef<TextInput | null>(null);
+  const confirmPasswordInputRef = useRef<TextInput | null>(null);
 
   const onSubmitPassword = async () => {
     if (!email.trim()) {
@@ -140,6 +144,11 @@ export const AuthScreen: FC = () => {
   };
 
   const onSubmitSignUp = async () => {
+    if (!name.trim()) {
+      setError("Please enter your name first.");
+      nameInputRef.current?.focus();
+      return;
+    }
     if (!email.trim()) {
       setError("Please enter your email first.");
       emailInputRef.current?.focus();
@@ -148,6 +157,16 @@ export const AuthScreen: FC = () => {
     if (!password) {
       setError("Please choose a password.");
       passwordInputRef.current?.focus();
+      return;
+    }
+    if (password.length < 8) {
+      setError("Password must be at least 8 characters.");
+      passwordInputRef.current?.focus();
+      return;
+    }
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      confirmPasswordInputRef.current?.focus();
       return;
     }
     try {
@@ -172,6 +191,11 @@ export const AuthScreen: FC = () => {
 
   const isSignInMode = authMode === "signin";
   const handlePrimarySubmit = isSignInMode ? onSubmitPassword : onSubmitSignUp;
+  const isPrimaryDisabled =
+    status === "sending" ||
+    !email.trim() ||
+    password.length < 8 ||
+    (!isSignInMode && (!name.trim() || password !== confirmPassword));
 
   return (
     <KeyboardAvoidingView
@@ -192,6 +216,21 @@ export const AuthScreen: FC = () => {
           <Text style={styles.cardSubtitle}>
             {isSignInMode ? "Sign in to your PaceIQ account" : "Create your PaceIQ account"}
           </Text>
+
+          {!isSignInMode && (
+            <>
+              <Text style={styles.label}>Name</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Your name"
+                placeholderTextColor={colors.mutedForeground}
+                autoCapitalize="words"
+                ref={nameInputRef}
+                value={name}
+                onChangeText={setName}
+              />
+            </>
+          )}
 
           <Text style={styles.label}>Email</Text>
           <TextInput
@@ -216,6 +255,21 @@ export const AuthScreen: FC = () => {
             onChangeText={setPassword}
           />
 
+          {!isSignInMode && (
+            <>
+              <Text style={styles.label}>Confirm password</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="Repeat password"
+                placeholderTextColor={colors.mutedForeground}
+                secureTextEntry
+                ref={confirmPasswordInputRef}
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+              />
+            </>
+          )}
+
           <View style={styles.rememberRow}>
             <Text style={styles.rememberLabel}>Keep me logged in</Text>
             <Switch
@@ -230,7 +284,7 @@ export const AuthScreen: FC = () => {
             style={[styles.primaryButton, status === "sending" && styles.primaryButtonDisabled]}
             activeOpacity={0.85}
             onPress={handlePrimarySubmit}
-            disabled={status === "sending" || !email.trim() || password.length < 8}
+            disabled={isPrimaryDisabled}
           >
             <Text style={styles.primaryButtonText}>
               {status === "sending"

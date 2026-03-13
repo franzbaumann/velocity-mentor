@@ -20,7 +20,7 @@ import { GlassCard } from "../components/GlassCard";
 import { useTheme } from "../context/ThemeContext";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { getLocalDateString } from "../lib/date";
-import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase } from "../shared/supabase";
+import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase, callEdgeFunctionWithRetry } from "../shared/supabase";
 import { useIntervalsIntegration } from "../hooks/useIntervalsIntegration";
 import { useTrainingPlan } from "../hooks/useTrainingPlan";
 import { extractPlanJson, stripPlanJson } from "../lib/coach-plan";
@@ -307,8 +307,12 @@ async function extractMemories(msgs: Msg[]) {
       data: { session },
     } = await supabase.auth.getSession();
     if (!session?.access_token) return;
-    await supabase.functions.invoke("coach-chat", {
+    await callEdgeFunctionWithRetry({
+      functionName: "coach-chat",
       body: { action: "extract_memories", messages: msgs },
+      timeoutMs: 15000,
+      maxRetries: 3,
+      logContext: "CoachScreen:extract_memories",
     });
   } catch {
     // best-effort
@@ -352,7 +356,8 @@ export const CoachScreen: FC = () => {
         .select("id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, source")
         .eq("user_id", user.id)
         .gte("date", oldest.toISOString().slice(0, 10))
-        .order("date", { ascending: true });
+        .order("date", { ascending: true })
+        .limit(2000);
       if (error) throw error;
       return data ?? [];
     },
@@ -374,7 +379,8 @@ export const CoachScreen: FC = () => {
         .select("id, date, score, hrv, hrv_baseline, sleep_hours, sleep_quality, resting_hr, ctl, atl, tsb")
         .eq("user_id", user.id)
         .gte("date", oldest.toISOString().slice(0, 10))
-        .order("date", { ascending: true });
+        .order("date", { ascending: true })
+        .limit(2200);
       if (error) throw error;
       return data ?? [];
     },
@@ -505,10 +511,14 @@ export const CoachScreen: FC = () => {
       setOpeningLoading(true);
       try {
         await supabase.auth.refreshSession();
-        const { data, error } = await supabase.functions.invoke("coach-opening", {
+        const { data, error } = await callEdgeFunctionWithRetry({
+          functionName: "coach-opening",
           body: {
             intervalsContext,
           },
+          timeoutMs: 15000,
+          maxRetries: 3,
+          logContext: "CoachScreen:coach-opening",
         });
         if (!cancelled && !error && (data as any)?.message) {
           const msg = (data as any).message as string;

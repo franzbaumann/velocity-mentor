@@ -1,5 +1,5 @@
-import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useState } from "react";
-import { Linking } from "react-native";
+import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { AppState, Linking } from "react-native";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { supabase } from "./shared/supabase";
 
@@ -46,16 +46,25 @@ const SupabaseContext = createContext<SupabaseContextValue | undefined>(undefine
 export const SupabaseProvider = ({ children }: PropsWithChildren) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-   const [devBypass, setDevBypass] = useState(false);
+  const [devBypass, setDevBypass] = useState(false);
+  const lastSessionRef = useRef<Pick<NonNullable<Awaited<ReturnType<typeof supabase.auth.getSession>>>["data"]["session"], "expires_at" | "user"> | null>(null);
+  const intentionalSignOutRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
 
     const init = async () => {
       try {
-        const { data } = await supabase.auth.getUser();
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+          console.warn("[auth] getSession error during init", error);
+        }
+        const session = data.session ?? null;
+        lastSessionRef.current = session
+          ? { expires_at: session.expires_at, user: session.user }
+          : null;
         if (!isMounted) return;
-        setUser(data.user ?? null);
+        setUser(session?.user ?? null);
       } finally {
         if (isMounted) {
           setLoading(false);
@@ -72,14 +81,57 @@ export const SupabaseProvider = ({ children }: PropsWithChildren) => {
 
     const { data: subscription } = supabase.auth.onAuthStateChange((_event, session) => {
       if (!isMounted) return;
+      if (_event === "SIGNED_OUT" && !intentionalSignOutRef.current) {
+        const last = lastSessionRef.current;
+        console.warn("[auth] Unexpected SIGNED_OUT event", {
+          hadPreviousUser: !!last?.user,
+          previousUserId: last?.user?.id,
+          previousExpiresAt: last?.expires_at,
+        });
+      }
+      if (session) {
+        lastSessionRef.current = {
+          expires_at: session.expires_at,
+          user: session.user,
+        };
+      } else {
+        lastSessionRef.current = null;
+      }
       setUser(session?.user ?? null);
       setLoading(false);
+      if (_event === "TOKEN_REFRESHED") {
+        console.log("[auth] Token refreshed", {
+          expires_at: session?.expires_at,
+          userId: session?.user?.id,
+        });
+      }
+    });
+
+    const appStateSub = AppState.addEventListener("change", (state) => {
+      if (state === "active") {
+        supabase.auth
+          .refreshSession()
+          .then(({ data, error }) => {
+            if (error) {
+              console.warn("[auth] refreshSession error on foreground", error);
+            } else if (data.session) {
+              lastSessionRef.current = {
+                expires_at: data.session.expires_at,
+                user: data.session.user,
+              };
+            }
+          })
+          .catch((err) => {
+            console.warn("[auth] refreshSession throw on foreground", err);
+          });
+      }
     });
 
     return () => {
       isMounted = false;
       linkSub.remove();
       subscription?.subscription.unsubscribe();
+      appStateSub.remove();
     };
   }, []);
 
@@ -117,7 +169,9 @@ export const SupabaseProvider = ({ children }: PropsWithChildren) => {
   };
 
   const signOut = async () => {
+    intentionalSignOutRef.current = true;
     await supabase.auth.signOut();
+    intentionalSignOutRef.current = false;
   };
 
   const bypassLogin = () => {

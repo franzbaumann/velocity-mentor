@@ -1,26 +1,32 @@
 import { PropsWithChildren } from "react";
-import { ScrollView, StyleSheet, View, ViewStyle } from "react-native";
+import { StyleSheet, View, ViewStyle } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 import { spacing } from "../theme/theme";
+import { PullToRefreshScrollView } from "./PullToRefreshScrollView";
 
 type ScreenContainerProps = PropsWithChildren<{
   contentContainerStyle?: ViewStyle;
   scroll?: boolean;
-  refreshControl?: React.ReactElement;
+  onRefresh?: () => Promise<void> | void;
 }>;
 
-export function ScreenContainer({ children, contentContainerStyle, scroll = true, refreshControl }: ScreenContainerProps) {
+export function ScreenContainer({
+  children,
+  contentContainerStyle,
+  scroll = true,
+  onRefresh,
+}: ScreenContainerProps) {
   const { theme } = useTheme();
   const containerStyle = [styles.container, { backgroundColor: theme.appBackground }];
   if (scroll) {
     return (
-      <ScrollView
+      <PullToRefreshScrollView
         style={containerStyle}
         contentContainerStyle={[styles.content, contentContainerStyle]}
-        refreshControl={refreshControl}
+        onRefresh={onRefresh}
       >
         {children}
-      </ScrollView>
+      </PullToRefreshScrollView>
     );
   }
   return <View style={[containerStyle, styles.content, contentContainerStyle]}>{children}</View>;

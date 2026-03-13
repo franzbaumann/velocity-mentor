@@ -9,7 +9,7 @@ import {
 import { useTheme } from "../../context/ThemeContext";
 import { TrainingPlanSession } from "../../hooks/useTrainingPlan";
 import { typography } from "../../theme/theme";
-import { supabase } from "../../shared/supabase";
+import { supabase, callEdgeFunctionWithRetry } from "../../shared/supabase";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -155,8 +155,12 @@ export const SessionDetailModal: FC<Props> = ({
     setCoachNoteLoading(true);
     setCoachNoteError(null);
     try {
-      const { data, error } = await supabase.functions.invoke("intervals-proxy", {
+      const { data, error } = await callEdgeFunctionWithRetry({
+        functionName: "intervals-proxy",
         body: { action: "workout_coach_note", workoutId: session.id, regenerate },
+        timeoutMs: 20000,
+        maxRetries: 3,
+        logContext: "SessionDetailModal:workout_coach_note",
       });
       if (error) throw error;
       const res = data as { note?: string; error?: string };

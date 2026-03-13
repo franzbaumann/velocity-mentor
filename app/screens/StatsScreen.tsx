@@ -14,6 +14,8 @@ import { PersonalRecordsListMobile } from "../components/PersonalRecordsListMobi
 import { useStatsData } from "../hooks/useStatsData";
 import { StepsTrendChartMobile } from "../components/charts/StepsTrendChartMobile";
 import { WeightTrendChartMobile } from "../components/charts/WeightTrendChartMobile";
+import { VO2maxTrendChartMobile } from "../components/charts/VO2maxTrendChartMobile";
+import { WellnessCheckChartMobile } from "../components/charts/WellnessCheckChartMobile";
 
 type StatsTab = "runs" | "wellness";
 
@@ -39,6 +41,11 @@ export const StatsScreen: FC = () => {
     stepsSeries,
     weightSeries,
     fitnessSummary,
+    refetchAll,
+    stressSeries,
+    moodSeries,
+    energySeries,
+    sorenessSeries,
   } = useStatsData();
   const [tab, setTab] = useState<StatsTab>(() =>
     runningActivities.length === 0 && readinessRows.length > 0 ? "wellness" : "runs",
@@ -72,7 +79,7 @@ export const StatsScreen: FC = () => {
   }
 
   return (
-    <ScreenContainer>
+    <ScreenContainer onRefresh={refetchAll}>
       <ScrollView contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <Text style={[styles.title, { color: theme.textPrimary }]}>Stats & Analytics</Text>
@@ -270,17 +277,10 @@ export const StatsScreen: FC = () => {
             <StatsChartCard
               icon="walk-outline"
               title="VO2max"
-              description="Estimated VO2max trend from your devices or intervals.icu. Use this as a rough indicator of aerobic capacity over time."
+              description="Estimated VO2max trend from your devices or intervals.icu (ml/kg/min)."
             >
               {vo2maxSeries.length ? (
-                <FitnessChartMobile
-                  data={vo2maxSeries.map((p) => ({
-                    date: p.date,
-                    CTL: p.vo2max,
-                    ATL: 0,
-                    TSB: 0,
-                  }))}
-                />
+                <VO2maxTrendChartMobile data={vo2maxSeries} />
               ) : (
                 <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
                   No VO2max data yet. Import Garmin Metrics (DI-Connect-Metrics) / intervals.
@@ -330,6 +330,75 @@ export const StatsScreen: FC = () => {
               ) : (
                 <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
                   No weight data yet. Import Garmin wellness / intervals.
+                </Text>
+              )}
+            </StatsChartCard>
+            <Text style={[styles.sectionHeader, { color: theme.textMuted }]}>Wellness check</Text>
+            <StatsChartCard
+              icon="alert-circle-outline"
+              title="Stress score"
+              description="Daily stress score from intervals.icu wellness. Higher values usually indicate more perceived stress."
+            >
+              {stressSeries.length ? (
+                <WellnessCheckChartMobile
+                  data={stressSeries}
+                  scale={["None", "Low", "Avg", "High", "Extreme"]}
+                  color="#ef4444"
+                />
+              ) : (
+                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                  No stress data yet. Import Garmin wellness / intervals.
+                </Text>
+              )}
+            </StatsChartCard>
+            <StatsChartCard
+              icon="happy-outline"
+              title="Mood"
+              description="Self-reported mood from intervals.icu wellness. Track how your training and life stress affect how you feel."
+            >
+              {moodSeries.length ? (
+                <WellnessCheckChartMobile
+                  data={moodSeries}
+                  scale={["", "Excellent", "Good", "Avg", "Poor"]}
+                  color="#a855f7"
+                />
+              ) : (
+                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                  No mood data yet. Import Garmin wellness / intervals.
+                </Text>
+              )}
+            </StatsChartCard>
+            <StatsChartCard
+              icon="flash-outline"
+              title="Energy"
+              description="Daily energy level from wellness check-ins. Use this together with readiness score to decide how hard to train."
+            >
+              {energySeries.length ? (
+                <WellnessCheckChartMobile
+                  data={energySeries}
+                  scale={["", "High", "Good", "Avg", "Low"]}
+                  color="#f59e0b"
+                />
+              ) : (
+                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                  No energy data yet. Import Garmin wellness / intervals.
+                </Text>
+              )}
+            </StatsChartCard>
+            <StatsChartCard
+              icon="body-outline"
+              title="Muscle soreness"
+              description="Subjective muscle soreness rating. Elevated soreness together with high load can be an early warning for overtraining."
+            >
+              {sorenessSeries.length ? (
+                <WellnessCheckChartMobile
+                  data={sorenessSeries}
+                  scale={["None", "Low", "Avg", "High", "Extreme"]}
+                  color="#f97316"
+                />
+              ) : (
+                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                  No muscle soreness data yet. Import Garmin wellness / intervals.
                 </Text>
               )}
             </StatsChartCard>

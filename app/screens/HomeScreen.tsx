@@ -1,5 +1,5 @@
 import { FC, useMemo, useRef, useState } from "react";
-import { Animated, Easing, RefreshControl, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Animated, Easing, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
@@ -29,7 +29,7 @@ export const HomeScreen: FC = () => {
     weekPlan,
     activities,
     isRefetching,
-    refetch,
+    refetchAll,
   } = dashboard;
 
   const todayStr = getLocalDateString();
@@ -301,13 +301,7 @@ export const HomeScreen: FC = () => {
     return (
       <ScreenContainer
         contentContainerStyle={styles.content}
-        refreshControl={
-          <RefreshControl
-            refreshing={!!isRefetching}
-            onRefresh={() => refetch()}
-            tintColor={theme.accentBlue}
-          />
-        }
+        onRefresh={refetchAll}
       >
         {/* Header */}
         <View style={styles.header}>
@@ -468,7 +462,11 @@ export const HomeScreen: FC = () => {
           </TouchableOpacity>
 
           {/* RECOVERY */}
-          <View style={styles.widgetCard}>
+          <TouchableOpacity
+            style={styles.widgetCard}
+            activeOpacity={0.9}
+            onPress={() => navigation.navigate("Stats" as never)}
+          >
             <Text style={styles.widgetHeader}>Recovery</Text>
             <View style={styles.recoveryRow}>
               <View>
@@ -493,7 +491,7 @@ export const HomeScreen: FC = () => {
             >
               <Text style={styles.widgetLink}>View stats ›</Text>
             </TouchableOpacity>
-          </View>
+          </TouchableOpacity>
         </View>
 
         {/* SECTION 4 – Today’s activity (existing card) */}
@@ -638,9 +636,7 @@ export const HomeScreen: FC = () => {
   return (
     <ScreenContainer
       contentContainerStyle={styles.content}
-      refreshControl={
-        <RefreshControl refreshing={!!isRefetching} onRefresh={() => refetch()} tintColor={theme.accentBlue} />
-      }
+      onRefresh={refetchAll}
     >
       {/* Page header – matches web */}
       <View style={styles.header}>
@@ -840,26 +836,31 @@ export const HomeScreen: FC = () => {
       </GlassCard>
 
       {/* Recovery – matches web */}
-      <GlassCard>
-        <Text style={[styles.sectionHeader, typography.sectionHeader]}>Recovery</Text>
-        <View style={styles.recoveryRow}>
-          <View>
-            <Text style={styles.metricLabel}>HRV</Text>
-            <View style={styles.recoveryValueRow}>
-              <Text style={[styles.recoveryValue, typography.mono]}>{recoveryMetrics.hrv}</Text>
-              <Text style={styles.metaText}>/ {recoveryMetrics.hrv7dayAvg} avg</Text>
+      <TouchableOpacity
+        activeOpacity={0.9}
+        onPress={() => navigation.navigate("Stats" as never)}
+      >
+        <GlassCard>
+          <Text style={[styles.sectionHeader, typography.sectionHeader]}>Recovery</Text>
+          <View style={styles.recoveryRow}>
+            <View>
+              <Text style={styles.metricLabel}>HRV</Text>
+              <View style={styles.recoveryValueRow}>
+                <Text style={[styles.recoveryValue, typography.mono]}>{recoveryMetrics.hrv}</Text>
+                <Text style={styles.metaText}>/ {recoveryMetrics.hrv7dayAvg} avg</Text>
+              </View>
             </View>
           </View>
-        </View>
-        <View style={styles.sparklineBlock}>
-          <Text style={styles.sparklineLabel}>HRV (7 days)</Text>
-          <Sparkline data={recoveryMetrics.hrvTrend} color={theme.chartLineTSB} />
-        </View>
-        <View style={styles.sparklineBlock}>
-          <Text style={styles.sparklineLabel}>Resting HR (7 days)</Text>
-          <Sparkline data={recoveryMetrics.restingHrTrend} color={theme.negative} />
-        </View>
-      </GlassCard>
+          <View style={styles.sparklineBlock}>
+            <Text style={styles.sparklineLabel}>HRV (7 days)</Text>
+            <Sparkline data={recoveryMetrics.hrvTrend} color={theme.chartLineTSB} />
+          </View>
+          <View style={styles.sparklineBlock}>
+            <Text style={styles.sparklineLabel}>Resting HR (7 days)</Text>
+            <Sparkline data={recoveryMetrics.restingHrTrend} color={theme.negative} />
+          </View>
+        </GlassCard>
+      </TouchableOpacity>
 
       {/* Race Prediction – same layout as web */}
       {racePrediction && (

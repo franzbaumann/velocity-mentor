@@ -1,6 +1,77 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert } from "react-native";
-import { supabase } from "../shared/supabase";
+import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "../shared/supabase";
+
+const COACH_CHAT_URL = `${SUPABASE_URL}/functions/v1/coach-chat`;
+
+async function triggerNutritionMessage(sessionId: string): Promise<void> {
+  const { data: session } = await supabase
+    .from("training_session")
+    .select("session_type, distance_km, duration_min, description")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (!session) return;
+
+  const {
+    data: { session: authSession },
+  } = await supabase.auth.getSession();
+  if (!authSession?.access_token) return;
+
+  const workoutSummary = [
+    session.session_type,
+    session.distance_km ? `${session.distance_km}km` : "",
+    session.duration_min ? `${session.duration_min}min` : "",
+    session.description,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+
+  const nutritionPrompt = `The athlete just completed this workout: ${workoutSummary}. As a sports nutritionist, calculate exact recovery nutrition needs and recommend specific foods with quantities. Be specific: '2 bananas + 300g rice + 500ml chocolate milk' not general advice. Include: immediate recovery (0-30 min), main meal (1-2 hours), and hydration.`;
+
+  try {
+    const res = await fetch(COACH_CHAT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        ...(SUPABASE_ANON_KEY ? { apikey: SUPABASE_ANON_KEY } : {}),
+        Authorization: `Bearer ${authSession.access_token}`,
+      },
+      body: JSON.stringify({
+        messages: [{ role: "user", content: nutritionPrompt }],
+        trigger: "nutrition",
+      }),
+    });
+    if (!res.ok) return;
+
+    let fullText = "";
+    const reader = res.body?.getReader();
+    const decoder = new TextDecoder();
+    if (reader) {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        fullText += decoder.decode(value, { stream: true });
+      }
+    }
+
+    if (fullText.trim()) {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (user) {
+        await supabase.from("coach_message").insert({
+          user_id: user.id,
+          role: "assistant",
+          content: fullText.trim(),
+          message_type: "nutrition",
+          trigger: "workout_completed",
+        });
+      }
+    }
+  } catch {
+    // Nutrition message is best-effort
+  }
+}
 
 type TrainingPlanRow = {
   id: string;
@@ -52,7 +123,9 @@ async function loadTrainingPlan(): Promise<TrainingPlanData> {
 
   const { data: planRow, error: planErr } = await supabase
     .from("training_plan")
-    .select("*")
+    .select(
+      "id, plan_name, philosophy, race_type, goal_date, race_date, goal_time, target_time",
+    )
     .eq("user_id", user.id)
     .order("created_at", { ascending: false })
     .limit(1)
@@ -62,21 +135,33 @@ async function loadTrainingPlan(): Promise<TrainingPlanData> {
 
   const { data: weeks, error: weeksErr } = await supabase
     .from("training_week")
-    .select("*")
+    .select("id, plan_id, week_number, start_date, notes")
     .eq("plan_id", planRow.id)
     .order("week_number", { ascending: true });
 
   if (!weeksErr && weeks?.length) {
-    const weeksWithSessions: TrainingPlanWeek[] = [];
+    const weekRows = weeks as any[];
+    const weekIds = weekRows.map((w) => w.id as string);
 
-    for (const w of weeks as any[]) {
-      const { data: sessions } = await supabase
-        .from("training_session")
-        .select("*")
-        .eq("week_id", w.id)
-        .order("order_index", { ascending: true });
+    const { data: allSessions } = await supabase
+      .from("training_session")
+      .select(
+        "id, week_id, scheduled_date, session_type, description, distance_km, duration_min, pace_target, notes, target_hr_zone, completed_at",
+      )
+      .in("week_id", weekIds)
+      .order("week_id", { ascending: true })
+      .order("order_index", { ascending: true });
 
-      const raw = (sessions ?? []) as any[];
+    const sessionsByWeek = new Map<string, any[]>();
+    for (const s of (allSessions ?? []) as any[]) {
+      const wid = s.week_id as string;
+      const list = sessionsByWeek.get(wid) ?? [];
+      list.push(s);
+      sessionsByWeek.set(wid, list);
+    }
+
+    const weeksWithSessions: TrainingPlanWeek[] = weekRows.map((w) => {
+      const raw = (sessionsByWeek.get(w.id as string) ?? []) as any[];
       const sess: TrainingPlanSession[] = raw.map((s) => ({
         id: s.id,
         scheduled_date: s.scheduled_date,
@@ -93,22 +178,24 @@ async function loadTrainingPlan(): Promise<TrainingPlanData> {
 
       const total_km = sess.reduce((sum, x) => sum + (x.distance_km ?? 0), 0);
 
-      weeksWithSessions.push({
+      return {
         id: w.id as string,
         week_number: w.week_number as number,
         start_date: w.start_date as string,
         phase: (w as { notes?: string | null }).notes ?? undefined,
         total_km,
         sessions: sess,
-      });
-    }
+      };
+    });
 
     return { plan: planRow, weeks: weeksWithSessions };
   }
 
   const { data: workouts } = await supabase
     .from("training_plan_workout")
-    .select("*")
+    .select(
+      "id, plan_id, date, week_number, phase, type, description, name, distance_km, duration_minutes, target_pace, key_focus, target_hr_zone, tss_estimate, completed, coach_note, notes",
+    )
     .eq("plan_id", planRow.id)
     .order("date", { ascending: true });
 
@@ -244,8 +331,11 @@ export function useTrainingPlan() {
 
       return { sessionId, done };
     },
-    onSuccess: () => {
+    onSuccess: (_, { sessionId, done }) => {
       queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+      if (done) {
+        triggerNutritionMessage(sessionId).catch(() => {});
+      }
     },
     onError: (e: any) => {
       Alert.alert("Failed to update session", e?.message ?? "Unknown error");

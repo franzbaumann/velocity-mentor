@@ -101,7 +101,12 @@ function formatDuration(sec: number | null): string {
 }
 
 export function useDashboardData() {
-  const { data: activities = [], isLoading: activitiesLoading, isRefetching, refetch } = useQuery({
+  const {
+    data: activities = [],
+    isLoading: activitiesLoading,
+    isRefetching,
+    refetch: refetchActivities,
+  } = useQuery({
     queryKey: ["activities-dashboard"],
     queryFn: async () => {
       const {
@@ -116,14 +121,23 @@ export function useDashboardData() {
         )
         .eq("user_id", user.id)
         .gte("date", oldest.toISOString().slice(0, 10))
-        .order("date", { ascending: true });
+        .order("date", { ascending: true })
+        .limit(2000);
       if (error) throw error;
       return (data ?? []) as ActivityRow[];
     },
-    staleTime: 2 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
   });
 
-  const { data: readinessRows = [], isLoading: readinessLoading } = useQuery({
+  const {
+    data: readinessRows = [],
+    isLoading: readinessLoading,
+    refetch: refetchReadiness,
+  } = useQuery({
     queryKey: ["daily_readiness-dashboard"],
     queryFn: async () => {
       const {
@@ -133,10 +147,13 @@ export function useDashboardData() {
       const oldest = subDays(new Date(), 365 * 2);
       const { data, error } = await supabase
         .from("daily_readiness")
-        .select("*")
+        .select(
+          "date, ctl, atl, tsb, hrv, resting_hr, sleep_hours, sleep_quality, score, hrv_baseline, ai_summary, sleep_score, icu_ctl, icu_atl, icu_tsb, vo2max, ramp_rate, steps, weight, stress_score, mood, energy, muscle_soreness",
+        )
         .eq("user_id", user.id)
         .gte("date", oldest.toISOString().slice(0, 10))
-        .order("date", { ascending: true });
+        .order("date", { ascending: true })
+        .limit(2200);
       if (error) throw error;
       return (data ?? []) as ReadinessRow[];
     },
@@ -146,7 +163,7 @@ export function useDashboardData() {
   // Reuse the ActivitiesList hook so ids/detailIds match calendar & ActivityDetail navigation
   const { items: activityItems } = useActivitiesList(730);
 
-  const { data: athleteProfile } = useQuery({
+  const { data: athleteProfile, refetch: refetchAthleteProfile } = useQuery({
     queryKey: ["athlete_profile-mobile"],
     queryFn: async () => {
       const {
@@ -155,11 +172,18 @@ export function useDashboardData() {
       if (!user) return null;
       const { data } = await supabase
         .from("athlete_profile")
-        .select("*")
+        .select(
+          "name, goal_race, max_hr, resting_hr, vo2max, lactate_threshold_hr, lactate_threshold_pace, vlamax, max_hr_measured",
+        )
         .eq("user_id", user.id)
         .maybeSingle();
       return data;
     },
+    staleTime: 30 * 60 * 1000,
+    gcTime: 60 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
   });
 
   /** Normalize hr_zones/hr_zone_times into { z1..z5 } percentages for last-activity widget */
@@ -383,6 +407,18 @@ export function useDashboardData() {
   const hasRealActivities = activities.length > 0;
   const isSampleData = !hasRealReadiness && !hasRealActivities;
 
+  const refetchAll = async () => {
+    const promises: Promise<unknown>[] = [];
+    promises.push(refetchActivities());
+    promises.push(refetchReadiness());
+    promises.push(refetchAthleteProfile());
+    const results = await Promise.allSettled(promises);
+    const hasRejected = results.some((r) => r.status === "rejected");
+    if (hasRejected) {
+      throw new Error("Failed to refresh dashboard data");
+    }
+  };
+
   return {
     athleteProfile,
     athlete: athleteProfile
@@ -412,7 +448,8 @@ export function useDashboardData() {
     readinessRows,
     isLoading: activitiesLoading || readinessLoading,
     isRefetching,
-    refetch,
+    refetch: refetchActivities,
+    refetchAll,
     hasRealReadiness,
     hasRealActivities,
   };

@@ -64,3 +64,8 @@ ALTER TABLE public.athlete_profile ADD COLUMN IF NOT EXISTS lab_name TEXT;
 
 -- 7. Coach message: add message type
 ALTER TABLE public.coach_message ADD COLUMN IF NOT EXISTS message_type TEXT DEFAULT 'chat';
+
+-- 8. Indexes for common access patterns
+-- Frequently-used filters: activity by user_id/date and daily_readiness by user_id/date.
+CREATE INDEX IF NOT EXISTS idx_activity_user_date ON public.activity(user_id, date);
+CREATE INDEX IF NOT EXISTS idx_daily_readiness_user_date ON public.daily_readiness(user_id, date);

@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { supabase } from "../shared/supabase";
+import { supabase, callEdgeFunctionWithRetry } from "../shared/supabase";
 
 export interface ActivityStreams {
   time: number[];
@@ -147,13 +147,21 @@ export function useActivityDetailMobile(
         if (!session?.access_token) return null;
 
         const [detailRes, streamsRes, dbRowRes, dbStreamsRes] = await Promise.all([
-          supabase.functions.invoke("intervals-proxy", {
+          callEdgeFunctionWithRetry({
+            functionName: "intervals-proxy",
             headers: { Authorization: `Bearer ${session.access_token}` },
             body: { action: "activity", activityId: extId },
+            timeoutMs: 20000,
+            maxRetries: 3,
+            logContext: "useActivityDetailMobile:activity",
           }),
-          supabase.functions.invoke("intervals-proxy", {
+          callEdgeFunctionWithRetry({
+            functionName: "intervals-proxy",
             headers: { Authorization: `Bearer ${session.access_token}` },
             body: { action: "streams", activityId: extId },
+            timeoutMs: 20000,
+            maxRetries: 3,
+            logContext: "useActivityDetailMobile:streams",
           }),
           supabase
             .from("activity")

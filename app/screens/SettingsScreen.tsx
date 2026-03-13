@@ -2,6 +2,7 @@ import { FC, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Modal,
   Pressable,
   StyleSheet,
   Text,
@@ -9,9 +10,12 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { Swipeable } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
+import * as DocumentPicker from "expo-document-picker";
+import * as FileSystem from "expo-file-system";
 import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
 import { useTheme } from "../context/ThemeContext";
@@ -20,7 +24,7 @@ import { lightTheme, darkProTheme } from "../theme/themes";
 import { spacing, typography } from "../theme/theme";
 import { useIntervalsIntegration } from "../hooks/useIntervalsIntegration";
 import { useIntervalsSync } from "../hooks/useIntervalsSync";
-import { supabase } from "../shared/supabase";
+import { supabase, SUPABASE_ANON_KEY, SUPABASE_URL, callEdgeFunctionWithRetry } from "../shared/supabase";
 import type { AppTabsParamList } from "../navigation/RootNavigator";
 import { useQueryClient } from "@tanstack/react-query";
 
@@ -44,7 +48,7 @@ export const SettingsScreen: FC = () => {
     errorMessage,
   } = useIntervalsIntegration();
 
-  const { runSync, isSyncing, status: syncStatus, message: syncMessage } = useIntervalsSync();
+  const { runSync, runQuickSync, syncing: isSyncing, progress: syncProgress } = useIntervalsSync();
 
   const [athleteId, setAthleteId] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -61,6 +65,36 @@ export const SettingsScreen: FC = () => {
     lab_test_date?: string | null;
     lab_name?: string | null;
   } | null>(null);
+  const [isClearingMemories, setIsClearingMemories] = useState(false);
+  const [clearAllVisible, setClearAllVisible] = useState(false);
+  const [showAdvancedIntervals, setShowAdvancedIntervals] = useState(false);
+
+  const [isTestingIntervals, setIsTestingIntervals] = useState(false);
+  const [streamsSyncing, setStreamsSyncing] = useState(false);
+  const [pbsSyncing, setPbsSyncing] = useState(false);
+  const [labExtracting, setLabExtracting] = useState(false);
+  const [labSaving, setLabSaving] = useState(false);
+  const [labConfirmVisible, setLabConfirmVisible] = useState(false);
+  const [labForm, setLabForm] = useState<{
+    vo2max?: string;
+    ltHr?: string;
+    ltPace?: string;
+    vlamax?: string;
+    maxHrMeasured?: string;
+  }>({});
+
+  const [coachingMemories, setCoachingMemories] = useState<
+    {
+      id: string;
+      category: string | null;
+      content: string;
+      created_at: string;
+      importance: number | null;
+      expires_at: string | null;
+    }[]
+  >([]);
+  const [memoriesLoaded, setMemoriesLoaded] = useState(false);
+  const [memoriesLoading, setMemoriesLoading] = useState(false);
 
   useEffect(() => {
     if (integration) {
@@ -107,6 +141,57 @@ export const SettingsScreen: FC = () => {
         });
       }
       setHrLoaded(true);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!labSummary) return;
+    setLabForm({
+      vo2max: labSummary.vo2max != null ? String(labSummary.vo2max) : "",
+      ltHr: labSummary.lactate_threshold_hr != null ? String(labSummary.lactate_threshold_hr) : "",
+      ltPace: labSummary.lactate_threshold_pace ?? "",
+      vlamax: labSummary.vlamax != null ? String(labSummary.vlamax) : "",
+      maxHrMeasured: labSummary.max_hr_measured != null ? String(labSummary.max_hr_measured) : "",
+    });
+  }, [labSummary]);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      setMemoriesLoading(true);
+      try {
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
+        if (!user || cancelled) {
+          setCoachingMemories([]);
+          setMemoriesLoaded(true);
+          setMemoriesLoading(false);
+          return;
+        }
+        const { data, error } = await supabase
+          .from("coaching_memory")
+          .select("id, category, content, created_at, importance, expires_at")
+          .eq("user_id", user.id)
+          .order("importance", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false });
+        if (error || cancelled) {
+          setCoachingMemories([]);
+        } else {
+          setCoachingMemories((data ?? []) as any);
+        }
+      } catch (e) {
+        console.error(e);
+        setCoachingMemories([]);
+      } finally {
+        if (!cancelled) {
+          setMemoriesLoaded(true);
+          setMemoriesLoading(false);
+        }
+      }
     })();
     return () => {
       cancelled = true;
@@ -233,6 +318,284 @@ export const SettingsScreen: FC = () => {
     );
   };
 
+  const handleTestConnection = async () => {
+    setIsTestingIntervals(true);
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        Alert.alert("Not signed in", "Sign out and sign back in, then try again.");
+        return;
+      }
+      const { data, error } = await callEdgeFunctionWithRetry({
+        functionName: "intervals-proxy",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { action: "test_connection" },
+        timeoutMs: 15000,
+        maxRetries: 3,
+        logContext: "SettingsScreen:test_connection",
+      });
+      if (error) {
+        const msg = error.message ?? "Connection failed";
+        const hint =
+          msg.includes("Refresh Token") || msg.includes("401") || msg.includes("403")
+            ? " Try signing out and signing back in first."
+            : "";
+        Alert.alert("intervals.icu", msg + hint);
+        return;
+      }
+      const result = data as { ok?: boolean; error?: string } | null;
+      if (result?.ok === false && result.error) {
+        Alert.alert("intervals.icu", result.error);
+        return;
+      }
+      if (result?.ok === true) {
+        Alert.alert("intervals.icu", "Connection works! API key is valid.");
+      } else {
+        Alert.alert("intervals.icu", "Connection failed.");
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Connection failed";
+      const hint =
+        msg.includes("Refresh Token") || msg.includes("401") || msg.includes("403")
+          ? " Sign out and sign back in, then verify your intervals.icu API key."
+          : "";
+      Alert.alert("intervals.icu", msg + hint);
+    } finally {
+      setIsTestingIntervals(false);
+    }
+  };
+
+  const handleSyncStreams = async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        Alert.alert("Not signed in", "Sign in again and try syncing streams.");
+        return;
+      }
+      setStreamsSyncing(true);
+      const { data, error } = await callEdgeFunctionWithRetry({
+        functionName: "intervals-proxy",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { action: "sync_streams" },
+        timeoutMs: 30000,
+        maxRetries: 3,
+        logContext: "SettingsScreen:sync_streams",
+      });
+      if (error) {
+        Alert.alert("Error", error.message ?? "Failed to sync chart data.");
+        return;
+      }
+      const res = data as { ok?: number; failed?: number; total?: number } | null;
+      const ok = res?.ok ?? 0;
+      const total = res?.total ?? 0;
+      Alert.alert("Done", `Chart data synced for ${ok} of ${total} activities.`);
+      queryClient.invalidateQueries({ queryKey: ["activities-dashboard"] });
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to sync chart data.");
+    } finally {
+      setStreamsSyncing(false);
+    }
+  };
+
+  const handleSyncPRs = async () => {
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.access_token) {
+        Alert.alert("Not signed in", "Sign in again and try syncing PRs.");
+        return;
+      }
+      setPbsSyncing(true);
+      const { data, error } = await callEdgeFunctionWithRetry({
+        functionName: "intervals-proxy",
+        headers: { Authorization: `Bearer ${session.access_token}` },
+        body: { action: "sync_pbs" },
+        timeoutMs: 30000,
+        maxRetries: 3,
+        logContext: "SettingsScreen:sync_pbs",
+      });
+      if (error) {
+        Alert.alert("Error", error.message ?? "Failed to sync PRs.");
+        return;
+      }
+      const res = data as { pbs?: number } | null;
+      Alert.alert("Done", `Synced ${res?.pbs ?? 0} personal records.`);
+      queryClient.invalidateQueries({ queryKey: ["personal_records-mobile"] });
+    } catch (e) {
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to sync PRs.");
+    } finally {
+      setPbsSyncing(false);
+    }
+  };
+
+  const handleUploadLabPdf = async () => {
+    try {
+      const pickResult = await DocumentPicker.getDocumentAsync({
+        type: "application/pdf",
+        copyToCacheDirectory: true,
+      });
+      if (pickResult.canceled || !pickResult.assets || pickResult.assets.length === 0) {
+        return;
+      }
+      const asset = pickResult.assets[0];
+      if (!asset.uri) {
+        Alert.alert("Error", "Could not read selected file.");
+        return;
+      }
+      setLabExtracting(true);
+      const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+      const { data } = await supabase.auth.getSession();
+      const token = data.session?.access_token ?? null;
+      if (!token) {
+        Alert.alert("Sign in required", "Please sign in again to analyze lab results.");
+        return;
+      }
+      const res = await fetch(`${SUPABASE_URL}/functions/v1/lab-extract`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(SUPABASE_ANON_KEY ? { apikey: SUPABASE_ANON_KEY } : {}),
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ pdf: base64 }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok || json.error) {
+        Alert.alert("Error", json.error ?? `Failed to analyze PDF (status ${res.status})`);
+        return;
+      }
+      const extracted = json.extracted ?? {};
+      setLabForm((prev) => ({
+        vo2max: extracted.vo2max != null ? String(extracted.vo2max) : prev.vo2max ?? "",
+        ltHr: extracted.lactate_threshold_hr != null ? String(extracted.lactate_threshold_hr) : prev.ltHr ?? "",
+        ltPace:
+          extracted.lactate_threshold_pace != null ? String(extracted.lactate_threshold_pace) : prev.ltPace ?? "",
+        vlamax: extracted.vlamax != null ? String(extracted.vlamax) : prev.vlamax ?? "",
+        maxHrMeasured:
+          extracted.max_hr_measured != null ? String(extracted.max_hr_measured) : prev.maxHrMeasured ?? "",
+      }));
+      setLabSummary((prev) => ({
+        ...(prev ?? {}),
+        vo2max: extracted.vo2max ?? (prev?.vo2max ?? null),
+        lactate_threshold_hr: extracted.lactate_threshold_hr ?? (prev?.lactate_threshold_hr ?? null),
+        lactate_threshold_pace: extracted.lactate_threshold_pace ?? (prev?.lactate_threshold_pace ?? null),
+        vlamax: extracted.vlamax ?? (prev?.vlamax ?? null),
+        max_hr_measured: extracted.max_hr_measured ?? (prev?.max_hr_measured ?? null),
+        lab_test_date: extracted.test_date ?? prev?.lab_test_date ?? null,
+        lab_name: extracted.lab_name ?? prev?.lab_name ?? null,
+      }));
+      Alert.alert("Done", "Lab results extracted. Review and save to apply.");
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Error", e instanceof Error ? e.message : "Failed to analyze lab PDF.");
+    } finally {
+      setLabExtracting(false);
+    }
+  };
+
+  const performSaveLab = async () => {
+    if (labSaving) return;
+    setLabSaving(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert("Not signed in", "Sign in again and try saving lab results.");
+        return;
+      }
+      const vo2 =
+        labForm.vo2max && labForm.vo2max.trim() ? Number.parseFloat(labForm.vo2max.trim()) : null;
+      const ltHr =
+        labForm.ltHr && labForm.ltHr.trim() ? Number.parseInt(labForm.ltHr.trim(), 10) : null;
+      const vlamax =
+        labForm.vlamax && labForm.vlamax.trim() ? Number.parseFloat(labForm.vlamax.trim()) : null;
+      const maxHr =
+        labForm.maxHrMeasured && labForm.maxHrMeasured.trim()
+          ? Number.parseInt(labForm.maxHrMeasured.trim(), 10)
+          : null;
+      const ltPace = labForm.ltPace && labForm.ltPace.trim() ? labForm.ltPace.trim() : null;
+
+      const updates: Record<string, unknown> = {
+        user_id: user.id,
+        updated_at: new Date().toISOString(),
+      };
+      updates.vo2max = vo2;
+      updates.lactate_threshold_hr = ltHr;
+      updates.lactate_threshold_pace = ltPace;
+      updates.vlamax = vlamax;
+      updates.max_hr_measured = maxHr;
+
+      const { error } = await supabase
+        .from("athlete_profile")
+        .upsert(updates, { onConflict: "user_id" });
+      if (error) throw error;
+
+      setLabSummary((prev) => ({
+        ...(prev ?? {}),
+        vo2max: vo2,
+        lactate_threshold_hr: ltHr,
+        lactate_threshold_pace: ltPace,
+        vlamax,
+        max_hr_measured: maxHr,
+      }));
+      Alert.alert("Saved", "Lab results updated.");
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Error", "Failed to save lab results.");
+    } finally {
+      setLabSaving(false);
+      setLabConfirmVisible(false);
+    }
+  };
+
+  const handleDeleteMemory = async (id: string) => {
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert("Not signed in", "Sign in again and try deleting this memory.");
+        return;
+      }
+      const { error } = await supabase.from("coaching_memory").delete().eq("id", id).eq("user_id", user.id);
+      if (error) throw error;
+      setCoachingMemories((prev) => prev.filter((m) => m.id !== id));
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Error", "Failed to delete coaching memory.");
+    }
+  };
+
+  const handleClearAllMemories = async () => {
+    setIsClearingMemories(true);
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert("Not signed in", "Sign in again and try clearing memories.");
+        return;
+      }
+      const { error } = await supabase.from("coaching_memory").delete().eq("user_id", user.id);
+      if (error) throw error;
+      setCoachingMemories([]);
+    } catch (e) {
+      console.error(e);
+      Alert.alert("Error", "Failed to clear memories.");
+    } finally {
+      setIsClearingMemories(false);
+      setClearAllVisible(false);
+    }
+  };
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -298,6 +661,77 @@ export const SettingsScreen: FC = () => {
         syncStatusRunning: { color: colors.mutedForeground },
         syncStatusDone: { color: theme.positive },
         syncStatusError: { color: theme.negative },
+        advancedToggleRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginTop: 10,
+        },
+        advancedToggleText: { fontSize: 12, color: colors.mutedForeground, fontWeight: "500" },
+        advancedGrid: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+          marginTop: 8,
+        },
+        advancedBtn: {
+          flexBasis: "48%",
+          borderRadius: 999,
+          paddingVertical: 8,
+          paddingHorizontal: 10,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 6,
+        },
+        advancedBtnText: { fontSize: 12, color: colors.mutedForeground, fontWeight: "500" },
+        syncProgressCard: {
+          marginTop: 10,
+          borderRadius: 12,
+          padding: 10,
+          backgroundColor: colors.background,
+        },
+        syncProgressTitle: { fontSize: 12, fontWeight: "600", marginBottom: 4, color: colors.foreground },
+        syncProgressText: { fontSize: 12, color: colors.mutedForeground },
+        syncProgressMeta: { fontSize: 11, color: colors.mutedForeground, marginTop: 4 },
+        uploadBtn: {
+          marginTop: 8,
+          paddingVertical: 12,
+          borderRadius: 999,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 8,
+        },
+        uploadBtnText: { fontSize: 14, fontWeight: "500", color: colors.foreground },
+        labRow: { marginTop: 10, gap: 4 },
+        labRowLabel: { fontSize: 13, fontWeight: "500", color: colors.mutedForeground },
+        labRowInput: {
+          borderRadius: 999,
+          paddingHorizontal: 14,
+          paddingVertical: 8,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          backgroundColor: colors.background,
+          color: colors.foreground,
+          fontSize: 13,
+        },
+        labSaveBtn: {
+          marginTop: 12,
+          paddingVertical: 10,
+          borderRadius: 999,
+          backgroundColor: colors.primary,
+          alignItems: "center",
+        },
+        labSaveText: {
+          fontSize: 14,
+          fontWeight: "600",
+          color: colors.primaryForeground,
+        },
         themeRow: { flexDirection: "row", gap: 10, marginTop: 8 },
         themeBtn: {
           paddingHorizontal: 14,
@@ -311,6 +745,79 @@ export const SettingsScreen: FC = () => {
         previewRect: { width: 24, height: 16, borderRadius: 4 },
         appearanceLabel: { fontSize: 13, fontWeight: "600" },
         appearanceCheck: { marginTop: 4 },
+        memoryCard: {
+          borderRadius: 12,
+          padding: 12,
+          backgroundColor: colors.background,
+          marginBottom: 8,
+        },
+        memoryCategory: { fontSize: 11, fontWeight: "600", color: colors.mutedForeground, marginBottom: 4 },
+        memoryContent: { fontSize: 13, color: colors.foreground, lineHeight: 18 },
+        memoryDate: { fontSize: 11, color: colors.mutedForeground, marginTop: 6 },
+        memoryDeleteAction: {
+          backgroundColor: theme.negative,
+          justifyContent: "center",
+          alignItems: "flex-end",
+          paddingHorizontal: 16,
+          marginBottom: 8,
+          borderRadius: 12,
+        },
+        memoryDeleteText: { color: theme.textOnNegative, fontWeight: "600", fontSize: 13 },
+        memoryEmptyWrap: {
+          alignItems: "center",
+          justifyContent: "center",
+          paddingVertical: 12,
+          gap: 6,
+        },
+        memoryClearAllBtn: {
+          marginTop: 8,
+          paddingVertical: 10,
+          borderRadius: 999,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          alignItems: "center",
+        },
+        memoryClearAllText: {
+          fontSize: 13,
+          fontWeight: "500",
+          color: theme.negative,
+        },
+        sheetBackdrop: {
+          flex: 1,
+          backgroundColor: "#00000088",
+          justifyContent: "flex-end",
+        },
+        sheetContainer: {
+          backgroundColor: colors.card,
+          padding: 16,
+          borderTopLeftRadius: 16,
+          borderTopRightRadius: 16,
+        },
+        sheetTitle: {
+          fontSize: 16,
+          fontWeight: "600",
+          color: colors.foreground,
+          marginBottom: 8,
+        },
+        sheetText: { fontSize: 13, color: colors.mutedForeground, marginBottom: 16 },
+        sheetButtons: {
+          flexDirection: "row",
+          justifyContent: "flex-end",
+          gap: 12,
+        },
+        sheetBtn: {
+          paddingHorizontal: 16,
+          paddingVertical: 8,
+          borderRadius: 999,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+        },
+        sheetBtnDanger: {
+          backgroundColor: theme.negative,
+          borderColor: theme.negative,
+        },
+        sheetBtnText: { fontSize: 13, fontWeight: "500", color: colors.foreground },
+        sheetBtnTextDanger: { color: theme.textOnNegative },
       }),
     [colors, theme]
   );
@@ -363,6 +870,69 @@ export const SettingsScreen: FC = () => {
             );
           })}
         </View>
+      </GlassCard>
+
+      <GlassCard>
+        <Text style={[styles.sectionHeader, typography.sectionHeader, { color: colors.mutedForeground }]}>
+          Coaching Memory
+        </Text>
+        {memoriesLoading && !memoriesLoaded ? (
+          <View style={{ paddingVertical: 8 }}>
+            <ActivityIndicator size="small" color={colors.mutedForeground} />
+          </View>
+        ) : coachingMemories.length === 0 ? (
+          <View style={styles.memoryEmptyWrap}>
+            <Ionicons name="brain-outline" size={24} color={colors.mutedForeground} />
+            <Text style={styles.body}>No coaching memories yet</Text>
+          </View>
+        ) : (
+          <View>
+            {coachingMemories.map((m) => {
+              const created = new Date(m.created_at);
+              const dateLabel = created.toLocaleDateString(undefined, {
+                year: "numeric",
+                month: "short",
+                day: "numeric",
+              });
+              return (
+                <Swipeable
+                  key={m.id}
+                  renderRightActions={() => (
+                    <TouchableOpacity
+                      style={styles.memoryDeleteAction}
+                      activeOpacity={0.8}
+                      onPress={() => handleDeleteMemory(m.id)}
+                    >
+                      <Text style={styles.memoryDeleteText}>Delete</Text>
+                    </TouchableOpacity>
+                  )}
+                >
+                  <View style={styles.memoryCard}>
+                    {m.category && (
+                      <Text style={styles.memoryCategory}>{m.category.toUpperCase()}</Text>
+                    )}
+                    <Text style={styles.memoryContent}>{m.content}</Text>
+                    <Text style={styles.memoryDate}>{dateLabel}</Text>
+                  </View>
+                </Swipeable>
+              );
+            })}
+          </View>
+        )}
+        {coachingMemories.length > 0 && (
+          <TouchableOpacity
+            style={styles.memoryClearAllBtn}
+            activeOpacity={0.8}
+            onPress={() => setClearAllVisible(true)}
+            disabled={isClearingMemories}
+          >
+            {isClearingMemories ? (
+              <ActivityIndicator size="small" color={theme.negative} />
+            ) : (
+              <Text style={styles.memoryClearAllText}>Clear all memories</Text>
+            )}
+          </TouchableOpacity>
+        )}
       </GlassCard>
 
       <GlassCard>
@@ -464,19 +1034,109 @@ export const SettingsScreen: FC = () => {
               </>
             )}
           </View>
-          {isConnected && syncStatus !== "idle" && syncMessage && (
-            <Text
-              style={[
-                styles.syncStatus,
-                syncStatus === "error"
-                  ? styles.syncStatusError
-                  : syncStatus === "done"
-                  ? styles.syncStatusDone
-                  : styles.syncStatusRunning,
-              ]}
-            >
-              {syncMessage}
-            </Text>
+          {isConnected && (
+            <>
+              <TouchableOpacity
+                style={styles.advancedToggleRow}
+                activeOpacity={0.8}
+                onPress={() => setShowAdvancedIntervals(!showAdvancedIntervals)}
+              >
+                <Text style={styles.advancedToggleText}>
+                  {showAdvancedIntervals ? "Hide advanced sync options" : "Show advanced sync options"}
+                </Text>
+                <Ionicons
+                  name={showAdvancedIntervals ? "chevron-up-outline" : "chevron-down-outline"}
+                  size={16}
+                  color={colors.mutedForeground}
+                />
+              </TouchableOpacity>
+              {showAdvancedIntervals && (
+                <>
+                  <View style={styles.advancedGrid}>
+                    <TouchableOpacity
+                      style={styles.advancedBtn}
+                      activeOpacity={0.8}
+                      onPress={handleTestConnection}
+                      disabled={isTestingIntervals || isSyncing}
+                    >
+                      {isTestingIntervals ? (
+                        <ActivityIndicator size="small" color={colors.mutedForeground} />
+                      ) : (
+                        <Ionicons name="checkmark-circle-outline" size={16} color={colors.mutedForeground} />
+                      )}
+                      <Text style={styles.advancedBtnText}>Test connection</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.advancedBtn}
+                      activeOpacity={0.8}
+                      onPress={handleSyncStreams}
+                      disabled={streamsSyncing || isSyncing}
+                    >
+                      {streamsSyncing ? (
+                        <ActivityIndicator size="small" color={colors.mutedForeground} />
+                      ) : (
+                        <Ionicons name="pulse-outline" size={16} color={colors.mutedForeground} />
+                      )}
+                      <Text style={styles.advancedBtnText}>Sync streams</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.advancedBtn}
+                      activeOpacity={0.8}
+                      onPress={handleSyncPRs}
+                      disabled={pbsSyncing || isSyncing}
+                    >
+                      {pbsSyncing ? (
+                        <ActivityIndicator size="small" color={colors.mutedForeground} />
+                      ) : (
+                        <Ionicons name="trophy-outline" size={16} color={colors.mutedForeground} />
+                      )}
+                      <Text style={styles.advancedBtnText}>Sync PRs</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={styles.advancedBtn}
+                      activeOpacity={0.8}
+                      onPress={runQuickSync}
+                      disabled={isSyncing}
+                    >
+                      {isSyncing && syncProgress?.stage === "quick_sync" ? (
+                        <ActivityIndicator size="small" color={colors.mutedForeground} />
+                      ) : (
+                        <Ionicons name="flash-outline" size={16} color={colors.mutedForeground} />
+                      )}
+                      <Text style={styles.advancedBtnText}>Quick sync (30d)</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {syncProgress && syncProgress.stage !== "idle" && (
+                    <View
+                      style={[
+                        styles.syncProgressCard,
+                        syncProgress.done && syncProgress.stage !== "error"
+                          ? { backgroundColor: theme.positive + "14" }
+                          : syncProgress.stage === "error"
+                          ? { backgroundColor: theme.negative + "14" }
+                          : { backgroundColor: colors.card },
+                      ]}
+                    >
+                      <Text style={styles.syncProgressTitle}>Sync progress</Text>
+                      <Text style={styles.syncProgressText}>{syncProgress.detail || "Working..."}</Text>
+                      {(syncProgress.yearsCompleted || syncProgress.streamsProgress) && (
+                        <Text style={styles.syncProgressMeta}>
+                          {syncProgress.yearsCompleted &&
+                            Object.entries(syncProgress.yearsCompleted)
+                              .sort(([a], [b]) => a.localeCompare(b))
+                              .map(([yr, n]) => `✓ ${yr} — ${n} runs`)
+                              .join(" · ")}
+                          {syncProgress.streamsProgress &&
+                            ` ${syncProgress.yearsCompleted ? "· " : ""}Streams ${
+                              syncProgress.streamsProgress.done
+                            }/${syncProgress.streamsProgress.total}`}
+                        </Text>
+                      )}
+                    </View>
+                  )}
+                </>
+              )}
+            </>
           )}
         </View>
       </GlassCard>
@@ -539,61 +1199,112 @@ export const SettingsScreen: FC = () => {
         <Text style={[styles.sectionHeader, typography.sectionHeader, { color: colors.mutedForeground }]}>
           Lab Results
         </Text>
-        <Text style={styles.body}>
-          Lab metrics (VO2max, lactate threshold, etc.) are read from your profile. Upload lab PDFs on the web to
-          update these values; they will appear here.
-        </Text>
-        {labSummary && (
-          <View style={{ marginTop: 10, gap: 8 }}>
-            {labSummary.vo2max != null && (
-              <View>
-                <Text style={[styles.rowTitle, { fontSize: 13 }]}>VO2max</Text>
-                <Text style={styles.body}>
-                  {Number(labSummary.vo2max).toFixed(1)} ml/kg/min
-                </Text>
-              </View>
-            )}
-            {labSummary.lactate_threshold_hr != null && (
-              <View>
-                <Text style={[styles.rowTitle, { fontSize: 13 }]}>LT Heart Rate</Text>
-                <Text style={styles.body}>
-                  {Math.round(labSummary.lactate_threshold_hr)} bpm
-                </Text>
-              </View>
-            )}
-            {labSummary.lactate_threshold_pace && (
-              <View>
-                <Text style={[styles.rowTitle, { fontSize: 13 }]}>LT Pace</Text>
-                <Text style={styles.body}>{labSummary.lactate_threshold_pace}</Text>
-              </View>
-            )}
-            {labSummary.vlamax != null && (
-              <View>
-                <Text style={[styles.rowTitle, { fontSize: 13 }]}>VLamax</Text>
-                <Text style={styles.body}>
-                  {Number(labSummary.vlamax).toFixed(2)} mmol/L/s
-                </Text>
-              </View>
-            )}
-            {labSummary.max_hr_measured != null && (
-              <View>
-                <Text style={[styles.rowTitle, { fontSize: 13 }]}>Max HR (measured)</Text>
-                <Text style={styles.body}>{labSummary.max_hr_measured} bpm</Text>
-              </View>
-            )}
-            {(labSummary.lab_name || labSummary.lab_test_date) && (
-              <Text style={[styles.hint, { marginTop: 4 }]}>
-                Source:{" "}
-                {[
-                  labSummary.lab_name ?? undefined,
-                  labSummary.lab_test_date ?? undefined,
-                ]
-                  .filter(Boolean)
-                  .join(" — ")}
-              </Text>
-            )}
+        <TouchableOpacity
+          style={styles.uploadBtn}
+          activeOpacity={0.85}
+          onPress={handleUploadLabPdf}
+          disabled={labExtracting}
+        >
+          {labExtracting ? (
+            <ActivityIndicator size="small" color={colors.mutedForeground} />
+          ) : (
+            <Ionicons name="document-text-outline" size={18} color={colors.mutedForeground} />
+          )}
+          <Text style={styles.uploadBtnText}>{labExtracting ? "Analyzing lab results..." : "Upload lab PDF"}</Text>
+        </TouchableOpacity>
+        <View style={{ marginTop: 10 }}>
+          <View style={styles.labRow}>
+            <Text style={styles.labRowLabel}>VO2max (ml/kg/min)</Text>
+            <TextInput
+              style={styles.labRowInput}
+              keyboardType="decimal-pad"
+              value={labForm.vo2max ?? ""}
+              onChangeText={(v) => setLabForm((prev) => ({ ...prev, vo2max: v }))}
+              placeholder="e.g. 60.5"
+              placeholderTextColor={colors.mutedForeground}
+            />
           </View>
-        )}
+          <View style={styles.labRow}>
+            <Text style={styles.labRowLabel}>LT Heart Rate (bpm)</Text>
+            <TextInput
+              style={styles.labRowInput}
+              keyboardType="number-pad"
+              value={labForm.ltHr ?? ""}
+              onChangeText={(v) => setLabForm((prev) => ({ ...prev, ltHr: v }))}
+              placeholder="e.g. 170"
+              placeholderTextColor={colors.mutedForeground}
+            />
+          </View>
+          <View style={styles.labRow}>
+            <Text style={styles.labRowLabel}>LT Pace</Text>
+            <TextInput
+              style={styles.labRowInput}
+              value={labForm.ltPace ?? ""}
+              onChangeText={(v) => setLabForm((prev) => ({ ...prev, ltPace: v }))}
+              placeholder="e.g. 4:00/km"
+              placeholderTextColor={colors.mutedForeground}
+            />
+          </View>
+          <View style={styles.labRow}>
+            <Text style={styles.labRowLabel}>VLamax (mmol/L/s)</Text>
+            <TextInput
+              style={styles.labRowInput}
+              keyboardType="decimal-pad"
+              value={labForm.vlamax ?? ""}
+              onChangeText={(v) => setLabForm((prev) => ({ ...prev, vlamax: v }))}
+              placeholder="e.g. 0.40"
+              placeholderTextColor={colors.mutedForeground}
+            />
+          </View>
+          <View style={styles.labRow}>
+            <Text style={styles.labRowLabel}>Max HR (measured, bpm)</Text>
+            <TextInput
+              style={styles.labRowInput}
+              keyboardType="number-pad"
+              value={labForm.maxHrMeasured ?? ""}
+              onChangeText={(v) => setLabForm((prev) => ({ ...prev, maxHrMeasured: v }))}
+              placeholder="e.g. 192"
+              placeholderTextColor={colors.mutedForeground}
+            />
+          </View>
+          {(labSummary?.lab_name || labSummary?.lab_test_date) && (
+            <Text style={[styles.hint, { marginTop: 6 }]}>
+              Source:{" "}
+              {[
+                labSummary?.lab_name ?? undefined,
+                labSummary?.lab_test_date ?? undefined,
+              ]
+                .filter(Boolean)
+                .join(" — ")}
+            </Text>
+          )}
+          <TouchableOpacity
+            style={styles.labSaveBtn}
+            activeOpacity={0.85}
+            onPress={() => {
+              const hasExisting =
+                !!(
+                  labSummary?.vo2max ||
+                  labSummary?.lactate_threshold_hr ||
+                  labSummary?.lactate_threshold_pace ||
+                  labSummary?.vlamax ||
+                  labSummary?.max_hr_measured
+                );
+              if (hasExisting) {
+                setLabConfirmVisible(true);
+              } else {
+                performSaveLab();
+              }
+            }}
+            disabled={labSaving}
+          >
+            {labSaving ? (
+              <ActivityIndicator size="small" color={colors.primaryForeground} />
+            ) : (
+              <Text style={styles.labSaveText}>Save lab results</Text>
+            )}
+          </TouchableOpacity>
+        </View>
       </GlassCard>
 
       <GlassCard>
@@ -621,6 +1332,88 @@ export const SettingsScreen: FC = () => {
           <Text style={styles.signOutText}>Sign out</Text>
         </TouchableOpacity>
       </GlassCard>
+      <Modal
+        visible={clearAllVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setClearAllVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.sheetBackdrop}
+          activeOpacity={1}
+          onPress={() => !isClearingMemories && setClearAllVisible(false)}
+        >
+          <View style={styles.sheetContainer}>
+            <Text style={styles.sheetTitle}>Clear all memories?</Text>
+            <Text style={styles.sheetText}>
+              This will permanently delete all AI coaching memories linked to your account.
+            </Text>
+            <View style={styles.sheetButtons}>
+              <TouchableOpacity
+                style={styles.sheetBtn}
+                activeOpacity={0.8}
+                onPress={() => setClearAllVisible(false)}
+                disabled={isClearingMemories}
+              >
+                <Text style={styles.sheetBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sheetBtn, styles.sheetBtnDanger]}
+                activeOpacity={0.8}
+                onPress={handleClearAllMemories}
+                disabled={isClearingMemories}
+              >
+                {isClearingMemories ? (
+                  <ActivityIndicator size="small" color={theme.textOnNegative} />
+                ) : (
+                  <Text style={styles.sheetBtnTextDanger}>Clear all</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
+      <Modal
+        visible={labConfirmVisible}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setLabConfirmVisible(false)}
+      >
+        <TouchableOpacity
+          style={styles.sheetBackdrop}
+          activeOpacity={1}
+          onPress={() => !labSaving && setLabConfirmVisible(false)}
+        >
+          <View style={styles.sheetContainer}>
+            <Text style={styles.sheetTitle}>Overwrite existing lab results?</Text>
+            <Text style={styles.sheetText}>
+              This will replace any existing VO2max, lactate threshold, VLamax, and max HR values in your profile.
+            </Text>
+            <View style={styles.sheetButtons}>
+              <TouchableOpacity
+                style={styles.sheetBtn}
+                activeOpacity={0.8}
+                onPress={() => setLabConfirmVisible(false)}
+                disabled={labSaving}
+              >
+                <Text style={styles.sheetBtnText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.sheetBtn, styles.sheetBtnDanger]}
+                activeOpacity={0.8}
+                onPress={performSaveLab}
+                disabled={labSaving}
+              >
+                {labSaving ? (
+                  <ActivityIndicator size="small" color={theme.textOnNegative} />
+                ) : (
+                  <Text style={styles.sheetBtnTextDanger}>Overwrite & save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </TouchableOpacity>
+      </Modal>
     </ScreenContainer>
   );
 };

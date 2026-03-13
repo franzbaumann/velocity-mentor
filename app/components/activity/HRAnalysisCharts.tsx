@@ -11,6 +11,7 @@ import {
   type MeanMaxPoint,
 } from "../../lib/streamAnalytics";
 import { useChartTouch } from "../../hooks/useChartTouch";
+import { useTheme } from "../../context/ThemeContext";
 
 type Props = {
   heartrate: number[];
@@ -49,9 +50,22 @@ const DIST_VW = 200;
 const DIST_VH = 80;
 
 const HRDistributionChart: FC<{ bins: HRBin[] }> = ({ bins }) => {
+  const { themeName, theme } = useTheme();
+  const isDarkPro = themeName === "darkPro";
+
   const { touch, panHandlers, onLayout, widthRef } = useChartTouch(bins.length);
 
-  if (bins.length === 0) return <Text style={s.noData}>No HR data</Text>;
+  if (bins.length === 0)
+    return (
+      <Text
+        style={[
+          s.noData,
+          isDarkPro && { color: theme.textSecondary },
+        ]}
+      >
+        No HR data
+      </Text>
+    );
   const maxTime = Math.max(...bins.map((b) => b.time), 0.1);
   const barW = DIST_VW / bins.length;
 
@@ -66,15 +80,40 @@ const HRDistributionChart: FC<{ bins: HRBin[] }> = ({ bins }) => {
   const tipLeft = clampLeft(touch.x, widthRef.current, TIP_W);
 
   return (
-    <View style={s.miniCard}>
+    <View
+      style={[
+        s.miniCard,
+        isDarkPro && {
+          backgroundColor: theme.cardBackground,
+          borderRadius: theme.cardRadius,
+          borderWidth: theme.cardBorderWidth,
+          borderColor: theme.cardBorder,
+        },
+      ]}
+    >
       <View style={s.miniTitleRow}>
         <Text style={s.heart}>♥</Text>
-        <Text style={s.miniTitle}>HR Distribution</Text>
+        <Text
+          style={[
+            s.miniTitle,
+            isDarkPro && { color: theme.textPrimary },
+          ]}
+        >
+          HR Distribution
+        </Text>
       </View>
       <View style={s.chartRow}>
         <View style={s.miniYAxis}>
           {yLabels.map((l, i) => (
-            <Text key={i} style={s.miniYText}>{l}</Text>
+            <Text
+              key={i}
+              style={[
+                s.miniYText,
+                isDarkPro && { color: theme.textSecondary },
+              ]}
+            >
+              {l}
+            </Text>
           ))}
         </View>
         <View style={s.miniChartWrap} onLayout={onLayout} {...panHandlers}>
@@ -122,7 +161,13 @@ const HRDistributionChart: FC<{ bins: HRBin[] }> = ({ bins }) => {
         {bins
           .filter((_, i) => i % Math.max(1, Math.floor(bins.length / 6)) === 0)
           .map((b, i) => (
-            <Text key={i} style={s.xLabel}>
+            <Text
+              key={i}
+              style={[
+                s.xLabel,
+                isDarkPro && { color: theme.textSecondary },
+              ]}
+            >
               {b.bpm}
             </Text>
           ))}
@@ -137,6 +182,9 @@ const CUM_VW = 200;
 const CUM_VH = 80;
 
 const CumulativeTimeChart: FC<{ points: CumulativePoint[] }> = ({ points }) => {
+  const { themeName, theme } = useTheme();
+  const isDarkPro = themeName === "darkPro";
+
   const { linePath, areaPath } = useMemo(() => {
     if (points.length < 2) return { linePath: "", areaPath: "" };
     const times = points.map((p) => p.time);
@@ -149,7 +197,17 @@ const CumulativeTimeChart: FC<{ points: CumulativePoint[] }> = ({ points }) => {
 
   const { touch, panHandlers, onLayout, widthRef } = useChartTouch(points.length);
 
-  if (points.length < 2) return <Text style={s.noData}>No HR data</Text>;
+  if (points.length < 2)
+    return (
+      <Text
+        style={[
+          s.noData,
+          isDarkPro && { color: theme.textSecondary },
+        ]}
+      >
+        No HR data
+      </Text>
+    );
 
   const maxT = Math.max(...points.map((p) => p.time));
   const yLabels = [
@@ -161,24 +219,52 @@ const CumulativeTimeChart: FC<{ points: CumulativePoint[] }> = ({ points }) => {
   const pt = touch.active ? points[touch.index] : null;
   const tipLeft = clampLeft(touch.x, widthRef.current, TIP_W);
 
+  const startOpacity = isDarkPro ? 0.22 : 0.4;
+  const endOpacity = isDarkPro ? 0.06 : 0.05;
+
   return (
-    <View style={s.miniCard}>
+    <View
+      style={[
+        s.miniCard,
+        isDarkPro && {
+          backgroundColor: theme.cardBackground,
+          borderRadius: theme.cardRadius,
+          borderWidth: theme.cardBorderWidth,
+          borderColor: theme.cardBorder,
+        },
+      ]}
+    >
       <View style={s.miniTitleRow}>
         <Text style={s.heart}>♥</Text>
-        <Text style={s.miniTitle}>Cumulative Time</Text>
+        <Text
+          style={[
+            s.miniTitle,
+            isDarkPro && { color: theme.textPrimary },
+          ]}
+        >
+          Cumulative Time
+        </Text>
       </View>
       <View style={s.chartRow}>
         <View style={s.miniYAxis}>
           {yLabels.map((l, i) => (
-            <Text key={i} style={s.miniYText}>{l}</Text>
+            <Text
+              key={i}
+              style={[
+                s.miniYText,
+                isDarkPro && { color: theme.textSecondary },
+              ]}
+            >
+              {l}
+            </Text>
           ))}
         </View>
         <View style={s.miniChartWrap} onLayout={onLayout} {...panHandlers}>
           <Svg width="100%" height={140} viewBox={`0 0 ${CUM_VW} ${CUM_VH}`} preserveAspectRatio="none">
             <Defs>
               <LinearGradient id="cumGrad" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0%" stopColor="#f87171" stopOpacity={0.4} />
-                <Stop offset="100%" stopColor="#fecaca" stopOpacity={0.05} />
+                <Stop offset="0%" stopColor="#f87171" stopOpacity={startOpacity} />
+                <Stop offset="100%" stopColor="#fecaca" stopOpacity={endOpacity} />
               </LinearGradient>
             </Defs>
             <Path d={areaPath} fill="url(#cumGrad)" />
@@ -208,7 +294,13 @@ const CumulativeTimeChart: FC<{ points: CumulativePoint[] }> = ({ points }) => {
         {points
           .filter((_, i) => i % Math.max(1, Math.floor(points.length / 6)) === 0)
           .map((p, i) => (
-            <Text key={i} style={s.xLabel}>
+            <Text
+              key={i}
+              style={[
+                s.xLabel,
+                isDarkPro && { color: theme.textSecondary },
+              ]}
+            >
               {p.bpm}
             </Text>
           ))}
@@ -217,7 +309,14 @@ const CumulativeTimeChart: FC<{ points: CumulativePoint[] }> = ({ points }) => {
         {ZONE_LEGEND.map(([z, c]) => (
           <View key={z} style={s.zoneItem}>
             <View style={[s.zoneDot, { backgroundColor: c }]} />
-            <Text style={s.zoneText}>{z}</Text>
+            <Text
+              style={[
+                s.zoneText,
+                isDarkPro && { color: theme.textSecondary },
+              ]}
+            >
+              {z}
+            </Text>
           </View>
         ))}
       </View>
@@ -232,6 +331,9 @@ const MM_VH = 80;
 const MM_TIP_W = 120;
 
 const MeanMaximalChart: FC<{ points: MeanMaxPoint[] }> = ({ points }) => {
+  const { themeName, theme } = useTheme();
+  const isDarkPro = themeName === "darkPro";
+
   const { linePath, areaPath } = useMemo(() => {
     if (points.length < 2) return { linePath: "", areaPath: "" };
     const hrs = points.map((p) => p.hr);
@@ -257,11 +359,32 @@ const MeanMaximalChart: FC<{ points: MeanMaxPoint[] }> = ({ points }) => {
   const pt = touch.active ? points[touch.index] : null;
   const tipLeft = clampLeft(touch.x, widthRef.current, MM_TIP_W);
 
+  const startOpacity = isDarkPro ? 0.22 : 0.35;
+  const endOpacity = isDarkPro ? 0.04 : 0;
+
   return (
-    <View style={s.fullCard}>
+    <View
+      style={[
+        s.fullCard,
+        isDarkPro && {
+          backgroundColor: theme.cardBackground,
+          borderRadius: theme.cardRadius,
+          borderWidth: theme.cardBorderWidth,
+          borderColor: theme.cardBorder,
+        },
+      ]}
+    >
       <View style={s.miniTitleRow}>
         <Text style={s.heart}>♥</Text>
-        <Text style={[s.miniTitle, { fontSize: 13 }]}>HR Curve (Mean Maximal)</Text>
+        <Text
+          style={[
+            s.miniTitle,
+            { fontSize: 13 },
+            isDarkPro && { color: theme.textPrimary },
+          ]}
+        >
+          HR Curve (Mean Maximal)
+        </Text>
       </View>
       <View style={s.mmRow}>
         <View style={s.mmYAxis}>
@@ -273,8 +396,8 @@ const MeanMaximalChart: FC<{ points: MeanMaxPoint[] }> = ({ points }) => {
           <Svg width="100%" height={180} viewBox={`0 0 ${MM_VW} ${MM_VH}`} preserveAspectRatio="none">
             <Defs>
               <LinearGradient id="mmGrad" x1="0" y1="0" x2="0" y2="1">
-                <Stop offset="0%" stopColor="#f87171" stopOpacity={0.35} />
-                <Stop offset="100%" stopColor="#fecaca" stopOpacity={0} />
+                <Stop offset="0%" stopColor="#f87171" stopOpacity={startOpacity} />
+                <Stop offset="100%" stopColor="#fecaca" stopOpacity={endOpacity} />
               </LinearGradient>
             </Defs>
             <Path d={areaPath} fill="url(#mmGrad)" />
@@ -302,7 +425,15 @@ const MeanMaximalChart: FC<{ points: MeanMaxPoint[] }> = ({ points }) => {
       </View>
       <View style={s.mmXLabels}>
         {points.map((p, i) => (
-          <Text key={i} style={s.mmXText}>{p.label}</Text>
+          <Text
+            key={i}
+            style={[
+              s.mmXText,
+              isDarkPro && { color: theme.textSecondary },
+            ]}
+          >
+            {p.label}
+          </Text>
         ))}
       </View>
     </View>

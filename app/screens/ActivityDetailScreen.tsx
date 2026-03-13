@@ -27,8 +27,9 @@ import { HeartRateZones } from "../components/activity/HeartRateZones";
 import { formatDistance, formatDuration } from "../lib/format";
 import { isNonDistanceActivity } from "../lib/analytics";
 import type { TooltipLine } from "../components/activity/StreamChart";
-import { supabase } from "../shared/supabase";
+import { supabase, callEdgeFunctionWithRetry } from "../shared/supabase";
 import Svg, { Path, Rect } from "react-native-svg";
+import { useTheme } from "../context/ThemeContext";
 
 type ActivityDetailRoute = RouteProp<ActivitiesStackParamList, "ActivityDetail">;
 
@@ -166,6 +167,8 @@ export const ActivityDetailScreen: FC = () => {
   const [coachNote, setCoachNote] = useState<string | null>(null);
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState(false);
+  const { themeName, theme } = useTheme();
+  const isDarkPro = themeName === "darkPro";
 
   useEffect(() => {
     if (!activity) return;
@@ -249,13 +252,17 @@ export const ActivityDetailScreen: FC = () => {
           setCoachError(true);
           return;
         }
-        const { data, error } = await supabase.functions.invoke("intervals-proxy", {
+        const { data, error } = await callEdgeFunctionWithRetry({
+          functionName: "intervals-proxy",
           headers: { Authorization: `Bearer ${session.access_token}` },
           body: {
             action: "activity_coach_note",
             activityId: activityIdForApi,
             regenerate: forceRegenerate,
           },
+          timeoutMs: 20000,
+          maxRetries: 3,
+          logContext: "ActivityDetailScreen:activity_coach_note",
         });
         if (error || !data || typeof data !== "object" || !("note" in (data as Record<string, unknown>))) {
           setCoachError(true);
@@ -323,36 +330,86 @@ export const ActivityDetailScreen: FC = () => {
   const hasPaceZones = paceZoneTimes.some((t) => t > 0);
 
   return (
-    <ScreenContainer scroll={false} contentContainerStyle={styles.screenContent}>
+    <ScreenContainer
+      scroll={false}
+      contentContainerStyle={[
+        styles.screenContent,
+        isDarkPro && { backgroundColor: theme.appBackground },
+      ]}
+    >
       <ScrollView
-        style={styles.screen}
-        contentContainerStyle={styles.scrollContent}
+        style={[styles.screen, isDarkPro && { backgroundColor: theme.appBackground }]}
+        contentContainerStyle={[
+          styles.scrollContent,
+          isDarkPro && { backgroundColor: theme.appBackground },
+        ]}
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.inner}>
           {/* Top nav */}
-          <View style={styles.navRow}>
+          <View
+            style={[
+              styles.navRow,
+              isDarkPro && { backgroundColor: theme.appBackground },
+            ]}
+          >
             <TouchableOpacity
               onPress={() => navigation.goBack()}
               activeOpacity={0.8}
               style={styles.backTouch}
             >
-              <Ionicons name="arrow-back" size={20} color="#111" />
-              <Text style={styles.backText}>Back</Text>
+              <Ionicons
+                name="arrow-back"
+                size={20}
+                color={isDarkPro ? theme.textPrimary : "#111"}
+              />
+              <Text
+                style={[
+                  styles.backText,
+                  isDarkPro && { color: theme.textPrimary },
+                ]}
+              >
+                Back
+              </Text>
             </TouchableOpacity>
-            <Text style={styles.activityTitle} numberOfLines={1}>
+            <Text
+              style={[
+                styles.activityTitle,
+                isDarkPro && { color: theme.textPrimary },
+              ]}
+              numberOfLines={1}
+            >
               {activity.name ?? activity.type}
             </Text>
           </View>
 
-          {/* Hero header */}
-          <View style={styles.heroCard}>
+        {/* Hero header */}
+        <View
+          style={[
+            styles.heroCard,
+            isDarkPro && {
+              backgroundColor: theme.cardBackground,
+              borderColor: theme.cardBorder,
+            },
+          ]}
+        >
             <View style={styles.heroHeaderRow}>
               <View style={{ flex: 1 }}>
-                <Text style={styles.heroTitle} numberOfLines={1}>
+              <Text
+                style={[
+                  styles.heroTitle,
+                  isDarkPro && { color: theme.textPrimary },
+                ]}
+                numberOfLines={1}
+              >
                   {activity.name ?? activity.type}
                 </Text>
-                <Text style={styles.heroSubtitle}>
+              <Text
+                style={[
+                  styles.heroSubtitle,
+                  isDarkPro && { color: theme.textSecondary },
+                ]}
+              >
                   {activity.date
                     ? format(new Date(activity.date), "EEEE, MMMM d, yyyy")
                     : ""}
@@ -388,34 +445,106 @@ export const ActivityDetailScreen: FC = () => {
             <View style={styles.heroStatsRow}>
               {!nonDist && (
                 <View style={styles.heroStat}>
-                  <Text style={styles.heroStatLabel}>Distance</Text>
-                  <Text style={styles.heroStatValue}>
+                <Text
+                  style={[
+                    styles.heroStatLabel,
+                    isDarkPro && { color: theme.textSecondary },
+                  ]}
+                >
+                  Distance
+                </Text>
+                <Text
+                  style={[
+                    styles.heroStatValue,
+                    isDarkPro && { color: theme.textPrimary },
+                  ]}
+                >
                     {formatDistance(activity.distance_km)}
-                    <Text style={styles.heroStatUnit}> km</Text>
+                  <Text
+                    style={[
+                      styles.heroStatUnit,
+                      isDarkPro && { color: theme.textSecondary },
+                    ]}
+                  >
+                    {" "}
+                    km
+                  </Text>
                   </Text>
                 </View>
               )}
               <View style={styles.heroStat}>
-                <Text style={styles.heroStatLabel}>Duration</Text>
-                <Text style={styles.heroStatValue}>
+              <Text
+                style={[
+                  styles.heroStatLabel,
+                  isDarkPro && { color: theme.textSecondary },
+                ]}
+              >
+                Duration
+              </Text>
+              <Text
+                style={[
+                  styles.heroStatValue,
+                  isDarkPro && { color: theme.textPrimary },
+                ]}
+              >
                   {formatDuration(activity.duration_seconds)}
                 </Text>
               </View>
               {!nonDist && activity.avg_pace && (
                 <View style={styles.heroStat}>
-                  <Text style={styles.heroStatLabel}>Pace</Text>
-                  <Text style={styles.heroStatValue}>
+                <Text
+                  style={[
+                    styles.heroStatLabel,
+                    isDarkPro && { color: theme.textSecondary },
+                  ]}
+                >
+                  Pace
+                </Text>
+                <Text
+                  style={[
+                    styles.heroStatValue,
+                    isDarkPro && { color: theme.textPrimary },
+                  ]}
+                >
                     {activity.avg_pace}
-                    <Text style={styles.heroStatUnit}> /km</Text>
+                  <Text
+                    style={[
+                      styles.heroStatUnit,
+                      isDarkPro && { color: theme.textSecondary },
+                    ]}
+                  >
+                    {" "}
+                    /km
+                  </Text>
                   </Text>
                 </View>
               )}
               {activity.avg_hr != null && (
                 <View style={styles.heroStat}>
-                  <Text style={styles.heroStatLabel}>Avg HR</Text>
-                  <Text style={styles.heroStatValue}>
+                <Text
+                  style={[
+                    styles.heroStatLabel,
+                    isDarkPro && { color: theme.textSecondary },
+                  ]}
+                >
+                  Avg HR
+                </Text>
+                <Text
+                  style={[
+                    styles.heroStatValue,
+                    isDarkPro && { color: theme.textPrimary },
+                  ]}
+                >
                     {activity.avg_hr}
-                    <Text style={styles.heroStatUnit}> bpm</Text>
+                  <Text
+                    style={[
+                      styles.heroStatUnit,
+                      isDarkPro && { color: theme.textSecondary },
+                    ]}
+                  >
+                    {" "}
+                    bpm
+                  </Text>
                   </Text>
                 </View>
               )}
@@ -466,8 +595,23 @@ export const ActivityDetailScreen: FC = () => {
 
           {/* Mini route map (no tiles, just route shape) */}
           {latlng.length >= 2 && (
-            <View style={styles.routeCard}>
-              <Text style={styles.routeTitle}>Route</Text>
+            <View
+              style={[
+                styles.routeCard,
+                isDarkPro && {
+                  backgroundColor: theme.cardBackground,
+                  borderColor: theme.cardBorder,
+                },
+              ]}
+            >
+              <Text
+                style={[
+                  styles.routeTitle,
+                  isDarkPro && { color: theme.textSecondary },
+                ]}
+              >
+                Route
+              </Text>
               <View style={styles.routeMapWrapper}>
                 <MiniRoute latlng={latlng} />
               </View>
@@ -475,18 +619,32 @@ export const ActivityDetailScreen: FC = () => {
           )}
 
           {/* Tabs */}
-          <View style={styles.tabBar}>
+          <View
+            style={[
+              styles.tabBar,
+              isDarkPro && { backgroundColor: theme.cardBorder },
+            ]}
+          >
             {(["charts", "data", "notes"] as ActivityTab[]).map((t) => (
               <TouchableOpacity
                 key={t}
                 style={[
                   styles.tabButton,
                   tab === t && styles.tabButtonActive,
+                  tab === t &&
+                    isDarkPro && { backgroundColor: theme.cardBackground },
                 ]}
                 onPress={() => setTab(t)}
                 activeOpacity={0.85}
               >
-                <Text style={[styles.tabText, tab === t && styles.tabTextActive]}>
+                <Text
+                  style={[
+                    styles.tabText,
+                    isDarkPro && { color: theme.textSecondary },
+                    tab === t && styles.tabTextActive,
+                    tab === t && isDarkPro && { color: theme.textPrimary },
+                  ]}
+                >
                   {t === "charts" ? "Charts" : t === "data" ? "Data" : "Notes"}
                 </Text>
               </TouchableOpacity>
@@ -498,7 +656,12 @@ export const ActivityDetailScreen: FC = () => {
             <>
               <LapScroll laps={activity.laps} />
               {streams && processed && (
-                <View style={styles.chartsArea}>
+                <View
+                  style={[
+                    styles.chartsArea,
+                    isDarkPro && { backgroundColor: theme.appBackground },
+                  ]}
+                >
                   {processed.pace.some((v) => v > 0) && (
                     <StreamChart
                       label="PACE"
@@ -589,8 +752,18 @@ export const ActivityDetailScreen: FC = () => {
                 </View>
               )}
               {(!streams || !processed) && (
-                <View style={styles.noStreams}>
-                  <Text style={styles.noStreamsText}>
+                <View
+                  style={[
+                    styles.noStreams,
+                    isDarkPro && { backgroundColor: theme.appBackground },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.noStreamsText,
+                      isDarkPro && { color: theme.textSecondary },
+                    ]}
+                  >
                     No stream data. Sync from intervals.icu to see charts.
                   </Text>
                 </View>
@@ -602,8 +775,23 @@ export const ActivityDetailScreen: FC = () => {
           {tab === "data" && (
             <View style={styles.dataSection}>
               {hasHrZones && (
-                <View style={styles.zoneCard}>
-                  <Text style={styles.zoneTitle}>Heart rate zones</Text>
+                <View
+                  style={[
+                    styles.zoneCard,
+                    isDarkPro && {
+                      backgroundColor: theme.cardBackground,
+                      borderColor: theme.cardBorder,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.zoneTitle,
+                      isDarkPro && { color: theme.textPrimary },
+                    ]}
+                  >
+                    Heart rate zones
+                  </Text>
                   <HeartRateZones
                     times={hrZoneTimes}
                     maxHr={activity.max_hr ?? null}
@@ -611,14 +799,44 @@ export const ActivityDetailScreen: FC = () => {
                 </View>
               )}
               {hasPaceZones && (
-                <View style={styles.zoneCard}>
-                  <Text style={styles.zoneTitle}>Pace zones</Text>
+                <View
+                  style={[
+                    styles.zoneCard,
+                    isDarkPro && {
+                      backgroundColor: theme.cardBackground,
+                      borderColor: theme.cardBorder,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.zoneTitle,
+                      isDarkPro && { color: theme.textPrimary },
+                    ]}
+                  >
+                    Pace zones
+                  </Text>
                   {renderZoneRows(paceZoneTimes, null, PACE_ZONE_NAMES, HR_ZONE_COLORS)}
                 </View>
               )}
 
-              <View style={styles.summaryCard}>
-                <Text style={styles.zoneTitle}>Summary</Text>
+              <View
+                style={[
+                  styles.summaryCard,
+                  isDarkPro && {
+                    backgroundColor: theme.cardBackground,
+                    borderColor: theme.cardBorder,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.zoneTitle,
+                    isDarkPro && { color: theme.textPrimary },
+                  ]}
+                >
+                  Summary
+                </Text>
                 <View style={styles.summaryGrid}>
                   {!nonDist && (
                     <SummaryItem
@@ -698,8 +916,23 @@ export const ActivityDetailScreen: FC = () => {
               </View>
 
               {activity.laps.length > 0 && (
-                <View style={styles.splitsCard}>
-                  <Text style={styles.zoneTitle}>Splits</Text>
+                <View
+                  style={[
+                    styles.splitsCard,
+                    isDarkPro && {
+                      backgroundColor: theme.cardBackground,
+                      borderColor: theme.cardBorder,
+                    },
+                  ]}
+                >
+                  <Text
+                    style={[
+                      styles.zoneTitle,
+                      isDarkPro && { color: theme.textPrimary },
+                    ]}
+                  >
+                    Splits
+                  </Text>
                   <View style={styles.splitsHeaderRow}>
                     <Text style={[styles.splitsHeader, { flex: 1 }]}>#</Text>
                     <Text
@@ -739,12 +972,19 @@ export const ActivityDetailScreen: FC = () => {
                     const zIndex = Number(lap.zone?.replace(/[^\d]/g, "")) || 0;
                     return (
                       <View key={idx} style={styles.splitsRow}>
-                        <Text style={[styles.splitsCell, { flex: 1 }]}>
+                        <Text
+                          style={[
+                            styles.splitsCell,
+                            isDarkPro && { color: theme.textPrimary },
+                            { flex: 1 },
+                          ]}
+                        >
                           {idx + 1}
                         </Text>
                         <Text
                           style={[
                             styles.splitsCell,
+                            isDarkPro && { color: theme.textPrimary },
                             { flex: 2, textAlign: "right" },
                           ]}
                         >
@@ -753,6 +993,7 @@ export const ActivityDetailScreen: FC = () => {
                         <Text
                           style={[
                             styles.splitsCell,
+                            isDarkPro && { color: theme.textPrimary },
                             { flex: 2, textAlign: "right" },
                           ]}
                         >
@@ -761,6 +1002,7 @@ export const ActivityDetailScreen: FC = () => {
                         <Text
                           style={[
                             styles.splitsCell,
+                            isDarkPro && { color: theme.textPrimary },
                             { flex: 2, textAlign: "right" },
                           ]}
                         >
@@ -791,7 +1033,14 @@ export const ActivityDetailScreen: FC = () => {
                                     "#3b82f6",
                                 }}
                               />
-                              <Text style={styles.splitsZoneText}>{`Z${zIndex}`}</Text>
+                              <Text
+                                style={[
+                                  styles.splitsZoneText,
+                                  isDarkPro && { color: theme.textPrimary },
+                                ]}
+                              >
+                                {`Z${zIndex}`}
+                              </Text>
                             </>
                           )}
                         </View>
@@ -806,45 +1055,117 @@ export const ActivityDetailScreen: FC = () => {
           {/* Notes tab */}
           {tab === "notes" && (
             <View style={styles.notesTab}>
-              <View style={styles.notesCard}>
+              <View
+                style={[
+                  styles.notesCard,
+                  isDarkPro && {
+                    backgroundColor: theme.cardBackground,
+                    borderColor: theme.cardBorder,
+                  },
+                ]}
+              >
                 <View style={styles.coachHeaderRow}>
-                  <Text style={styles.notesTitle}>Kipcoachee</Text>
+                  <Text
+                    style={[
+                      styles.notesTitle,
+                      isDarkPro && { color: theme.textPrimary },
+                    ]}
+                  >
+                    Kipcoachee
+                  </Text>
                   {coachLoading && (
-                    <ActivityIndicator size="small" color="#6b7280" />
+                    <ActivityIndicator
+                      size="small"
+                      color={isDarkPro ? theme.textSecondary : "#6b7280"}
+                    />
                   )}
                 </View>
                 {coachError && !coachNote ? (
-                  <Text style={styles.notesText}>
+                  <Text
+                    style={[
+                      styles.notesText,
+                      isDarkPro && { color: theme.textPrimary },
+                    ]}
+                  >
                     Could not generate feedback. Tap below to retry.
                   </Text>
                 ) : coachNote ? (
-                  <Text style={styles.notesText}>{coachNote}</Text>
+                  <Text
+                    style={[
+                      styles.notesText,
+                      isDarkPro && { color: theme.textPrimary },
+                    ]}
+                  >
+                    {coachNote}
+                  </Text>
                 ) : (
-                  <Text style={styles.notesText}>
+                  <Text
+                    style={[
+                      styles.notesText,
+                      isDarkPro && { color: theme.textPrimary },
+                    ]}
+                  >
                     Analyzing your activity…
                   </Text>
                 )}
                 <TouchableOpacity
-                  style={styles.regenButton}
+                  style={[
+                    styles.regenButton,
+                    isDarkPro && { backgroundColor: theme.cardBorder },
+                  ]}
                   onPress={() => generateCoachNote(true)}
                   activeOpacity={0.8}
                   disabled={coachLoading}
                 >
-                  <Text style={styles.regenButtonText}>
+                  <Text
+                    style={[
+                      styles.regenButtonText,
+                      isDarkPro && { color: theme.textSecondary },
+                    ]}
+                  >
                     {coachLoading ? "Generating…" : "Regenerate feedback"}
                   </Text>
                 </TouchableOpacity>
               </View>
 
-              <View style={styles.notesCard}>
-                <Text style={styles.notesTitle}>Training notes</Text>
-                <Text style={styles.notesLabel}>How you felt & notes</Text>
+              <View
+                style={[
+                  styles.notesCard,
+                  isDarkPro && {
+                    backgroundColor: theme.cardBackground,
+                    borderColor: theme.cardBorder,
+                  },
+                ]}
+              >
+                <Text
+                  style={[
+                    styles.notesTitle,
+                    isDarkPro && { color: theme.textPrimary },
+                  ]}
+                >
+                  Training notes
+                </Text>
+                <Text
+                  style={[
+                    styles.notesLabel,
+                    isDarkPro && { color: theme.textSecondary },
+                  ]}
+                >
+                  How you felt & notes
+                </Text>
                 <TextInput
                   multiline
                   value={notes}
                   onChangeText={setNotes}
                   placeholder="e.g. Legs felt heavy, good session overall…"
-                  style={styles.notesInput}
+                  style={[
+                    styles.notesInput,
+                    isDarkPro && {
+                      backgroundColor: theme.surfaceElevated,
+                      borderColor: theme.cardBorder,
+                      color: theme.textPrimary,
+                    },
+                  ]}
                   textAlignVertical="top"
                 />
                 <View style={styles.nomioRow}>
@@ -855,21 +1176,49 @@ export const ActivityDetailScreen: FC = () => {
                       gap: 6,
                     }}
                   >
-                    <Text style={styles.notesLabel}>Nomio drink before</Text>
+                    <Text
+                      style={[
+                        styles.notesLabel,
+                        isDarkPro && { color: theme.textSecondary },
+                      ]}
+                    >
+                      Nomio drink before
+                    </Text>
                   </View>
                   <Switch value={nomio} onValueChange={setNomio} />
                 </View>
-                <Text style={styles.notesLabel}>Lactate levels</Text>
+                <Text
+                  style={[
+                    styles.notesLabel,
+                    isDarkPro && { color: theme.textSecondary },
+                  ]}
+                >
+                  Lactate levels
+                </Text>
                 <TextInput
                   multiline
                   value={lactate}
                   onChangeText={setLactate}
                   placeholder="e.g. After each rep: 4.2, 5.1, 4.8 — or post-session: 3.5"
-                  style={styles.notesInput}
+                  style={[
+                    styles.notesInput,
+                    isDarkPro && {
+                      backgroundColor: theme.surfaceElevated,
+                      borderColor: theme.cardBorder,
+                      color: theme.textPrimary,
+                    },
+                  ]}
                   textAlignVertical="top"
                 />
                 {savingNotes && (
-                  <Text style={styles.savingLabel}>Saving…</Text>
+                  <Text
+                    style={[
+                      styles.savingLabel,
+                      isDarkPro && { color: theme.textSecondary },
+                    ]}
+                  >
+                    Saving…
+                  </Text>
                 )}
               </View>
             </View>
@@ -1009,9 +1358,13 @@ const GpxDownloadButtonMobile: FC<{ activityId: string; activityName: string }> 
         Alert.alert("GPX unavailable", "You are not logged in.");
         return;
       }
-      const { data, error } = await supabase.functions.invoke("intervals-proxy", {
+      const { data, error } = await callEdgeFunctionWithRetry({
+        functionName: "intervals-proxy",
         headers: { Authorization: `Bearer ${session.access_token}` },
         body: { action: "gpx", activityId: activityIdForApi },
+        timeoutMs: 20000,
+        maxRetries: 3,
+        logContext: "ActivityDetailScreen:gpx",
       });
       if (error || (data && typeof data === "object" && "error" in (data as object))) {
         Alert.alert("GPX unavailable", "No GPS track for this activity.");

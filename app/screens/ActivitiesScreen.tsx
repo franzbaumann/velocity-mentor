@@ -61,6 +61,36 @@ export const ActivitiesScreen: FC = () => {
       list.push(a);
       map.set(key, list);
     }
+
+    // #region agent log
+    try {
+      const keys = Array.from(map.keys()).sort();
+      fetch("http://127.0.0.1:7366/ingest/5b97c06c-e471-46b5-bc67-9d7185c26d89", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Debug-Session-Id": "b47595",
+        },
+        body: JSON.stringify({
+          sessionId: "b47595",
+          runId: "pre-fix",
+          hypothesisId: "C",
+          location: "app/screens/ActivitiesScreen.tsx:57",
+          message: "activitiesByDate distribution",
+          data: {
+            totalItems: items?.length ?? 0,
+            uniqueDays: keys.length,
+            firstDay: keys[0] ?? null,
+            lastDay: keys[keys.length - 1] ?? null,
+          },
+          timestamp: Date.now(),
+        }),
+      }).catch(() => {});
+    } catch {
+      // ignore logging failures
+    }
+    // #endregion
+
     return map;
   }, [items]);
 
@@ -100,6 +130,29 @@ export const ActivitiesScreen: FC = () => {
       }
       weeks.push(week);
     }
+
+    // #region agent log
+    fetch("http://127.0.0.1:7366/ingest/5b97c06c-e471-46b5-bc67-9d7185c26d89", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-Debug-Session-Id": "b47595",
+      },
+      body: JSON.stringify({
+        sessionId: "b47595",
+        runId: "pre-fix",
+        hypothesisId: "A",
+        location: "app/screens/ActivitiesScreen.tsx:90",
+        message: "calendarWeeks computed",
+        data: {
+          viewMonth: viewMonth.toISOString(),
+          weeksCount: weeks.length,
+        },
+        timestamp: Date.now(),
+      }),
+    }).catch(() => {});
+    // #endregion
+
     return weeks;
   }, [viewMonth]);
 
@@ -268,6 +321,31 @@ export const ActivitiesScreen: FC = () => {
     [theme],
   );
 
+  // #region agent log
+  fetch("http://127.0.0.1:7366/ingest/5b97c06c-e471-46b5-bc67-9d7185c26d89", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "X-Debug-Session-Id": "b47595",
+    },
+    body: JSON.stringify({
+      sessionId: "b47595",
+      runId: "pre-fix",
+      hypothesisId: "B",
+      location: "app/screens/ActivitiesScreen.tsx:120",
+      message: "ActivitiesScreen render state",
+      data: {
+        itemsCount: items?.length ?? 0,
+        isConnected,
+        isEmpty,
+        isLoading,
+        hasCalendarWeeks: calendarWeeks.length > 0,
+      },
+      timestamp: Date.now(),
+    }),
+  }).catch(() => {});
+  // #endregion
+
   if (!isConnected && isEmpty && !isLoading) {
     return (
       <ScreenContainer contentContainerStyle={styles.loadingContent}>
@@ -362,11 +440,7 @@ export const ActivitiesScreen: FC = () => {
             style={styles.calendarGrid}
             contentContainerStyle={{ paddingBottom: 8 }}
             refreshControl={
-              <RefreshControl
-                refreshing={!!isRefetching}
-                onRefresh={() => refetch()}
-                tintColor={theme.accentBlue}
-              />
+              <RefreshControl refreshing={isRefetching} onRefresh={() => refetch()} />
             }
           >
             {calendarWeeks.map((week, idx) => (
@@ -382,6 +456,34 @@ export const ActivitiesScreen: FC = () => {
                   const hasActivities = dayActivities.length > 0;
                   const hasPlan = planSessions.length > 0;
                   const hasAny = hasActivities || hasPlan;
+
+                  // #region agent log
+                  if (idx === 0 && key.endsWith("-01")) {
+                    fetch("http://127.0.0.1:7366/ingest/5b97c06c-e471-46b5-bc67-9d7185c26d89", {
+                      method: "POST",
+                      headers: {
+                        "Content-Type": "application/json",
+                        "X-Debug-Session-Id": "b47595",
+                      },
+                      body: JSON.stringify({
+                        sessionId: "b47595",
+                        runId: "pre-fix",
+                        hypothesisId: "D",
+                        location: "app/screens/ActivitiesScreen.tsx:368",
+                        message: "calendar day cell rendered",
+                        data: {
+                          key,
+                          inMonth,
+                          today,
+                          hasActivities,
+                          hasPlan,
+                          hasAny,
+                        },
+                        timestamp: Date.now(),
+                      }),
+                    }).catch(() => {});
+                  }
+                  // #endregion
 
                   return (
                     <TouchableOpacity

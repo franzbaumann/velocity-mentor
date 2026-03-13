@@ -1,7 +1,6 @@
 import { FC, useCallback, useMemo, useState } from "react";
 import {
   ActivityIndicator,
-  ScrollView,
   StyleSheet,
   Text,
   TouchableOpacity,
@@ -50,6 +49,7 @@ export const TrainingPlanScreen: FC = () => {
   const navigation = useNavigation<NativeStackNavigationProp<PlanStackParamList>>();
   const { plan, isLoading, isRefetching, rescheduleSession, markSessionDone } = useTrainingPlan();
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set([1]));
   const [selectedSession, setSelectedSession] = useState<TrainingPlanSession | null>(null);
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const styles = useMemo(
@@ -64,14 +64,53 @@ export const TrainingPlanScreen: FC = () => {
           alignItems: "center",
           justifyContent: "space-between",
         },
+        weekHeaderButton: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          paddingVertical: 14,
+          paddingHorizontal: 16,
+        },
+        weekHeaderLeft: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 8,
+          flex: 1,
+        },
+        chevron: {
+          fontSize: 14,
+          color: colors.mutedForeground,
+          width: 16,
+        },
         weekTitle: {
           fontSize: 15,
-          fontWeight: "500",
+          fontWeight: "600",
           color: colors.foreground,
+        },
+        weekPhase: {
+          fontSize: 11,
+          fontWeight: "500",
+          color: colors.primary,
+          backgroundColor: colors.primary + "15",
+          paddingHorizontal: 8,
+          paddingVertical: 2,
+          borderRadius: 999,
+          overflow: "hidden",
+          textTransform: "capitalize",
+        },
+        weekDateRange: {
+          fontSize: 12,
+          color: colors.mutedForeground,
         },
         weekMeta: {
           fontSize: 12,
           color: colors.mutedForeground,
+        },
+        weekSessions: {
+          paddingHorizontal: 16,
+          paddingBottom: 12,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: colors.border,
         },
         thisWeekRow: {
           flexDirection: "row",
@@ -216,6 +255,15 @@ export const TrainingPlanScreen: FC = () => {
       }),
     [colors]
   );
+
+  const toggleWeek = useCallback((n: number) => {
+    setExpandedWeeks((prev) => {
+      const next = new Set(prev);
+      if (next.has(n)) next.delete(n);
+      else next.add(n);
+      return next;
+    });
+  }, []);
 
   const handleRebuildPlan = useCallback(() => {
     navigation.navigate("PlanOnboarding");
@@ -401,86 +449,102 @@ export const TrainingPlanScreen: FC = () => {
         </GlassCard>
       )}
 
-      <GlassCard>
-        <View style={styles.weekHeaderRow}>
-          <Text style={[styles.sectionHeader, typography.sectionHeader]}>Plan</Text>
-          <View style={styles.toggleRow}>
-            <TouchableOpacity
-              style={[
-                styles.toggleButton,
-                viewMode === "list" && styles.toggleButtonActive,
-              ]}
-              activeOpacity={0.8}
-              onPress={() => setViewMode("list")}
-            >
-              <Text
-                style={[
-                  styles.toggleText,
-                  viewMode === "list" && styles.toggleTextActive,
-                ]}
-              >
-                List
-              </Text>
-            </TouchableOpacity>
-            <TouchableOpacity
-              style={[
-                styles.toggleButton,
-                viewMode === "calendar" && styles.toggleButtonActive,
-              ]}
-              activeOpacity={0.8}
-              onPress={() => setViewMode("calendar")}
-            >
-              <Text
-                style={[
-                  styles.toggleText,
-                  viewMode === "calendar" && styles.toggleTextActive,
-                ]}
-              >
-                Calendar
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-
-        {viewMode === "list" ? (
-          <ScrollView
-            style={{ marginTop: 8, maxHeight: 420 }}
-            contentContainerStyle={{ paddingBottom: 8 }}
+      <View style={styles.weekHeaderRow}>
+        <View />
+        <View style={styles.toggleRow}>
+          <TouchableOpacity
+            style={[
+              styles.toggleButton,
+              viewMode === "list" && styles.toggleButtonActive,
+            ]}
+            activeOpacity={0.8}
+            onPress={() => setViewMode("list")}
           >
-            {weeks.map((week) => (
-              <View key={week.id} style={{ marginBottom: 16 }}>
-                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
-                  <Text style={styles.weekTitle}>
-                    Week {week.week_number}
-                    {week.phase ? ` · ${week.phase}` : ""}
-                  </Text>
+            <Text
+              style={[
+                styles.toggleText,
+                viewMode === "list" && styles.toggleTextActive,
+              ]}
+            >
+              List
+            </Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={[
+              styles.toggleButton,
+              viewMode === "calendar" && styles.toggleButtonActive,
+            ]}
+            activeOpacity={0.8}
+            onPress={() => setViewMode("calendar")}
+          >
+            <Text
+              style={[
+                styles.toggleText,
+                viewMode === "calendar" && styles.toggleTextActive,
+              ]}
+            >
+              Calendar
+            </Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+
+      {viewMode === "list" ? (
+        <View style={{ gap: 8 }}>
+          {weeks.map((week) => {
+            const isExpanded = expandedWeeks.has(week.week_number);
+            const weekStart = parseISO(week.start_date);
+            const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+            return (
+              <GlassCard key={week.id} style={{ padding: 0, overflow: "hidden" }}>
+                <TouchableOpacity
+                  activeOpacity={0.7}
+                  style={styles.weekHeaderButton}
+                  onPress={() => toggleWeek(week.week_number)}
+                >
+                  <View style={styles.weekHeaderLeft}>
+                    <Text style={styles.chevron}>
+                      {isExpanded ? "▾" : "▸"}
+                    </Text>
+                    <Text style={styles.weekTitle}>Week {week.week_number}</Text>
+                    {week.phase && (
+                      <Text style={styles.weekPhase}>{week.phase}</Text>
+                    )}
+                    <Text style={styles.weekDateRange}>
+                      {format(weekStart, "MMM d")} – {format(weekEnd, "MMM d")}
+                    </Text>
+                  </View>
                   <Text style={styles.weekMeta}>
                     {week.sessions.length} sessions
                     {week.total_km != null
                       ? ` · ${Math.round(week.total_km)} km`
                       : ""}
                   </Text>
-                </View>
-                <View style={{ marginTop: 8 }}>
-                  {week.sessions.map((s) => (
-                    <SessionCard
-                      key={s.id}
-                      session={s}
-                      onToggleDone={(sess) =>
-                        markSessionDone({
-                          sessionId: sess.id,
-                          done: !sess.completed_at,
-                        })
-                      }
-                      onPress={setSelectedSession}
-                      onAskKipcoachee={handleAskKipcoachee}
-                    />
-                  ))}
-                </View>
-              </View>
-            ))}
-          </ScrollView>
-        ) : (
+                </TouchableOpacity>
+                {isExpanded && (
+                  <View style={styles.weekSessions}>
+                    {week.sessions.map((s) => (
+                      <SessionCard
+                        key={s.id}
+                        session={s}
+                        onToggleDone={(sess) =>
+                          markSessionDone({
+                            sessionId: sess.id,
+                            done: !sess.completed_at,
+                          })
+                        }
+                        onPress={setSelectedSession}
+                        onAskKipcoachee={handleAskKipcoachee}
+                      />
+                    ))}
+                  </View>
+                )}
+              </GlassCard>
+            );
+          })}
+        </View>
+      ) : (
+        <GlassCard>
           <View>
             <View style={styles.calendarHeaderRow}>
               <TouchableOpacity
@@ -566,8 +630,8 @@ export const TrainingPlanScreen: FC = () => {
               })}
             </View>
           </View>
-        )}
-      </GlassCard>
+        </GlassCard>
+      )}
 
       <GlassCard style={styles.rebuildCard}>
         <View style={styles.rebuildRow}>

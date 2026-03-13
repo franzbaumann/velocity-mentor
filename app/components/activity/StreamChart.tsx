@@ -1,8 +1,9 @@
 import { FC, useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
-import Svg, { Defs, LinearGradient, Stop, Path } from "react-native-svg";
+import Svg, { Defs, LinearGradient, Stop, Path, Line } from "react-native-svg";
 import { buildSmoothPath, buildAreaPath, normalizeToViewBox } from "./SvgHelpers";
 import { useChartTouch } from "../../hooks/useChartTouch";
+import { useTheme } from "../../context/ThemeContext";
 
 export type TooltipLine = { label: string; value: string };
 
@@ -37,6 +38,9 @@ export const StreamChart: FC<Props> = ({
   lastInSequence,
   formatTooltip,
 }) => {
+  const { themeName, theme } = useTheme();
+  const isDarkPro = themeName === "darkPro";
+
   const { linePath, areaPath } = useMemo(() => {
     if (data.length < 2) return { linePath: "", areaPath: "" };
     const pts = normalizeToViewBox(data, VW, VH, { reversed });
@@ -48,11 +52,31 @@ export const StreamChart: FC<Props> = ({
 
   const { touch, panHandlers, onLayout, widthRef } = useChartTouch(data.length);
 
+  const startOpacity = isDarkPro ? 0.22 : 0.35;
+  const endOpacity = isDarkPro ? 0.06 : 0.03;
+  const gridColor = isDarkPro ? theme.chartGrid : "#e5e7eb";
+
+  const stroke = isDarkPro && label === "PACE" ? "#60a5fa" : strokeColor;
+
   if (data.length < 2) {
     return (
-      <View style={[styles.section, lastInSequence && styles.sectionLast, { minHeight: height }]}>
+      <View
+        style={[
+          styles.section,
+          isDarkPro && { backgroundColor: theme.cardBackground },
+          lastInSequence && styles.sectionLast,
+          { minHeight: height },
+        ]}
+      >
         <Text style={[styles.sectionLabel, { color: labelColor }]}>{label}</Text>
-        <Text style={styles.noData}>No data</Text>
+        <Text
+          style={[
+            styles.noData,
+            isDarkPro && { color: theme.textSecondary },
+          ]}
+        >
+          No data
+        </Text>
       </View>
     );
   }
@@ -67,12 +91,24 @@ export const StreamChart: FC<Props> = ({
   if (cw > 0 && tooltipLeft + TOOLTIP_W > cw) tooltipLeft = cw - TOOLTIP_W;
 
   return (
-    <View style={[styles.section, lastInSequence && styles.sectionLast]}>
+    <View
+      style={[
+        styles.section,
+        isDarkPro && { backgroundColor: theme.cardBackground },
+        lastInSequence && styles.sectionLast,
+      ]}
+    >
       <Text style={[styles.sectionLabel, { color: labelColor }]}>{label}</Text>
       <View style={styles.row}>
         <View style={styles.yAxis}>
           {yLabels.map((l, i) => (
-            <Text key={i} style={styles.yText}>
+            <Text
+              key={i}
+              style={[
+                styles.yText,
+                isDarkPro && { color: theme.textSecondary },
+              ]}
+            >
               {l}
             </Text>
           ))}
@@ -91,16 +127,52 @@ export const StreamChart: FC<Props> = ({
             {gradientColors && (
               <Defs>
                 <LinearGradient id={gid} x1="0" y1="0" x2="0" y2="1">
-                  <Stop offset="0%" stopColor={gradientColors[0]} stopOpacity={0.35} />
-                  <Stop offset="100%" stopColor={gradientColors[1]} stopOpacity={0.03} />
+                    <Stop
+                      offset="0%"
+                      stopColor={gradientColors[0]}
+                      stopOpacity={startOpacity}
+                    />
+                    <Stop
+                      offset="100%"
+                      stopColor={gradientColors[1]}
+                      stopOpacity={endOpacity}
+                    />
                 </LinearGradient>
               </Defs>
             )}
+            {/* simple horizontal grid lines */}
+            <Line
+              x1="0"
+              x2={VW}
+              y1={VH * 0.25}
+              y2={VH * 0.25}
+              stroke={gridColor}
+              strokeWidth={0.5}
+              strokeOpacity={0.35}
+            />
+            <Line
+              x1="0"
+              x2={VW}
+              y1={VH * 0.5}
+              y2={VH * 0.5}
+              stroke={gridColor}
+              strokeWidth={0.5}
+              strokeOpacity={0.3}
+            />
+            <Line
+              x1="0"
+              x2={VW}
+              y1={VH * 0.75}
+              y2={VH * 0.75}
+              stroke={gridColor}
+              strokeWidth={0.5}
+              strokeOpacity={0.25}
+            />
             {areaPath ? <Path d={areaPath} fill={`url(#${gid})`} /> : null}
             <Path
               d={linePath}
               fill="none"
-              stroke={strokeColor}
+              stroke={stroke}
               strokeWidth={1.5}
               strokeLinecap="round"
               strokeLinejoin="round"
@@ -111,7 +183,7 @@ export const StreamChart: FC<Props> = ({
               pointerEvents="none"
               style={[
                 styles.crosshair,
-                { left: touch.x, backgroundColor: strokeColor },
+                { left: touch.x, backgroundColor: stroke },
               ]}
             />
           )}

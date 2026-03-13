@@ -1,5 +1,6 @@
 import { FC, useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
+import { useTheme } from "../../context/ThemeContext";
 
 type Props = {
   times: number[] | null | undefined;
@@ -25,6 +26,9 @@ const ZONE_COLORS = [
 ];
 
 export const HeartRateZones: FC<Props> = ({ times, maxHr }) => {
+  const { themeName, theme } = useTheme();
+  const isDarkPro = themeName === "darkPro";
+
   const rows = useMemo(() => {
     if (!times || times.length === 0) return [];
     const total = times.reduce((a, b) => a + b, 0);
@@ -73,30 +77,80 @@ export const HeartRateZones: FC<Props> = ({ times, maxHr }) => {
   if (!rows.length) {
     return (
       <View style={styles.empty}>
-        <Text style={styles.emptyText}>No heart rate zone data</Text>
+        <Text
+          style={[
+            styles.emptyText,
+            isDarkPro && { color: theme.textSecondary },
+          ]}
+        >
+          No heart rate zone data
+        </Text>
       </View>
     );
   }
 
   return (
     <View style={styles.container}>
-      <View style={styles.headerRow}>
-        <Text style={[styles.headerCell, { flex: 2 }]}>Zone</Text>
-        <Text style={[styles.headerCell, { flex: 1.4 }]}>HR range</Text>
-        <Text style={[styles.headerCell, { flex: 3 }]}>Distribution</Text>
+      <View
+        style={[
+          styles.headerRow,
+          isDarkPro && { borderBottomColor: theme.cardBorder },
+        ]}
+      >
         <Text
-          style={[styles.headerCell, { flex: 1, textAlign: "right" }]}
+          style={[
+            styles.headerCell,
+            isDarkPro && { color: theme.textSecondary },
+            { flex: 2 },
+          ]}
+        >
+          Zone
+        </Text>
+        <Text
+          style={[
+            styles.headerCell,
+            isDarkPro && { color: theme.textSecondary },
+            { flex: 1.4 },
+          ]}
+        >
+          HR range
+        </Text>
+        <Text
+          style={[
+            styles.headerCell,
+            isDarkPro && { color: theme.textSecondary },
+            { flex: 3 },
+          ]}
+        >
+          Distribution
+        </Text>
+        <Text
+          style={[
+            styles.headerCell,
+            isDarkPro && { color: theme.textSecondary },
+            { flex: 1, textAlign: "right" },
+          ]}
         >
           Time
         </Text>
         <Text
-          style={[styles.headerCell, { flex: 1, textAlign: "right" }]}
+          style={[
+            styles.headerCell,
+            isDarkPro && { color: theme.textSecondary },
+            { flex: 1, textAlign: "right" },
+          ]}
         >
           %
         </Text>
       </View>
       {rows.map((row) => (
-        <View key={row.key} style={styles.bodyRow}>
+        <View
+          key={row.key}
+          style={[
+            styles.bodyRow,
+            isDarkPro && { borderBottomColor: theme.cardBorder },
+          ]}
+        >
           <View style={[styles.zoneInfo, { flex: 2 }]}>
             <View
               style={[
@@ -106,9 +160,22 @@ export const HeartRateZones: FC<Props> = ({ times, maxHr }) => {
                 },
               ]}
             />
-            <Text style={styles.zoneName}>{row.name}</Text>
+            <Text
+              style={[
+                styles.zoneName,
+                isDarkPro && { color: theme.textPrimary },
+              ]}
+            >
+              {row.name}
+            </Text>
           </View>
-          <Text style={[styles.bodyCell, { flex: 1.4 }]}>
+          <Text
+            style={[
+              styles.bodyCell,
+              isDarkPro && { color: theme.textSecondary },
+              { flex: 1.4 },
+            ]}
+          >
             {row.hrRange}
           </Text>
           <View style={[styles.barBackground, { flex: 3 }]}>
@@ -125,6 +192,7 @@ export const HeartRateZones: FC<Props> = ({ times, maxHr }) => {
           <Text
             style={[
               styles.bodyCell,
+              isDarkPro && { color: theme.textSecondary },
               { flex: 1, textAlign: "right" },
             ]}
           >
@@ -133,6 +201,7 @@ export const HeartRateZones: FC<Props> = ({ times, maxHr }) => {
           <Text
             style={[
               styles.bodyCell,
+              isDarkPro && { color: theme.textSecondary },
               { flex: 1, textAlign: "right" },
             ]}
           >

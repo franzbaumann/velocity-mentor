@@ -100,7 +100,8 @@ export function useActivitiesList(days = 120) {
         )
         .eq("user_id", user.id)
         .gte("date", oldest.toISOString().slice(0, 10))
-        .order("date", { ascending: true });
+        .order("date", { ascending: true })
+        .limit(1000);
 
       if (error) throw error;
 
@@ -131,7 +132,11 @@ export function useActivitiesList(days = 120) {
         };
       });
     },
-    staleTime: 2 * 60 * 1000,
+    staleTime: 5 * 60 * 1000,
+    gcTime: 30 * 60 * 1000,
+    refetchOnMount: false,
+    refetchOnReconnect: false,
+    refetchOnWindowFocus: false,
   });
 
   const items = query.data ?? [];

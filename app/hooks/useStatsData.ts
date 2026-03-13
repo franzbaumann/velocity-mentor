@@ -36,6 +36,9 @@ type SleepRestingPoint = { date: string; sleep: number | null; restingHr: number
 type SleepScorePoint = { date: string; score: number };
 type StepsPoint = { date: string; steps: number };
 type WeightPoint = { date: string; weight: number };
+type WellnessCheckPoint = { date: string; value: number };
+
+type WellnessField = "stress_score" | "mood" | "energy" | "muscle_soreness";
 
 function resolveCtlAtlTsb(r: {
   ctl?: number | null;
@@ -314,8 +317,19 @@ function buildWeightSeries(readiness: ReadinessRow[]): WeightPoint[] {
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
+function buildWellnessSeries(readiness: ReadinessRow[], field: WellnessField): WellnessCheckPoint[] {
+  return readiness
+    .filter((r) => (r as any)[field] != null && r.date >= oldest2m && r.date <= fmt(now))
+    .map<WellnessCheckPoint>((r) => ({
+      date: r.date,
+      value: (r as any)[field] ?? 0,
+    }))
+    .slice(-60)
+    .sort((a, b) => a.date.localeCompare(b.date));
+}
+
 export function useStatsData() {
-  const { activities, readinessRows, isLoading, athleteProfile } = useDashboardData();
+  const { activities, readinessRows, isLoading, athleteProfile, refetchAll } = useDashboardData();
 
   const runningActivities = useMemo(
     () => activities.filter((a) => isRunningActivity(a.type) && (a.distance_km ?? 0) <= 150),
@@ -365,6 +379,22 @@ export function useStatsData() {
   );
   const weightSeries = useMemo(
     () => buildWeightSeries(readinessRows),
+    [readinessRows],
+  );
+  const stressSeries = useMemo(
+    () => buildWellnessSeries(readinessRows, "stress_score"),
+    [readinessRows],
+  );
+  const moodSeries = useMemo(
+    () => buildWellnessSeries(readinessRows, "mood"),
+    [readinessRows],
+  );
+  const energySeries = useMemo(
+    () => buildWellnessSeries(readinessRows, "energy"),
+    [readinessRows],
+  );
+  const sorenessSeries = useMemo(
+    () => buildWellnessSeries(readinessRows, "muscle_soreness"),
     [readinessRows],
   );
 
@@ -430,5 +460,10 @@ export function useStatsData() {
     stepsSeries,
     weightSeries,
     fitnessSummary,
+    stressSeries,
+    moodSeries,
+    energySeries,
+    sorenessSeries,
+    refetchAll,
   };
 }
