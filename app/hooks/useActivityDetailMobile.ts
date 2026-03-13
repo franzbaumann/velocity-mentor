@@ -7,6 +7,12 @@ export interface ActivityStreams {
   cadence: number[];
   altitude: number[];
   pace: number[];
+  /** GPS track [lat, lng][] if available */
+  latlng?: number[][];
+  /** Temperature stream if available */
+  temperature?: number[];
+  /** Respiration rate stream if available */
+  respiration_rate?: number[];
 }
 
 export interface LapData {
@@ -173,7 +179,7 @@ export function useActivityDetailMobile(
             .maybeSingle(),
           supabase
             .from("activity_streams")
-            .select("time, heartrate, cadence, altitude, pace, distance")
+            .select("time, heartrate, cadence, altitude, pace, distance, latlng, temperature, respiration_rate")
             .eq("user_id", user.id)
             .eq("activity_id", extId)
             .maybeSingle(),
@@ -218,6 +224,7 @@ export function useActivityDetailMobile(
         const dbS = dbStreamsRes.data as {
           time?: number[]; heartrate?: number[]; cadence?: number[];
           altitude?: number[]; pace?: number[]; distance?: number[];
+          latlng?: number[][]; temperature?: number[]; respiration_rate?: number[];
         } | null;
         const dbTime = Array.isArray(dbS?.time) ? dbS.time : [];
         const dbHr = Array.isArray(dbS?.heartrate) ? dbS.heartrate : [];
@@ -232,9 +239,35 @@ export function useActivityDetailMobile(
         const proxyCad = sProxy ? toArray(sProxy.cadence) : [];
         const proxyAlt = sProxy ? toArray(sProxy.altitude) : [];
         const proxyVelocity = sProxy ? toArray(sProxy.velocity_smooth) : [];
+        const proxyTemp = sProxy ? toArray(sProxy.temperature) : [];
+        const proxyResp = sProxy ? toArray(sProxy.respiration_rate) : [];
+        const proxyDist = sProxy ? toArray(sProxy.distance) : [];
         let proxyPace = sProxy ? toArray(sProxy.pace) : [];
         if (proxyPace.length === 0 && proxyVelocity.length > 0) {
           proxyPace = proxyVelocity.map((v) => (v > 0.1 ? 1000 / v / 60 : 0));
+        }
+
+        // Parse latlng from proxy or DB (match web)
+        const latlngRaw = sProxy?.latlng ?? dbS?.latlng;
+        const rawPoints: unknown[] = (() => {
+          if (latlngRaw) {
+            if (Array.isArray(latlngRaw)) return latlngRaw;
+            if (typeof latlngRaw === "object" && "data" in (latlngRaw as Record<string, unknown>)) {
+              const d = (latlngRaw as { data: unknown }).data;
+              if (Array.isArray(d)) return d;
+            }
+          }
+          return [];
+        })();
+        const proxyLatlng: [number, number][] = [];
+        for (const pt of rawPoints) {
+          if (Array.isArray(pt) && pt.length >= 2) {
+            const lat = Number(pt[0]);
+            const lng = Number(pt[1]);
+            if (!isNaN(lat) && !isNaN(lng) && lat >= -90 && lat <= 90 && lng >= -180 && lng <= 180) {
+              proxyLatlng.push([lat, lng]);
+            }
+          }
         }
 
         const timeArr = hasDbStreams ? dbTime : proxyTime;
@@ -242,6 +275,8 @@ export function useActivityDetailMobile(
         const cadArr = hasDbStreams ? dbCad : proxyCad;
         const altArr = hasDbStreams ? dbAlt : proxyAlt;
         const paceArr = hasDbStreams ? dbPace : proxyPace;
+        const tempArr = hasDbStreams ? (Array.isArray(dbS?.temperature) ? dbS.temperature : []) : proxyTemp;
+        const respArr = hasDbStreams ? (Array.isArray(dbS?.respiration_rate) ? dbS.respiration_rate : []) : proxyResp;
         const hasAnyStreams = timeArr.length > 20 && (hrArr.length > 0 || altArr.length > 0 || paceArr.length > 0);
 
         let streams: ActivityStreams | undefined;
@@ -252,10 +287,13 @@ export function useActivityDetailMobile(
             cadence: downsample(cadArr, MAX_POINTS),
             altitude: downsample(altArr, MAX_POINTS),
             pace: downsample(paceArr, MAX_POINTS),
+            ...(proxyLatlng.length >= 2 ? { latlng: proxyLatlng } : {}),
+            ...(tempArr.length > 0 ? { temperature: downsample(tempArr, MAX_POINTS) } : {}),
+            ...(respArr.length > 0 ? { respiration_rate: downsample(respArr, MAX_POINTS) } : {}),
           };
         }
 
-        // Persist proxy streams to DB so they're available next time
+        // Persist proxy streams to DB so they're available next time (same as web)
         const hasLiveStreams = !hasDbStreams && proxyTime.length > 20 &&
           (proxyHr.length > 0 || proxyPace.length > 0 || proxyAlt.length > 0);
         if (hasLiveStreams) {
@@ -270,6 +308,10 @@ export function useActivityDetailMobile(
                 cadence: proxyCad.length ? proxyCad : null,
                 altitude: proxyAlt.length ? proxyAlt : null,
                 pace: proxyPace.length ? proxyPace : null,
+                distance: proxyDist.length ? proxyDist : null,
+                latlng: proxyLatlng.length >= 2 ? proxyLatlng : null,
+                temperature: proxyTemp.length ? proxyTemp : null,
+                respiration_rate: proxyResp.length ? proxyResp : null,
               },
               { onConflict: "user_id,activity_id" },
             )
@@ -277,22 +319,25 @@ export function useActivityDetailMobile(
             .catch(() => {});
         }
 
-        // latlng – helst från DB
+        // latlng: prefer proxy/DB streams, then activity row
         const rawLatlngDb = (dbAct?.latlng as [number, number][] | null) ?? [];
-        const latlng: [number, number][] = Array.isArray(rawLatlngDb)
-          ? rawLatlngDb
-              .filter(
-                (p) =>
-                  Array.isArray(p) &&
-                  p.length >= 2 &&
-                  typeof p[0] === "number" &&
-                  typeof p[1] === "number" &&
-                  isFinite(p[0]) &&
-                  isFinite(p[1]) &&
-                  (p[0] !== 0 || p[1] !== 0),
-              )
-              .map((p) => [p[0], p[1]])
-          : [];
+        const latlng: [number, number][] =
+          proxyLatlng.length >= 2
+            ? proxyLatlng
+            : Array.isArray(rawLatlngDb)
+              ? rawLatlngDb
+                  .filter(
+                    (p) =>
+                      Array.isArray(p) &&
+                      p.length >= 2 &&
+                      typeof p[0] === "number" &&
+                      typeof p[1] === "number" &&
+                      isFinite(p[0]) &&
+                      isFinite(p[1]) &&
+                      (p[0] !== 0 || p[1] !== 0),
+                  )
+                  .map((p) => [p[0], p[1]])
+              : [];
 
         const maxHr = Number(
           dbAct?.max_hr ??
@@ -448,7 +493,7 @@ export function useActivityDetailMobile(
       const streamKey = (r.external_id as string) ?? activityId;
       const { data: sRow } = await supabase
         .from("activity_streams")
-        .select("time, heartrate, cadence, altitude, pace")
+        .select("time, heartrate, cadence, altitude, pace, distance, latlng, temperature, respiration_rate")
         .eq("user_id", user.id)
         .eq("activity_id", streamKey)
         .maybeSingle();
@@ -459,6 +504,10 @@ export function useActivityDetailMobile(
         cadence?: number[];
         altitude?: number[];
         pace?: number[];
+        distance?: number[];
+        latlng?: number[][];
+        temperature?: number[];
+        respiration_rate?: number[];
       } | null;
 
       const hasStreams =
@@ -489,12 +538,18 @@ export function useActivityDetailMobile(
         const cad = Array.isArray(s!.cadence) ? s!.cadence : [];
         const alt = Array.isArray(s!.altitude) ? s!.altitude : [];
         const pace = Array.isArray(s!.pace) ? s!.pace : [];
+        const latlngArr = Array.isArray(s!.latlng) ? s!.latlng : [];
+        const tempArr = Array.isArray(s!.temperature) ? s!.temperature : [];
+        const respArr = Array.isArray(s!.respiration_rate) ? s!.respiration_rate : [];
         streams = {
           time: downsample(time, MAX_POINTS),
           heartrate: downsample(hr, MAX_POINTS),
           cadence: downsample(cad, MAX_POINTS),
           altitude: downsample(alt, MAX_POINTS),
           pace: downsample(pace, MAX_POINTS),
+          ...(latlngArr.length >= 2 ? { latlng: latlngArr } : {}),
+          ...(tempArr.length > 0 ? { temperature: downsample(tempArr, MAX_POINTS) } : {}),
+          ...(respArr.length > 0 ? { respiration_rate: downsample(respArr, MAX_POINTS) } : {}),
         };
       }
 

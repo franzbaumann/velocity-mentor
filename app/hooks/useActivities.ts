@@ -21,6 +21,18 @@ export type ActivityListItem = {
   durationSeconds: number | null;
   hr: number | null;
   source: ActivitySource | "sample";
+  /** Max HR (bpm) if available */
+  maxHr?: number | null;
+  /** Splits/lap data (opaque) */
+  splits?: unknown;
+  /** HR zone percentages keyed by zone */
+  hrZones?: Record<string, number> | null;
+  /** HR zone times in seconds per zone */
+  hrZoneTimes?: number[] | null;
+  /** Intervals.icu training load */
+  icuTrainingLoad?: number | null;
+  /** TRIMP score */
+  trimp?: number | null;
 };
 
 export type ActivitiesSection = {
@@ -28,6 +40,7 @@ export type ActivitiesSection = {
   data: ActivityListItem[];
 };
 
+/** Raw activity row from Supabase (matches web useActivities select) */
 type ActivityRow = {
   id: string;
   date: string;
@@ -37,8 +50,14 @@ type ActivityRow = {
   duration_seconds: number | null;
   avg_pace: string | null;
   avg_hr: number | null;
+  max_hr: number | null;
   source: string | null;
+  splits: unknown;
+  hr_zones?: Record<string, number> | null;
+  hr_zone_times?: number[] | null;
   external_id?: string | null;
+  icu_training_load?: number | null;
+  trimp?: number | null;
 };
 
 function formatDuration(sec: number | null): string {
@@ -96,7 +115,7 @@ export function useActivitiesList(days = 120) {
       const { data, error } = await supabase
         .from("activity")
         .select(
-          "id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, source, external_id",
+          "id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, source, splits, hr_zones, hr_zone_times, external_id, icu_training_load, trimp",
         )
         .eq("user_id", user.id)
         .gte("date", oldest.toISOString().slice(0, 10))
@@ -129,6 +148,12 @@ export function useActivitiesList(days = 120) {
           durationSeconds: row.duration_seconds,
           hr: row.avg_hr,
           source: (row.source as ActivitySource | null) ?? "sample",
+          maxHr: row.max_hr ?? null,
+          splits: row.splits ?? undefined,
+          hrZones: row.hr_zones ?? null,
+          hrZoneTimes: row.hr_zone_times ?? null,
+          icuTrainingLoad: row.icu_training_load ?? null,
+          trimp: row.trimp ?? null,
         };
       });
     },

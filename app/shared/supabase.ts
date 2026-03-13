@@ -1,5 +1,6 @@
 import { createClient, type FunctionsResponse } from "@supabase/supabase-js";
 import * as SecureStore from "expo-secure-store";
+import type { Database } from "../lib/supabase-types";
 
 // Prefer Expo env vars, but fall back to the real project values so
 // the app works even if .env is not picked up in development.
@@ -16,7 +17,7 @@ export const SUPABASE_ANON_KEY = supabaseKey;
 
 export const AUTH_STORAGE_KEY = "paceiq-auth-session";
 
-export const supabase = createClient(supabaseUrl, supabaseKey, {
+export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
   auth: {
     storage: {
       getItem: () => SecureStore.getItemAsync(AUTH_STORAGE_KEY),

@@ -1,5 +1,7 @@
 import { FC, useMemo, useRef, useState } from "react";
-import { Animated, Easing, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
@@ -9,16 +11,31 @@ import { Sparkline } from "../components/Sparkline";
 import { useTheme } from "../context/ThemeContext";
 import { useGreeting } from "../hooks/useGreeting";
 import { useDashboardData } from "../hooks/useDashboardData";
+import { useIntervalsAutoSync } from "../hooks/useIntervalsAutoSync";
 import { getLocalDateString } from "../lib/date";
 import { formatDuration, formatSleepHours } from "../lib/format";
 import { spacing, typography } from "../theme/theme";
 import { calculateZonePaces, findBestEffort, formatRaceTime, predictRaceTime } from "../lib/race-prediction";
 
+const RACE_DISTANCES: { km: number; label: string }[] = [
+  { km: 5, label: "5K" },
+  { km: 10, label: "10K" },
+  { km: 21.0975, label: "Half Marathon" },
+  { km: 42.195, label: "Marathon" },
+];
+
+const COACH_BUBBLE_BOTTOM = 80;
+const SCROLL_PADDING_BELOW_BUBBLE = 100;
+
 export const HomeScreen: FC = () => {
   const { themeName, theme, colors } = useTheme();
+  const insets = useSafeAreaInsets();
   const greeting = useGreeting();
   const navigation = useNavigation();
   const dashboard = useDashboardData();
+
+  // Silent quick sync on app open when intervals.icu connected (once per 24h)
+  useIntervalsAutoSync();
   const {
     athlete,
     readiness,
@@ -65,6 +82,37 @@ export const HomeScreen: FC = () => {
     () =>
       StyleSheet.create({
         content: { gap: spacing.gap },
+        headerRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          gap: 12,
+        },
+        headerSettingsBtn: {
+          padding: 8,
+          marginRight: -8,
+        },
+        coachBubbleFixed: {
+          position: "absolute",
+          bottom: insets.bottom + COACH_BUBBLE_BOTTOM,
+          left: 0,
+          right: 0,
+          alignItems: "flex-end",
+          paddingRight: 16,
+          pointerEvents: "box-none",
+        },
+        coachBubbleInner: {
+          width: 48,
+          height: 48,
+          borderRadius: 24,
+          alignItems: "center",
+          justifyContent: "center",
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.15,
+          shadowRadius: 8,
+          elevation: 4,
+        },
         // Dark Pro specific layout
         topRow: {
           flexDirection: "row",
@@ -200,6 +248,47 @@ export const HomeScreen: FC = () => {
         raceTime: { fontSize: 28, fontWeight: "700", color: theme.textPrimary, marginBottom: 8 },
         racePaces: { gap: 2 },
         raceFootnote: { fontSize: 10, color: theme.textMuted, marginTop: 12 },
+        raceViewAll: { fontSize: 12, marginTop: 8 },
+        raceModalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.4)" },
+        raceModalSheet: {
+          backgroundColor: "#ffffff",
+          borderTopLeftRadius: 24,
+          borderTopRightRadius: 24,
+          paddingTop: 12,
+          paddingHorizontal: 20,
+          paddingBottom: 32,
+        },
+        raceModalHandle: {
+          width: 36,
+          height: 4,
+          borderRadius: 2,
+          alignSelf: "center",
+          marginBottom: 16,
+          backgroundColor: "#d4d4d4",
+        },
+        raceModalHeaderRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+          marginBottom: 4,
+        },
+        raceModalTitle: { fontSize: 18, fontWeight: "700", color: "#171717" },
+        raceModalCloseBtn: { padding: 4, marginRight: -4 },
+        raceModalSubtitle: { fontSize: 12, color: "#737373", marginBottom: 16 },
+        raceModalRows: { backgroundColor: "#ffffff" },
+        raceModalRow: {
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "center",
+          paddingVertical: 14,
+          paddingHorizontal: 0,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: "#e5e5e5",
+          backgroundColor: "#ffffff",
+        },
+        raceModalRowLast: { borderBottomWidth: 0 },
+        raceModalRowLabel: { fontSize: 15, fontWeight: "600", color: "#171717" },
+        raceModalRowTime: { fontSize: 15, fontWeight: "600", color: "#171717" },
         daysRow: { gap: 12, paddingBottom: 8 },
         dayCard: {
           width: 140,
@@ -218,7 +307,7 @@ export const HomeScreen: FC = () => {
         dayCardDistance: { fontSize: 12, color: theme.textMuted, marginTop: 4 },
         dayCardDetail: { fontSize: 11, color: theme.textMuted, marginTop: 4 },
       }),
-    [colors, theme]
+    [colors, theme, insets]
   );
 
   const goalRaceType = athlete.goalRace?.type ?? "Half Marathon";
@@ -242,7 +331,8 @@ export const HomeScreen: FC = () => {
   })();
 
   const racePrediction = useMemo(() => {
-    if (!activities || !readiness?.ctl) return null;
+    if (!activities || readiness?.ctl == null || !Number.isFinite(readiness.ctl) || readiness.ctl <= 0)
+      return null;
     const best = findBestEffort(
       activities.map((a) => ({
         distance_km: a.distance_km,
@@ -250,7 +340,7 @@ export const HomeScreen: FC = () => {
         date: a.date,
       })),
     );
-    if (!best) return null;
+    if (!best || goalRaceKm <= 0 || !Number.isFinite(goalRaceKm)) return null;
     const ctl = readiness.ctl;
     const baselineCTL = Math.max(ctl * 0.7, 20);
     const predictedSeconds = predictRaceTime(
@@ -260,15 +350,28 @@ export const HomeScreen: FC = () => {
       ctl,
       baselineCTL,
     );
-    const paces = calculateZonePaces(predictedSeconds, goalRaceKm);
+    const validPrediction =
+      Number.isFinite(predictedSeconds) && predictedSeconds > 0 && predictedSeconds < 86400 * 2;
+    const paces = validPrediction
+      ? calculateZonePaces(predictedSeconds, goalRaceKm)
+      : { zone2: "--", threshold: "--", vo2max: "--" };
+    const allPredictions = RACE_DISTANCES.map(({ km, label }) => ({
+      label,
+      km,
+      time: predictRaceTime(best.timeSeconds, best.distanceKm, km, ctl, baselineCTL),
+    }));
     return {
       time: formatRaceTime(predictedSeconds),
       zone2: paces.zone2,
       threshold: paces.threshold,
       vo2max: paces.vo2max,
       ctl,
+      best,
+      allPredictions,
     };
   }, [activities, readiness, goalRaceKm]);
+
+  const [raceModalVisible, setRaceModalVisible] = useState(false);
 
   if (!readiness || !weekStats) {
     return (
@@ -299,18 +402,28 @@ export const HomeScreen: FC = () => {
       tsb > 5 ? theme.positive : tsb >= 0 ? theme.warning : theme.negative;
 
     return (
-      <ScreenContainer
-        contentContainerStyle={styles.content}
-        onRefresh={refetchAll}
-      >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>{greeting}</Text>
-          <Text style={styles.subtitle}>
-            Week 6 of 14 · {athlete.currentPhase} Phase · {athlete.goalRace.type} in{" "}
-            {athlete.goalRace.weeksRemaining} weeks
-          </Text>
-        </View>
+      <View style={{ flex: 1 }}>
+        <ScreenContainer
+          contentContainerStyle={[styles.content, { paddingBottom: SCROLL_PADDING_BELOW_BUBBLE }]}
+          onRefresh={refetchAll}
+        >
+          {/* Header: title + settings top-right */}
+          <View style={styles.headerRow}>
+            <View style={styles.header}>
+              <Text style={styles.title}>{greeting}</Text>
+              <Text style={styles.subtitle}>
+                Week 6 of 14 · {athlete.currentPhase} Phase · {athlete.goalRace.type} in{" "}
+                {athlete.goalRace.weeksRemaining} weeks
+              </Text>
+            </View>
+            <TouchableOpacity
+              style={styles.headerSettingsBtn}
+              onPress={() => navigation.navigate("Settings" as never)}
+              accessibilityLabel="Settings"
+            >
+              <Ionicons name="settings" size={22} color={theme.textSecondary} />
+            </TouchableOpacity>
+          </View>
 
         {/* Readiness card */}
         <TouchableOpacity activeOpacity={0.9} onPress={flipCard}>
@@ -331,7 +444,9 @@ export const HomeScreen: FC = () => {
                     </View>
                     <Text style={styles.readinessSummary}>{readiness.aiSummary}</Text>
                     <View style={styles.readinessMeta}>
-                      <Text style={styles.metaText}>HRV {readiness.hrv}ms</Text>
+                      <Text style={styles.metaText}>
+                        HRV {readiness.hrv != null && readiness.hrv !== 0 ? `${readiness.hrv}ms` : "—"}
+                      </Text>
                       <Text style={styles.metaText}>{formatSleepHours(readiness.sleepHours)} sleep</Text>
                       <Text style={[styles.metaText, typography.mono]}>
                         TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}
@@ -395,15 +510,21 @@ export const HomeScreen: FC = () => {
             <View style={styles.metricsGrid}>
               <View style={styles.metricCell}>
                 <Text style={styles.metricLabel}>Distance</Text>
-                <Text style={[styles.metricValue, typography.mono]}>{lastActivity.distance}</Text>
+                <Text style={[styles.metricValue, typography.mono]}>
+                  {lastActivity.distance != null && lastActivity.distance > 0 ? (typeof lastActivity.distance === "number" ? lastActivity.distance.toFixed(1) : lastActivity.distance) : "—"}
+                </Text>
               </View>
               <View style={styles.metricCell}>
                 <Text style={styles.metricLabel}>Avg Pace</Text>
-                <Text style={[styles.metricValue, typography.mono]}>{lastActivity.avgPace}</Text>
+                <Text style={[styles.metricValue, typography.mono]}>
+                  {lastActivity.avgPace && lastActivity.avgPace !== "0" ? lastActivity.avgPace : "—"}
+                </Text>
               </View>
               <View style={styles.metricCell}>
                 <Text style={styles.metricLabel}>Avg HR</Text>
-                <Text style={[styles.metricValue, typography.mono]}>{lastActivity.avgHr} bpm</Text>
+                <Text style={[styles.metricValue, typography.mono]}>
+                  {lastActivity.avgHr != null && lastActivity.avgHr > 0 ? `${lastActivity.avgHr} bpm` : "—"}
+                </Text>
               </View>
               <View style={styles.metricCell}>
                 <Text style={styles.metricLabel}>Duration</Text>
@@ -472,8 +593,10 @@ export const HomeScreen: FC = () => {
               <View>
                 <Text style={styles.metricLabel}>HRV</Text>
                 <View style={styles.recoveryValueRow}>
-                  <Text style={[styles.recoveryValue, typography.mono]}>{recoveryMetrics.hrv}</Text>
-                  <Text style={styles.metaText}>/ {recoveryMetrics.hrv7dayAvg} avg</Text>
+                  <Text style={[styles.recoveryValue, typography.mono]}>
+                    {recoveryMetrics.hrv != null && recoveryMetrics.hrv !== 0 ? recoveryMetrics.hrv : "—"}
+                  </Text>
+                  <Text style={styles.metaText}>/ {recoveryMetrics.hrv7dayAvg != null && recoveryMetrics.hrv7dayAvg !== 0 ? recoveryMetrics.hrv7dayAvg : "—"} avg</Text>
                 </View>
               </View>
             </View>
@@ -548,59 +671,78 @@ export const HomeScreen: FC = () => {
 
         {/* Keep existing lower sections (race prediction, CTA, next 7 days) */}
         {racePrediction && (
-          <GlassCard>
-            <View style={styles.raceHeader}>
-              <View style={styles.raceIcon}>
-                <Text style={styles.raceEmoji}>🏁</Text>
+          <TouchableOpacity activeOpacity={0.9} onPress={() => setRaceModalVisible(true)}>
+            <GlassCard>
+              <View style={styles.raceHeader}>
+                <View style={styles.raceIcon}>
+                  <Text style={styles.raceEmoji}>🏁</Text>
+                </View>
+                <View>
+                  <Text style={styles.raceTitle}>Race Prediction</Text>
+                  <Text style={styles.raceSubtitle}>{goalRaceLabel}</Text>
+                </View>
               </View>
-              <View>
-                <Text style={styles.raceTitle}>Race Prediction</Text>
-                <Text style={styles.raceSubtitle}>{goalRaceLabel}</Text>
+              <Text style={[styles.raceTime, typography.mono]}>{racePrediction.time}</Text>
+              <View style={styles.racePaces}>
+                <Text style={styles.metaText}>Z2 pace: {racePrediction.zone2}</Text>
+                <Text style={styles.metaText}>Threshold: {racePrediction.threshold}</Text>
+                <Text style={styles.metaText}>VO2max: {racePrediction.vo2max}</Text>
               </View>
-            </View>
-            <Text style={[styles.raceTime, typography.mono]}>{racePrediction.time}</Text>
-            <View style={styles.racePaces}>
-              <Text style={styles.metaText}>Z2 pace: {racePrediction.zone2}</Text>
-              <Text style={styles.metaText}>Threshold: {racePrediction.threshold}</Text>
-              <Text style={styles.metaText}>VO2max: {racePrediction.vo2max}</Text>
-            </View>
-            <Text style={styles.raceFootnote}>
-              Based on best effort · CTL {Math.round(racePrediction.ctl)}
-            </Text>
-          </GlassCard>
+              <Text style={styles.raceFootnote}>
+                Based on best effort · CTL {Math.round(racePrediction.ctl)}
+              </Text>
+              <Text style={[styles.raceViewAll, { color: theme.accentBlue }]}>
+                View all distances →
+              </Text>
+            </GlassCard>
+          </TouchableOpacity>
         )}
 
-        <GlassCard>
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={() => navigation.navigate("Coach" as never)}
-            style={{ alignItems: "center", justifyContent: "center", paddingVertical: 20, gap: 8 }}
+        {/* Race Predictions modal – all 4 distances (Dark Pro branch) */}
+        {racePrediction?.allPredictions && (
+          <Modal
+            visible={raceModalVisible}
+            transparent
+            animationType="slide"
+            onRequestClose={() => setRaceModalVisible(false)}
           >
-            <View
-              style={{
-                width: 48,
-                height: 48,
-                borderRadius: 999,
-                backgroundColor: theme.chartFill,
-                alignItems: "center",
-                justifyContent: "center",
-              }}
+            <Pressable
+              style={styles.raceModalBackdrop}
+              onPress={() => setRaceModalVisible(false)}
             >
-              <Text style={{ fontSize: 22 }}>💬</Text>
-            </View>
-            <Text style={{ fontSize: 16, fontWeight: "600", color: theme.textPrimary }}>Ask Kipcoachee</Text>
-            <Text
-              style={{
-                fontSize: 12,
-                color: theme.textSecondary,
-                textAlign: "center",
-                paddingHorizontal: 16,
-              }}
-            >
-              Get training advice, adjust your plan, or chat about your goals.
-            </Text>
-          </TouchableOpacity>
-        </GlassCard>
+              <Pressable
+                style={styles.raceModalSheet}
+                onPress={(e) => e.stopPropagation()}
+              >
+                <View style={styles.raceModalHandle} />
+                <View style={styles.raceModalHeaderRow}>
+                  <Text style={styles.raceModalTitle}>Race Predictions</Text>
+                  <TouchableOpacity
+                    style={styles.raceModalCloseBtn}
+                    onPress={() => setRaceModalVisible(false)}
+                    accessibilityLabel="Close"
+                  >
+                    <Text style={{ fontSize: 22, color: "#737373", lineHeight: 24 }}>×</Text>
+                  </TouchableOpacity>
+                </View>
+                <Text style={styles.raceModalSubtitle}>
+                  Based on best effort ({racePrediction.best.distanceKm.toFixed(1)} km) · CTL {Math.round(racePrediction.ctl)}
+                </Text>
+                <View style={styles.raceModalRows}>
+                  {racePrediction.allPredictions.map(({ label, km, time }, idx) => (
+                    <View
+                      key={km}
+                      style={[styles.raceModalRow, idx === racePrediction.allPredictions.length - 1 && styles.raceModalRowLast]}
+                    >
+                      <Text style={styles.raceModalRowLabel}>{label}</Text>
+                      <Text style={[styles.raceModalRowTime, typography.mono]}>{formatRaceTime(time)}</Text>
+                    </View>
+                  ))}
+                </View>
+              </Pressable>
+            </Pressable>
+          </Modal>
+        )}
 
         <Text style={[styles.sectionHeader, typography.sectionHeader]}>Next 7 Days</Text>
         <ScrollView
@@ -628,23 +770,45 @@ export const HomeScreen: FC = () => {
             </View>
           ))}
         </ScrollView>
-      </ScreenContainer>
+        </ScreenContainer>
+        {/* Ask Kipcoachee – fixed above tab bar, right side */}
+        <View style={styles.coachBubbleFixed} pointerEvents="box-none">
+          <TouchableOpacity
+            activeOpacity={0.9}
+            onPress={() => navigation.navigate("Coach" as never)}
+            style={[styles.coachBubbleInner, { backgroundColor: theme.card }]}
+            accessibilityLabel="Ask Kipcoachee"
+          >
+            <Ionicons name="chatbubble-ellipses" size={24} color={theme.textPrimary} />
+          </TouchableOpacity>
+        </View>
+      </View>
     );
   }
 
   // Default (light) layout – existing structure
   return (
-    <ScreenContainer
-      contentContainerStyle={styles.content}
-      onRefresh={refetchAll}
-    >
-      {/* Page header – matches web */}
-      <View style={styles.header}>
-        <Text style={styles.title}>{greeting}</Text>
-        <Text style={styles.subtitle}>
-          Week 6 of 14 · {athlete.currentPhase} Phase · {athlete.goalRace.type} in {athlete.goalRace.weeksRemaining} weeks
-        </Text>
-      </View>
+    <View style={{ flex: 1 }}>
+      <ScreenContainer
+        contentContainerStyle={[styles.content, { paddingBottom: SCROLL_PADDING_BELOW_BUBBLE }]}
+        onRefresh={refetchAll}
+      >
+        {/* Page header – title + settings top-right */}
+        <View style={styles.headerRow}>
+          <View style={styles.header}>
+            <Text style={styles.title}>{greeting}</Text>
+            <Text style={styles.subtitle}>
+              Week 6 of 14 · {athlete.currentPhase} Phase · {athlete.goalRace.type} in {athlete.goalRace.weeksRemaining} weeks
+            </Text>
+          </View>
+          <TouchableOpacity
+            style={styles.headerSettingsBtn}
+            onPress={() => navigation.navigate("Settings" as never)}
+            accessibilityLabel="Settings"
+          >
+            <Ionicons name="settings" size={22} color={theme.textSecondary} />
+          </TouchableOpacity>
+        </View>
 
       {/* Readiness Card */}
       <TouchableOpacity activeOpacity={0.9} onPress={flipCard}>
@@ -681,7 +845,9 @@ export const HomeScreen: FC = () => {
                   </View>
                   <Text style={styles.readinessSummary}>{readiness.aiSummary}</Text>
                   <View style={styles.readinessMeta}>
-                    <Text style={styles.metaText}>HRV {readiness.hrv}ms</Text>
+                    <Text style={styles.metaText}>
+                      HRV {readiness.hrv != null && readiness.hrv !== 0 ? `${readiness.hrv}ms` : "—"}
+                    </Text>
                     <Text style={styles.metaText}>{formatSleepHours(readiness.sleepHours)} sleep</Text>
                     <Text style={[styles.metaText, typography.mono]}>
                       TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}
@@ -721,24 +887,26 @@ export const HomeScreen: FC = () => {
               />
             </View>
             <Text style={styles.activityMeta}>
-              {(todaysActual.distance_km ?? 0).toFixed(1)} km · {formatDuration(todaysActual.duration_seconds)}
-              {todaysActual.avg_pace ? ` @ ${todaysActual.avg_pace}` : ""}
+              {(todaysActual.distance_km != null && todaysActual.distance_km > 0 ? todaysActual.distance_km.toFixed(1) : "—")} km · {formatDuration(todaysActual.duration_seconds)}
+              {todaysActual.avg_pace && todaysActual.avg_pace !== "0" ? ` @ ${todaysActual.avg_pace}` : ""}
             </Text>
             <View style={styles.activityMetrics}>
               <View style={styles.activityMetric}>
-                <Text style={[styles.metricValue, typography.mono]}>{(todaysActual.distance_km ?? 0).toFixed(1)}</Text>
+                <Text style={[styles.metricValue, typography.mono]}>
+                  {todaysActual.distance_km != null && todaysActual.distance_km > 0 ? todaysActual.distance_km.toFixed(1) : "—"}
+                </Text>
                 <Text style={styles.metricLabel}>km</Text>
               </View>
               <View style={styles.activityMetric}>
                 <Text style={[styles.metricValue, typography.mono]}>{formatDuration(todaysActual.duration_seconds)}</Text>
                 <Text style={styles.metricLabel}>duration</Text>
               </View>
-              {todaysActual.avg_pace != null && (
-                <View style={styles.activityMetric}>
-                  <Text style={[styles.metricValue, typography.mono]}>{todaysActual.avg_pace}</Text>
-                  <Text style={styles.metricLabel}>pace</Text>
-                </View>
-              )}
+              <View style={styles.activityMetric}>
+                <Text style={[styles.metricValue, typography.mono]}>
+                  {todaysActual.avg_pace && todaysActual.avg_pace !== "0" ? todaysActual.avg_pace : "—"}
+                </Text>
+                <Text style={styles.metricLabel}>pace</Text>
+              </View>
             </View>
           </>
         ) : todaysPlan ? (
@@ -800,15 +968,21 @@ export const HomeScreen: FC = () => {
           <View style={styles.metricsGrid}>
             <View style={styles.metricCell}>
               <Text style={styles.metricLabel}>Distance</Text>
-              <Text style={[styles.metricValue, typography.mono]}>{lastActivity.distance}</Text>
+              <Text style={[styles.metricValue, typography.mono]}>
+                {lastActivity.distance != null && lastActivity.distance > 0 ? (typeof lastActivity.distance === "number" ? lastActivity.distance.toFixed(1) : lastActivity.distance) : "—"}
+              </Text>
             </View>
             <View style={styles.metricCell}>
               <Text style={styles.metricLabel}>Avg Pace</Text>
-              <Text style={[styles.metricValue, typography.mono]}>{lastActivity.avgPace}</Text>
+              <Text style={[styles.metricValue, typography.mono]}>
+                {lastActivity.avgPace && lastActivity.avgPace !== "0" ? lastActivity.avgPace : "—"}
+              </Text>
             </View>
             <View style={styles.metricCell}>
               <Text style={styles.metricLabel}>Avg HR</Text>
-              <Text style={[styles.metricValue, typography.mono]}>{lastActivity.avgHr} bpm</Text>
+              <Text style={[styles.metricValue, typography.mono]}>
+                {lastActivity.avgHr != null && lastActivity.avgHr > 0 ? `${lastActivity.avgHr} bpm` : "—"}
+              </Text>
             </View>
             <View style={styles.metricCell}>
               <Text style={styles.metricLabel}>Duration</Text>
@@ -846,8 +1020,10 @@ export const HomeScreen: FC = () => {
             <View>
               <Text style={styles.metricLabel}>HRV</Text>
               <View style={styles.recoveryValueRow}>
-                <Text style={[styles.recoveryValue, typography.mono]}>{recoveryMetrics.hrv}</Text>
-                <Text style={styles.metaText}>/ {recoveryMetrics.hrv7dayAvg} avg</Text>
+                <Text style={[styles.recoveryValue, typography.mono]}>
+                  {recoveryMetrics.hrv != null && recoveryMetrics.hrv !== 0 ? recoveryMetrics.hrv : "—"}
+                </Text>
+                <Text style={styles.metaText}>/ {recoveryMetrics.hrv7dayAvg != null && recoveryMetrics.hrv7dayAvg !== 0 ? recoveryMetrics.hrv7dayAvg : "—"} avg</Text>
               </View>
             </View>
           </View>
@@ -862,53 +1038,80 @@ export const HomeScreen: FC = () => {
         </GlassCard>
       </TouchableOpacity>
 
-      {/* Race Prediction – same layout as web */}
+      {/* Race Prediction – same layout as web, tappable for all distances modal */}
       {racePrediction && (
-        <GlassCard>
-          <View style={styles.raceHeader}>
-            <View style={styles.raceIcon}>
-              <Text style={styles.raceEmoji}>🏁</Text>
+        <TouchableOpacity activeOpacity={0.9} onPress={() => setRaceModalVisible(true)}>
+          <GlassCard>
+            <View style={styles.raceHeader}>
+              <View style={styles.raceIcon}>
+                <Text style={styles.raceEmoji}>🏁</Text>
+              </View>
+              <View>
+                <Text style={styles.raceTitle}>Race Prediction</Text>
+                <Text style={styles.raceSubtitle}>{goalRaceLabel}</Text>
+              </View>
             </View>
-            <View>
-              <Text style={styles.raceTitle}>Race Prediction</Text>
-              <Text style={styles.raceSubtitle}>{goalRaceLabel}</Text>
+            <Text style={[styles.raceTime, typography.mono]}>{racePrediction.time}</Text>
+            <View style={styles.racePaces}>
+              <Text style={styles.metaText}>Z2 pace: {racePrediction.zone2}</Text>
+              <Text style={styles.metaText}>Threshold: {racePrediction.threshold}</Text>
+              <Text style={styles.metaText}>VO2max: {racePrediction.vo2max}</Text>
             </View>
-          </View>
-          <Text style={[styles.raceTime, typography.mono]}>{racePrediction.time}</Text>
-          <View style={styles.racePaces}>
-            <Text style={styles.metaText}>Z2 pace: {racePrediction.zone2}</Text>
-            <Text style={styles.metaText}>Threshold: {racePrediction.threshold}</Text>
-            <Text style={styles.metaText}>VO2max: {racePrediction.vo2max}</Text>
-          </View>
-          <Text style={styles.raceFootnote}>
-            Based on best effort · CTL {Math.round(racePrediction.ctl)}
-          </Text>
-        </GlassCard>
+            <Text style={styles.raceFootnote}>
+              Based on best effort · CTL {Math.round(racePrediction.ctl)}
+            </Text>
+            <Text style={[styles.raceViewAll, { color: theme.accentBlue }]}>
+              View all distances →
+            </Text>
+          </GlassCard>
+        </TouchableOpacity>
       )}
 
-      {/* Ask Kipcoachee – CTA mirroring web dashboard */}
-      <GlassCard>
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={() => navigation.navigate("Coach" as never)}
-          style={{ alignItems: "center", justifyContent: "center", paddingVertical: 20, gap: 8 }}
+      {/* Race Predictions modal – all 4 distances (5K, 10K, Half, Marathon) */}
+      {racePrediction?.allPredictions && (
+        <Modal
+          visible={raceModalVisible}
+          transparent
+          animationType="slide"
+          onRequestClose={() => setRaceModalVisible(false)}
         >
-          <View style={{ width: 48, height: 48, borderRadius: 999, backgroundColor: theme.chartFill, alignItems: "center", justifyContent: "center" }}>
-            <Text style={{ fontSize: 22 }}>💬</Text>
-          </View>
-          <Text style={{ fontSize: 16, fontWeight: "600", color: theme.textPrimary }}>Ask Kipcoachee</Text>
-          <Text
-            style={{
-              fontSize: 12,
-              color: theme.textSecondary,
-              textAlign: "center",
-              paddingHorizontal: 16,
-            }}
+          <Pressable
+            style={styles.raceModalBackdrop}
+            onPress={() => setRaceModalVisible(false)}
           >
-            Get training advice, adjust your plan, or chat about your goals.
-          </Text>
-        </TouchableOpacity>
-      </GlassCard>
+            <Pressable
+              style={styles.raceModalSheet}
+              onPress={(e) => e.stopPropagation()}
+            >
+              <View style={styles.raceModalHandle} />
+              <View style={styles.raceModalHeaderRow}>
+                <Text style={styles.raceModalTitle}>Race Predictions</Text>
+                <TouchableOpacity
+                  style={styles.raceModalCloseBtn}
+                  onPress={() => setRaceModalVisible(false)}
+                  accessibilityLabel="Close"
+                >
+                  <Text style={{ fontSize: 22, color: "#737373", lineHeight: 24 }}>×</Text>
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.raceModalSubtitle}>
+                Based on best effort ({racePrediction.best.distanceKm.toFixed(1)} km) · CTL {Math.round(racePrediction.ctl)}
+              </Text>
+              <View style={styles.raceModalRows}>
+                {racePrediction.allPredictions.map(({ label, km, time }, idx) => (
+                  <View
+                    key={km}
+                    style={[styles.raceModalRow, idx === racePrediction.allPredictions.length - 1 && styles.raceModalRowLast]}
+                  >
+                    <Text style={styles.raceModalRowLabel}>{label}</Text>
+                    <Text style={[styles.raceModalRowTime, typography.mono]}>{formatRaceTime(time)}</Text>
+                  </View>
+                ))}
+              </View>
+            </Pressable>
+          </Pressable>
+        </Modal>
+      )}
 
       {/* Next 7 Days – matches web */}
       <Text style={[styles.sectionHeader, typography.sectionHeader]}>Next 7 Days</Text>
@@ -937,6 +1140,18 @@ export const HomeScreen: FC = () => {
           </View>
         ))}
       </ScrollView>
-    </ScreenContainer>
+      </ScreenContainer>
+      {/* Ask Kipcoachee – fixed above tab bar, right side */}
+      <View style={styles.coachBubbleFixed} pointerEvents="box-none">
+        <TouchableOpacity
+          activeOpacity={0.9}
+          onPress={() => navigation.navigate("Coach" as never)}
+          style={[styles.coachBubbleInner, { backgroundColor: theme.card }]}
+          accessibilityLabel="Ask Kipcoachee"
+        >
+          <Ionicons name="chatbubble-ellipses" size={24} color={theme.textPrimary} />
+        </TouchableOpacity>
+      </View>
+    </View>
   );
 };

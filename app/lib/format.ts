@@ -30,3 +30,23 @@ export function formatDuration(sec: number | null | undefined): string {
   if (h > 0) return `${h}:${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
   return `${m}:${String(s).padStart(2, "0")}`;
 }
+
+export function formatCadence(spm: number | null | undefined): string {
+  if (spm == null || isNaN(spm)) return "—";
+  return `${Math.round(spm)} spm`;
+}
+
+export function formatElevation(m: number | null | undefined): string {
+  if (m == null || isNaN(m)) return "—";
+  return `${Math.round(m)} m`;
+}
+
+export function formatHr(hr: number | null | undefined): string {
+  if (hr == null || isNaN(hr)) return "—";
+  return `${Math.round(hr)} bpm`;
+}
+
+export function formatNumber(n: number | null | undefined, decimals = 0): string {
+  if (n == null || isNaN(n)) return "—";
+  return decimals > 0 ? n.toFixed(decimals) : String(Math.round(n));
+}

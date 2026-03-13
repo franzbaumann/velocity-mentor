@@ -1,7 +1,7 @@
 import { NavigationContainer } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
-import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ActivityIndicator, StyleSheet, Text, View, TouchableOpacity } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 import { AuthScreen } from "../screens/AuthScreen";
 import { PricingScreen } from "../screens/PricingScreen";
@@ -81,14 +81,23 @@ function ActivitiesStackNavigator() {
       <ActivitiesStack.Screen
         name="ActivityDetail"
         component={ActivityDetailScreen}
-        options={{
+        options={({ navigation }) => ({
           headerShown: true,
           headerTitle: "Activity",
           headerBackTitle: "Activities",
           headerStyle: { backgroundColor: theme.appBackground },
           headerTintColor: theme.textPrimary,
           headerShadowVisible: false,
-        }}
+          headerRight: () => (
+            <TouchableOpacity
+              onPress={() => navigation.getParent()?.navigate("Settings")}
+              style={{ paddingHorizontal: 4, paddingVertical: 2 }}
+              activeOpacity={0.7}
+            >
+              <Ionicons name="settings-outline" size={20} color={theme.textPrimary} />
+            </TouchableOpacity>
+          ),
+        })}
       />
     </ActivitiesStack.Navigator>
   );

@@ -12,6 +12,7 @@ import {
   weekPlan as mockWeekPlan,
 } from "../data/mockDashboard";
 import { useActivitiesList } from "./useActivities";
+import { useAthleteProfile } from "./useAthleteProfile";
 
 export type ActivityRow = {
   id: string;
@@ -163,28 +164,7 @@ export function useDashboardData() {
   // Reuse the ActivitiesList hook so ids/detailIds match calendar & ActivityDetail navigation
   const { items: activityItems } = useActivitiesList(730);
 
-  const { data: athleteProfile, refetch: refetchAthleteProfile } = useQuery({
-    queryKey: ["athlete_profile-mobile"],
-    queryFn: async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return null;
-      const { data } = await supabase
-        .from("athlete_profile")
-        .select(
-          "name, goal_race, max_hr, resting_hr, vo2max, lactate_threshold_hr, lactate_threshold_pace, vlamax, max_hr_measured",
-        )
-        .eq("user_id", user.id)
-        .maybeSingle();
-      return data;
-    },
-    staleTime: 30 * 60 * 1000,
-    gcTime: 60 * 60 * 1000,
-    refetchOnMount: false,
-    refetchOnReconnect: false,
-    refetchOnWindowFocus: false,
-  });
+  const { profile: athleteProfile, refetch: refetchAthleteProfile } = useAthleteProfile();
 
   /** Normalize hr_zones/hr_zone_times into { z1..z5 } percentages for last-activity widget */
   const normalizeHrZones = (a: { hr_zones?: Record<string, number> | null; hr_zone_times?: number[] | null }) => {
@@ -408,10 +388,11 @@ export function useDashboardData() {
   const isSampleData = !hasRealReadiness && !hasRealActivities;
 
   const refetchAll = async () => {
-    const promises: Promise<unknown>[] = [];
-    promises.push(refetchActivities());
-    promises.push(refetchReadiness());
-    promises.push(refetchAthleteProfile());
+    const promises: Promise<unknown>[] = [
+      refetchActivities(),
+      refetchReadiness(),
+      refetchAthleteProfile(),
+    ];
     const results = await Promise.allSettled(promises);
     const hasRejected = results.some((r) => r.status === "rejected");
     if (hasRejected) {

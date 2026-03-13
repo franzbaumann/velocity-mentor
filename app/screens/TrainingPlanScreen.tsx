@@ -370,7 +370,10 @@ export const TrainingPlanScreen: FC = () => {
     return map;
   }, [weeks]);
 
-  if (isLoading || isRefetching) {
+  // Only show the blocking skeleton while the very first plan load is happening.
+  // Background refetches (e.g. after marking sessions done or generating coach notes)
+  // should keep showing the current plan to avoid jarring flashes.
+  if (isLoading && !plan?.plan) {
     return (
       <ScreenContainer contentContainerStyle={styles.content}>
         <Text style={styles.title}>Training plan</Text>

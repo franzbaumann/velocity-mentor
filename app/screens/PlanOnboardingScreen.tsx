@@ -9,8 +9,11 @@ import {
   Text,
   TextInput,
   TouchableOpacity,
+  TouchableWithoutFeedback,
   View,
+  Modal,
 } from "react-native";
+import { Picker } from "@react-native-picker/picker";
 import DateTimePicker, {
   AndroidEvent as DateTimePickerAndroidEvent,
 } from "@react-native-community/datetimepicker";
@@ -25,6 +28,7 @@ import { useTheme } from "../context/ThemeContext";
 import type { PlanStackParamList } from "../navigation/RootNavigator";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase } from "../shared/supabase";
 import { useDashboardData } from "../hooks/useDashboardData";
+import { useTrainingPlan } from "../hooks/useTrainingPlan";
 
 // --- Types mirrored from web Onboarding V2 ---
 
@@ -42,6 +46,7 @@ type OnboardingV2Answers = {
   daysPerWeek: number;
   sessionLength: string;
   schedulingNote: string;
+  preferredDays?: string[];
   injuries: string[];
   injuryDetail: string;
   experienceLevel: string;
@@ -92,6 +97,7 @@ const DEFAULT_ANSWERS: OnboardingV2Answers = {
   daysPerWeek: 0,
   sessionLength: "",
   schedulingNote: "",
+  preferredDays: [],
   injuries: [],
   injuryDetail: "",
   experienceLevel: "",
@@ -181,6 +187,7 @@ export const PlanOnboardingScreen: FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<PlanStackParamList>>();
   const { activities, readinessRows } = useDashboardData();
+  const { plan: existingPlan, isLoading: planCheckLoading } = useTrainingPlan();
 
   const [state, setState] = useState<OnboardingState>(DEFAULT_STATE);
   const [direction, setDirection] = useState<"forward" | "backward">("forward");
@@ -193,7 +200,15 @@ export const PlanOnboardingScreen: FC = () => {
 
   const [visibleAnalyseSteps, setVisibleAnalyseSteps] = useState(0);
   const [showRaceDatePicker, setShowRaceDatePicker] = useState(false);
+  const [planProgress, setPlanProgress] = useState(0);
   const [manualOverrideFitness, setManualOverrideFitness] = useState(false);
+  const [injurySeverity, setInjurySeverity] = useState<
+    "managing" | "flaring" | "cant_train" | null
+  >(null);
+
+  const goalHoursRef = useRef<TextInput | null>(null);
+  const goalMinutesRef = useRef<TextInput | null>(null);
+  const goalSecondsRef = useRef<TextInput | null>(null);
 
   // Swipe gesture for back/next
   const panResponder = useRef(
@@ -241,6 +256,28 @@ export const PlanOnboardingScreen: FC = () => {
       cancelled = true;
     };
   }, []);
+
+  // If the user already has an active training plan, skip onboarding entirely
+  useEffect(() => {
+    if (planCheckLoading || loadingSaved) return;
+    if (existingPlan?.plan && existingPlan.weeks.length > 0) {
+      AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
+      navigation.replace("PlanMain");
+    }
+  }, [planCheckLoading, loadingSaved, existingPlan, navigation]);
+
+  // If saved state is stuck on step 9 without required data, reset to step 1
+  useEffect(() => {
+    if (loadingSaved) return;
+    if (
+      state.currentStep === 9 &&
+      !state.selectedPhilosophy &&
+      !state.generatedPlan
+    ) {
+      AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
+      setState(DEFAULT_STATE);
+    }
+  }, [loadingSaved, state.currentStep, state.selectedPhilosophy, state.generatedPlan]);
 
   // Persist state
   useEffect(() => {
@@ -483,6 +520,9 @@ export const PlanOnboardingScreen: FC = () => {
     return () => clearInterval(id);
   }, [philoLoading, state.currentStep]);
 
+  // Sync goal time scroll position when entering step 3 (race details)
+  const GOAL_TIME_ROW_HEIGHT = 36;
+
   const handleSelectPhilosophy = (philosophy: string) => {
     setDirection("forward");
     setState((prev) => ({
@@ -498,6 +538,24 @@ export const PlanOnboardingScreen: FC = () => {
     setState((prev) => ({ ...prev, recommendedPhilosophy: null }));
     setPhiloError(null);
   };
+
+  // Fake determinate progress while plan is generating
+  useEffect(() => {
+    if (!planLoading) {
+      if (planProgress < 100) setPlanProgress(100);
+      return;
+    }
+    setPlanProgress(0);
+    const start = Date.now();
+    const targetMs = 15000; // ~15s to reach ~95%
+    const id = setInterval(() => {
+      const elapsed = Date.now() - start;
+      const ratio = Math.min(1, elapsed / targetMs);
+      const next = Math.min(95, Math.round(ratio * 100));
+      setPlanProgress((prev) => (next > prev ? next : prev));
+    }, 150);
+    return () => clearInterval(id);
+  }, [planLoading]);
 
   // --- Plan generation API (step 9) ---
   useEffect(() => {
@@ -571,6 +629,29 @@ export const PlanOnboardingScreen: FC = () => {
 
   const handleCompletePlan = async () => {
     await saveProfileToSupabase(state.answers, state.selectedPhilosophy);
+
+    try {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+
+      const planId = state.generatedPlan?.plan_id ?? null;
+
+      if (user && planId) {
+        await supabase
+          .from("training_plan")
+          .update({ is_active: false })
+          .eq("user_id", user.id);
+
+        await supabase
+          .from("training_plan")
+          .update({ is_active: true })
+          .eq("id", planId);
+      }
+    } catch (err) {
+      console.error("Onboarding mobile: failed to activate training plan", err);
+    }
+
     await AsyncStorage.removeItem(STORAGE_KEY);
     if (state.generatedPlan?.plan_id) {
       navigation.replace("PlanReady");
@@ -1206,24 +1287,11 @@ export const PlanOnboardingScreen: FC = () => {
         let previewPace: string | null = null;
         let previewDate: string | null = null;
         let weeksAway: number | null = null;
-        const [goalHours, goalMinutes, goalSeconds] = (() => {
-          const parts = (answers.goalTime || "").split(":");
-          return [parts[0] ?? "", parts[1] ?? "", parts[2] ?? ""];
-        })();
-
-        const handleTimePartChange = (part: "h" | "m" | "s", raw: string) => {
-          const clean = raw.replace(/[^\d]/g, "").slice(0, 2);
-          const parts = (answers.goalTime || "").split(":");
-          const curH = parts[0] ?? "";
-          const curM = parts[1] ?? "";
-          const curS = parts[2] ?? "";
-          const nextH = part === "h" ? clean : curH;
-          const nextM = part === "m" ? clean : curM;
-          const nextS = part === "s" ? clean : curS;
-          const pad = (v: string) => (v && v.length ? v.padStart(2, "0") : "00");
-          const final = `${pad(nextH)}:${pad(nextM)}:${pad(nextS)}`;
-          updateAnswers({ goalTime: final });
-        };
+        const parts = (answers.goalTime || "0:0:0").split(":").map((p) => parseInt(p || "0", 10));
+        const hNum = Math.min(23, Math.max(0, Number.isNaN(parts[0]) ? 0 : parts[0]));
+        const mNum = Math.min(59, Math.max(0, Number.isNaN(parts[1]) ? 0 : parts[1]));
+        const sNum = Math.min(59, Math.max(0, Number.isNaN(parts[2]) ? 0 : parts[2]));
+        const pad2 = (n: number) => String(n).padStart(2, "0");
         if (answers.goalTime && answers.raceDistance) {
           const totalSec = parseGoalTimeSeconds(answers.goalTime);
           const kmMap: Record<string, number> = {
@@ -1417,7 +1485,7 @@ export const PlanOnboardingScreen: FC = () => {
                 </TouchableOpacity>
               </View>
 
-              {/* Goal time */}
+              {/* Goal time – 3-column scroll picker (HH 0–23, MM/SS 0–59) */}
               <View
                 style={{
                   borderRadius: 18,
@@ -1430,13 +1498,7 @@ export const PlanOnboardingScreen: FC = () => {
                   shadowOffset: { width: 0, height: 3 },
                 }}
               >
-                <View
-                  style={{
-                    flexDirection: "row",
-                    alignItems: "center",
-                    marginBottom: 6,
-                  }}
-                >
+                <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 8 }}>
                   <Text
                     style={{
                       fontSize: 13,
@@ -1452,90 +1514,139 @@ export const PlanOnboardingScreen: FC = () => {
                       paddingHorizontal: 8,
                       paddingVertical: 2,
                       borderRadius: 999,
-                      backgroundColor: colors.card,
+                      backgroundColor: colors.background,
                     }}
                   >
-                    <Text
-                      style={{ fontSize: 10, color: colors.mutedForeground }}
-                    >
+                    <Text style={{ fontSize: 10, color: colors.mutedForeground }}>
                       optional
                     </Text>
                   </View>
                 </View>
                 <View
                   style={{
-                    flexDirection: "row",
-                    gap: 8,
-                    marginTop: 4,
+                    borderRadius: 16,
+                    backgroundColor: "#fff",
+                    shadowColor: "#000",
+                    shadowOpacity: 0.06,
+                    shadowRadius: 8,
+                    shadowOffset: { width: 0, height: 2 },
+                    paddingVertical: 8,
+                    paddingHorizontal: 8,
                   }}
                 >
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.label, { marginTop: 0, marginBottom: 2 }]}>
-                      HH
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}
+                  >
+                    {/* HH picker */}
+                    <View style={{ flex: 1, alignItems: "center" }}>
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: "600",
+                          color: colors.mutedForeground,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.5,
+                          marginBottom: 2,
+                        }}
+                      >
+                        HH
+                      </Text>
+                      <Picker
+                        selectedValue={hNum}
+                        onValueChange={(val) => {
+                          const h = Number(val) || 0;
+                          updateAnswers({ goalTime: `${pad2(h)}:${pad2(mNum)}:${pad2(sNum)}` });
+                        }}
+                        style={{ flex: 1, height: 180, width: "100%" }}
+                        itemStyle={{ fontSize: 22, color: "#000" }}
+                      >
+                        {Array.from({ length: 24 }, (_, i) => (
+                          <Picker.Item key={i} label={pad2(i)} value={i} />
+                        ))}
+                      </Picker>
+                    </View>
+                    <Text
+                      style={{
+                        paddingHorizontal: 4,
+                        fontSize: 22,
+                        fontWeight: "700",
+                        color: colors.mutedForeground,
+                      }}
+                    >
+                      :
                     </Text>
-                    <TextInput
-                      keyboardType="number-pad"
-                      style={[
-                        styles.input,
-                        {
-                          height: 48,
-                          fontSize: 15,
-                          textAlign: "center",
-                        },
-                      ]}
-                      value={goalHours}
-                      onChangeText={(v) => handleTimePartChange("h", v)}
-                      placeholder="00"
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.label, { marginTop: 0, marginBottom: 2 }]}>
-                      MM
+                    {/* MM picker */}
+                    <View style={{ flex: 1, alignItems: "center" }}>
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: "600",
+                          color: colors.mutedForeground,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.5,
+                          marginBottom: 2,
+                        }}
+                      >
+                        MM
+                      </Text>
+                      <Picker
+                        selectedValue={mNum}
+                        onValueChange={(val) => {
+                          const m = Number(val) || 0;
+                          updateAnswers({ goalTime: `${pad2(hNum)}:${pad2(m)}:${pad2(sNum)}` });
+                        }}
+                        style={{ flex: 1, height: 180, width: "100%" }}
+                        itemStyle={{ fontSize: 22, color: "#000" }}
+                      >
+                        {Array.from({ length: 60 }, (_, i) => (
+                          <Picker.Item key={i} label={pad2(i)} value={i} />
+                        ))}
+                      </Picker>
+                    </View>
+                    <Text
+                      style={{
+                        paddingHorizontal: 4,
+                        fontSize: 22,
+                        fontWeight: "700",
+                        color: colors.mutedForeground,
+                      }}
+                    >
+                      :
                     </Text>
-                    <TextInput
-                      keyboardType="number-pad"
-                      style={[
-                        styles.input,
-                        {
-                          height: 48,
-                          fontSize: 15,
-                          textAlign: "center",
-                        },
-                      ]}
-                      value={goalMinutes}
-                      onChangeText={(v) => handleTimePartChange("m", v)}
-                      placeholder="00"
-                    />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={[styles.label, { marginTop: 0, marginBottom: 2 }]}>
-                      SS
-                    </Text>
-                    <TextInput
-                      keyboardType="number-pad"
-                      style={[
-                        styles.input,
-                        {
-                          height: 48,
-                          fontSize: 15,
-                          textAlign: "center",
-                        },
-                      ]}
-                      value={goalSeconds}
-                      onChangeText={(v) => handleTimePartChange("s", v)}
-                      placeholder="00"
-                    />
+                    {/* SS picker */}
+                    <View style={{ flex: 1, alignItems: "center" }}>
+                      <Text
+                        style={{
+                          fontSize: 10,
+                          fontWeight: "600",
+                          color: colors.mutedForeground,
+                          textTransform: "uppercase",
+                          letterSpacing: 0.5,
+                          marginBottom: 2,
+                        }}
+                      >
+                        SS
+                      </Text>
+                      <Picker
+                        selectedValue={sNum}
+                        onValueChange={(val) => {
+                          const s = Number(val) || 0;
+                          updateAnswers({ goalTime: `${pad2(hNum)}:${pad2(mNum)}:${pad2(s)}` });
+                        }}
+                        style={{ flex: 1, height: 180, width: "100%" }}
+                        itemStyle={{ fontSize: 22, color: "#000" }}
+                      >
+                        {Array.from({ length: 60 }, (_, i) => (
+                          <Picker.Item key={i} label={pad2(i)} value={i} />
+                        ))}
+                      </Picker>
+                    </View>
                   </View>
                 </View>
-                <Text
-                  style={{
-                    fontSize: 11,
-                    color: colors.mutedForeground,
-                    marginTop: 4,
-                  }}
-                >
-                  Enter your target finish time
-                </Text>
               </View>
 
               {/* Tell me more */}
@@ -1571,30 +1682,68 @@ export const PlanOnboardingScreen: FC = () => {
                 Skip — I don&apos;t have a race yet
               </Text>
             </View>
-            {showRaceDatePicker && (
-              <DateTimePicker
-                mode="date"
-                display={Platform.OS === "ios" ? "spinner" : "default"}
-                value={
-                  answers.raceDate && !Number.isNaN(new Date(answers.raceDate).getTime())
-                    ? new Date(answers.raceDate)
-                    : new Date()
-                }
-                onChange={(event, date) => {
-                  const e = event as DateTimePickerAndroidEvent;
-                  if (Platform.OS === "android") {
+            {showRaceDatePicker &&
+              (Platform.OS === "ios" ? (
+                <Modal transparent animationType="fade" visible>
+                  <TouchableWithoutFeedback onPress={() => setShowRaceDatePicker(false)}>
+                    <View
+                      style={{
+                        flex: 1,
+                        justifyContent: "flex-end",
+                        backgroundColor: "rgba(0,0,0,0.15)",
+                      }}
+                    >
+                      <TouchableWithoutFeedback onPress={() => {}}>
+                        <View
+                          style={{
+                            backgroundColor: colors.background,
+                            paddingBottom: 24,
+                            paddingTop: 8,
+                          }}
+                        >
+                          <DateTimePicker
+                            mode="date"
+                            display="spinner"
+                            value={
+                              answers.raceDate &&
+                              !Number.isNaN(new Date(answers.raceDate).getTime())
+                                ? new Date(answers.raceDate)
+                                : new Date()
+                            }
+                            onChange={(event, date) => {
+                              if (date) {
+                                updateAnswers({ raceDate: format(date, "yyyy-MM-dd") });
+                              }
+                            }}
+                          />
+                        </View>
+                      </TouchableWithoutFeedback>
+                    </View>
+                  </TouchableWithoutFeedback>
+                </Modal>
+              ) : (
+                <DateTimePicker
+                  mode="date"
+                  display="default"
+                  value={
+                    answers.raceDate && !Number.isNaN(new Date(answers.raceDate).getTime())
+                      ? new Date(answers.raceDate)
+                      : new Date()
+                  }
+                  onChange={(event, date) => {
+                    const e = event as DateTimePickerAndroidEvent;
                     if (e.type === "dismissed") {
                       setShowRaceDatePicker(false);
                       return;
                     }
                     setShowRaceDatePicker(false);
-                  }
-                  if (date) {
-                    updateAnswers({ raceDate: format(date, "yyyy-MM-dd") });
-                  }
-                }}
-              />
-            )}
+                    if (date) {
+                      updateAnswers({ raceDate: format(date, "yyyy-MM-dd") });
+                    }
+                  }}
+                />
+              ))}
+
           </>
         );
       }
@@ -1606,54 +1755,347 @@ export const PlanOnboardingScreen: FC = () => {
             {showDataCard ? (
               <>
                 <GlassCard>
-                  <Text style={[styles.label, { marginTop: 0 }]}>Your current fitness</Text>
-                  {currentStats.ctl != null && (
-                    <View style={styles.fitnessCardRow}>
-                      <Text style={styles.fitnessCardLabel}>CTL (Fitness)</Text>
-                      <Text style={styles.fitnessCardValue}>{Math.round(currentStats.ctl)}</Text>
+                  {/* Header row */}
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      alignItems: "center",
+                      marginBottom: 12,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        letterSpacing: 1,
+                        textTransform: "uppercase",
+                        color: colors.mutedForeground,
+                        fontWeight: "600",
+                      }}
+                    >
+                      Your current fitness
+                    </Text>
+                    <View style={{ flexDirection: "row", alignItems: "center" }}>
+                      <View
+                        style={{
+                          width: 8,
+                          height: 8,
+                          borderRadius: 4,
+                          backgroundColor: "#22c55e",
+                          marginRight: 6,
+                        }}
+                      />
+                      <Text style={{ fontSize: 11, color: colors.mutedForeground }}>
+                        Live from intervals.icu
+                      </Text>
                     </View>
+                  </View>
+
+                  {/* Data rows */}
+                  {currentStats.ctl != null && (
+                    <>
+                      <View style={styles.fitnessCardRow}>
+                        <Text style={styles.fitnessCardLabel}>🏃 CTL (Fitness)</Text>
+                        <Text style={styles.fitnessCardValue}>
+                          {Math.round(currentStats.ctl)}
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          height: 1,
+                          backgroundColor: colors.border,
+                          marginVertical: 6,
+                          opacity: 0.4,
+                        }}
+                      />
+                    </>
                   )}
                   {currentStats.weeklyKm != null && (
-                    <View style={styles.fitnessCardRow}>
-                      <Text style={styles.fitnessCardLabel}>Weekly avg</Text>
-                      <Text style={styles.fitnessCardValue}>{currentStats.weeklyKm} km</Text>
-                    </View>
+                    <>
+                      <View style={styles.fitnessCardRow}>
+                        <Text style={styles.fitnessCardLabel}>📅 Weekly avg (4 weeks)</Text>
+                        <Text style={styles.fitnessCardValue}>
+                          {currentStats.weeklyKm} km
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          height: 1,
+                          backgroundColor: colors.border,
+                          marginVertical: 6,
+                          opacity: 0.4,
+                        }}
+                      />
+                    </>
+                  )}
+                  {currentStats.yearlyWeeklyKm != null && (
+                    <>
+                      <View style={styles.fitnessCardRow}>
+                        <Text style={styles.fitnessCardLabel}>📅 Weekly avg (last year)</Text>
+                        <Text style={styles.fitnessCardValue}>
+                          {currentStats.yearlyWeeklyKm} km
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          height: 1,
+                          backgroundColor: colors.border,
+                          marginVertical: 6,
+                          opacity: 0.4,
+                        }}
+                      />
+                    </>
                   )}
                   {currentStats.lastRunLabel && (
-                    <View style={styles.fitnessCardRow}>
-                      <Text style={styles.fitnessCardLabel}>Last run</Text>
-                      <Text style={styles.fitnessCardValue}>{currentStats.lastRunLabel}</Text>
+                    <>
+                      <View style={styles.fitnessCardRow}>
+                        <Text style={styles.fitnessCardLabel}>🕐 Last run</Text>
+                        <Text style={styles.fitnessCardValue}>
+                          {currentStats.lastRunLabel}
+                        </Text>
+                      </View>
+                      <View
+                        style={{
+                          height: 1,
+                          backgroundColor: colors.border,
+                          marginVertical: 6,
+                          opacity: 0.4,
+                        }}
+                      />
+                    </>
+                  )}
+                  <View style={styles.fitnessCardRow}>
+                    <Text style={styles.fitnessCardLabel}>📈 Total runs</Text>
+                    <Text style={styles.fitnessCardValue}>
+                      {currentStats.totalRuns?.toLocaleString() ?? "—"}
+                    </Text>
+                  </View>
+
+                  {/* PB chips */}
+                  {(currentStats.pb5k ||
+                    currentStats.pb10k ||
+                    currentStats.pbHalf ||
+                    currentStats.pbMarathon) && (
+                    <View style={{ marginTop: 10 }}>
+                      <Text style={[styles.fitnessCardLabel, { marginBottom: 4 }]}>
+                        🏆 Personal bests
+                      </Text>
+                      <View style={{ flexDirection: "row", flexWrap: "wrap", gap: 6 }}>
+                        {currentStats.pb5k && (
+                          <View
+                            style={{
+                              paddingHorizontal: 10,
+                              paddingVertical: 4,
+                              borderRadius: 999,
+                              backgroundColor: "#e0edff",
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, color: "#1d4ed8" }}>
+                              5K {currentStats.pb5k}
+                            </Text>
+                          </View>
+                        )}
+                        {currentStats.pb10k && (
+                          <View
+                            style={{
+                              paddingHorizontal: 10,
+                              paddingVertical: 4,
+                              borderRadius: 999,
+                              backgroundColor: "#dcfce7",
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, color: "#15803d" }}>
+                              10K {currentStats.pb10k}
+                            </Text>
+                          </View>
+                        )}
+                        {currentStats.pbHalf && (
+                          <View
+                            style={{
+                              paddingHorizontal: 10,
+                              paddingVertical: 4,
+                              borderRadius: 999,
+                              backgroundColor: "#fee2e2",
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, color: "#b91c1c" }}>
+                              Half {currentStats.pbHalf}
+                            </Text>
+                          </View>
+                        )}
+                        {currentStats.pbMarathon && (
+                          <View
+                            style={{
+                              paddingHorizontal: 10,
+                              paddingVertical: 4,
+                              borderRadius: 999,
+                              backgroundColor: "#fef9c3",
+                            }}
+                          >
+                            <Text style={{ fontSize: 11, color: "#854d0e" }}>
+                              Marathon {currentStats.pbMarathon}
+                            </Text>
+                          </View>
+                        )}
+                      </View>
                     </View>
                   )}
-                  {currentStats.bestPace && (
-                    <View style={styles.fitnessCardRow}>
-                      <Text style={styles.fitnessCardLabel}>Best recent</Text>
-                      <Text style={styles.fitnessCardValue}>{currentStats.bestPace}</Text>
-                    </View>
-                  )}
-                  <Text style={[styles.smallMuted, { marginTop: 8 }]}>Pulled from intervals.icu</Text>
+
+                  <Text
+                    style={{
+                      fontSize: 11,
+                      color: colors.mutedForeground,
+                      marginTop: 10,
+                    }}
+                  >
+                    📊 Pulled from intervals.icu
+                  </Text>
                 </GlassCard>
+
+                {/* This looks wrong pill */}
                 <TouchableOpacity
                   onPress={() => setManualOverrideFitness(true)}
-                  activeOpacity={0.8}
-                  style={{ marginTop: 8 }}
+                  activeOpacity={0.85}
+                  style={{
+                    alignSelf: "flex-start",
+                    marginTop: 12,
+                    paddingHorizontal: 12,
+                    paddingVertical: 6,
+                    borderRadius: 999,
+                    backgroundColor: colors.card,
+                    flexDirection: "row",
+                    alignItems: "center",
+                    shadowColor: "#000",
+                    shadowOpacity: 0.03,
+                    shadowRadius: 6,
+                    shadowOffset: { width: 0, height: 2 },
+                  }}
                 >
-                  <Text style={[styles.smallMuted, { textDecorationLine: "underline" }]}>
-                    This looks wrong →
+                  <Text style={{ marginRight: 6 }}>⚠️</Text>
+                  <Text style={{ fontSize: 12, color: colors.mutedForeground }}>
+                    This looks wrong — tap to edit manually
                   </Text>
                 </TouchableOpacity>
-                <Text style={[styles.subtitle, { marginTop: 16 }]}>
-                  Your data looks good. Anything I should know that the numbers don&apos;t show?
-                </Text>
-                <GlassCard>
-                  <TextInput
-                    style={styles.textArea}
-                    multiline
-                    value={answers.currentFitnessNote}
-                    onChangeText={(v) => updateAnswers({ currentFitnessNote: v })}
-                    placeholder="E.g. I've been running 4x per week, easy runs feel comfortable at 5:30/km, but my left calf has been tight lately..."
-                  />
-                </GlassCard>
+
+                {/* Free text section */}
+                <View style={{ marginTop: 20 }}>
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "600",
+                      color: colors.foreground,
+                      marginBottom: 4,
+                    }}
+                  >
+                    Anything the numbers don&apos;t show?
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 12,
+                      color: colors.mutedForeground,
+                      marginBottom: 10,
+                    }}
+                  >
+                    Injuries, recent illness, time off — tell me everything.
+                  </Text>
+
+                  <View
+                    style={{
+                      borderRadius: 18,
+                      backgroundColor: colors.card,
+                      paddingHorizontal: 14,
+                      paddingVertical: 12,
+                      shadowColor: "#000",
+                      shadowOpacity: 0.04,
+                      shadowRadius: 10,
+                      shadowOffset: { width: 0, height: 3 },
+                    }}
+                  >
+                    <TextInput
+                      style={[
+                        styles.textArea,
+                        {
+                          minHeight: 160,
+                          marginTop: 0,
+                          borderWidth: 0,
+                          paddingHorizontal: 0,
+                          paddingVertical: 0,
+                        },
+                      ]}
+                      multiline
+                      maxLength={500}
+                      value={answers.currentFitnessNote}
+                      onChangeText={(v) => updateAnswers({ currentFitnessNote: v })}
+                      placeholder="E.g. I've been running 4x per week, easy runs feel comfortable at 5:30/km, but my left calf has been tight lately..."
+                    />
+                    {/* Suggestion chips (purely visual tap helpers) */}
+                    <View
+                      style={{
+                        flexDirection: "row",
+                        flexWrap: "wrap",
+                        gap: 6,
+                        marginTop: 8,
+                      }}
+                    >
+                      {["Recent injury", "Took time off", "Feeling strong"].map((s) => (
+                        <TouchableOpacity
+                          key={s}
+                          activeOpacity={0.8}
+                          onPress={() =>
+                            updateAnswers({ currentFitnessNote: s })
+                          }
+                          style={{
+                            paddingHorizontal: 10,
+                            paddingVertical: 4,
+                            borderRadius: 999,
+                            backgroundColor: colors.card,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: colors.border,
+                          }}
+                        >
+                          <Text
+                            style={{ fontSize: 11, color: colors.mutedForeground }}
+                          >
+                            {s}
+                          </Text>
+                        </TouchableOpacity>
+                      ))}
+                    </View>
+                    <Text
+                      style={{
+                        fontSize: 11,
+                        color: colors.mutedForeground,
+                        marginTop: 6,
+                        textAlign: "right",
+                      }}
+                    >
+                      {(answers.currentFitnessNote?.length ?? 0)}/500
+                    </Text>
+                  </View>
+
+                  {/* Motivational footer */}
+                  <View
+                    style={{
+                      marginTop: 14,
+                      borderRadius: 14,
+                      backgroundColor: "#fef9c3",
+                      paddingHorizontal: 12,
+                      paddingVertical: 8,
+                      flexDirection: "row",
+                      alignItems: "center",
+                    }}
+                  >
+                    <Text style={{ marginRight: 8 }}>💡</Text>
+                    <Text
+                      style={{
+                        fontSize: 12,
+                        color: "#854d0e",
+                      }}
+                    >
+                      The more context you give, the better your plan will be.
+                    </Text>
+                  </View>
+                </View>
               </>
             ) : (
               <>
@@ -1754,83 +2196,383 @@ export const PlanOnboardingScreen: FC = () => {
             <Text style={styles.subtitle}>
               Be honest — consistency beats ambitious plans that fall apart.
             </Text>
-            <GlassCard>
-              <Text style={styles.label}>Days per week</Text>
-              <View style={{ flexDirection: "row", gap: 12, marginTop: 4 }}>
-                {[3, 4, 5, 6, 7].map((d) => (
-                  <TouchableOpacity
-                    key={d}
-                    activeOpacity={0.85}
-                    style={[
-                      {
-                        width: 72,
-                        height: 72,
-                        borderRadius: 16,
+            <View style={{ gap: 20, marginTop: 8 }}>
+              {/* Days per week */}
+              <View
+                style={{
+                  borderRadius: 18,
+                  backgroundColor: colors.card,
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  shadowColor: "#000",
+                  shadowOpacity: 0.04,
+                  shadowRadius: 8,
+                  shadowOffset: { width: 0, height: 3 },
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 11,
+                    letterSpacing: 1,
+                    textTransform: "uppercase",
+                    color: colors.mutedForeground,
+                    fontWeight: "600",
+                    marginBottom: 8,
+                  }}
+                >
+                  Days per week
+                </Text>
+                <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
+                  {[3, 4, 5, 6, 7].map((d) => {
+                    const selected = answers.daysPerWeek === d;
+                    const label =
+                      d === 3
+                        ? "Beginner"
+                        : d === 4
+                        ? "Moderate"
+                        : d === 5
+                        ? "Standard"
+                        : d === 6
+                        ? "Committed"
+                        : "Elite";
+                    return (
+                      <TouchableOpacity
+                        key={d}
+                        activeOpacity={0.85}
+                        style={{
+                          width: 72,
+                          height: 90,
+                          borderRadius: 18,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderWidth: StyleSheet.hairlineWidth,
+                          borderColor: selected ? "transparent" : colors.border,
+                          backgroundColor: selected ? colors.primary : colors.card,
+                          shadowColor: selected ? colors.primary : "transparent",
+                          shadowOpacity: selected ? 0.16 : 0,
+                          shadowRadius: selected ? 10 : 0,
+                          shadowOffset: selected
+                            ? { width: 0, height: 4 }
+                            : { width: 0, height: 0 },
+                        }}
+                        onPress={() => updateAnswers({ daysPerWeek: d })}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 32,
+                            fontWeight: "700",
+                            color: selected ? colors.primaryForeground : colors.foreground,
+                          }}
+                        >
+                          {d}
+                        </Text>
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            color: selected ? colors.primaryForeground : colors.mutedForeground,
+                            marginTop: 2,
+                          }}
+                        >
+                          {label}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+              </View>
+
+              {/* Longest session */}
+              <View
+                style={{
+                  borderRadius: 18,
+                  backgroundColor: colors.card,
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  shadowColor: "#000",
+                  shadowOpacity: 0.04,
+                  shadowRadius: 8,
+                  shadowOffset: { width: 0, height: 3 },
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 11,
+                    letterSpacing: 1,
+                    textTransform: "uppercase",
+                    color: colors.mutedForeground,
+                    fontWeight: "600",
+                    marginBottom: 8,
+                  }}
+                >
+                  Longest session
+                </Text>
+                {[
+                  { id: "45", label: "45 min", desc: "Short & sharp", icon: "⏱️" },
+                  { id: "60", label: "1 hour", desc: "Standard session", icon: "🏃" },
+                  { id: "90", label: "90 min", desc: "Quality training", icon: "💪" },
+                  { id: "120", label: "2+ hours", desc: "Long run ready", icon: "🔥" },
+                ].map((opt) => {
+                  const selected = answers.sessionLength === opt.id;
+                  return (
+                    <TouchableOpacity
+                      key={opt.id}
+                      activeOpacity={0.85}
+                      onPress={() => updateAnswers({ sessionLength: opt.id })}
+                      style={{
+                        flexDirection: "row",
                         alignItems: "center",
-                        justifyContent: "center",
+                        paddingVertical: 10,
+                        borderRadius: 12,
                         borderWidth: StyleSheet.hairlineWidth,
-                        borderColor:
-                          answers.daysPerWeek === d ? colors.primary : colors.border,
-                        backgroundColor:
-                          answers.daysPerWeek === d ? colors.primary : colors.card,
-                      },
-                    ]}
-                    onPress={() => updateAnswers({ daysPerWeek: d })}
-                  >
-                    <Text
-                      style={[
-                        {
-                          fontSize: 20,
-                          fontWeight: "700",
-                          color:
-                            answers.daysPerWeek === d
+                        borderColor: selected ? "transparent" : colors.border,
+                        backgroundColor: selected ? "#e5f0ff" : colors.card,
+                        marginTop: 4,
+                      }}
+                    >
+                      <View
+                        style={{
+                          width: 4,
+                          height: "100%",
+                          borderRadius: 999,
+                          backgroundColor: selected ? colors.primary : "transparent",
+                          marginRight: 10,
+                        }}
+                      />
+                      <Text style={{ fontSize: 20, marginRight: 10 }}>{opt.icon}</Text>
+                      <View style={{ flex: 1 }}>
+                        <Text
+                          style={{
+                            fontSize: 14,
+                            fontWeight: "600",
+                            color: colors.foreground,
+                          }}
+                        >
+                          {opt.label}
+                        </Text>
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            color: colors.mutedForeground,
+                            marginTop: 2,
+                          }}
+                        >
+                          {opt.desc}
+                        </Text>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+
+              {/* Preferred days */}
+              <View
+                style={{
+                  borderRadius: 18,
+                  backgroundColor: colors.card,
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  shadowColor: "#000",
+                  shadowOpacity: 0.04,
+                  shadowRadius: 8,
+                  shadowOffset: { width: 0, height: 3 },
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 11,
+                    letterSpacing: 1,
+                    textTransform: "uppercase",
+                    color: colors.mutedForeground,
+                    fontWeight: "600",
+                    marginBottom: 8,
+                  }}
+                >
+                  Preferred days
+                </Text>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    justifyContent: "space-between",
+                    marginBottom: 4,
+                  }}
+                >
+                  {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => {
+                    const selected = answers.preferredDays?.includes(d);
+                    return (
+                      <TouchableOpacity
+                        key={d}
+                        activeOpacity={0.85}
+                        onPress={() => {
+                          const current = answers.preferredDays ?? [];
+                          const next = current.includes(d)
+                            ? current.filter((x) => x !== d)
+                            : [...current, d];
+                          updateAnswers({ preferredDays: next });
+                        }}
+                        style={{
+                          width: 44,
+                          height: 44,
+                          borderRadius: 22,
+                          alignItems: "center",
+                          justifyContent: "center",
+                          borderWidth: StyleSheet.hairlineWidth,
+                          borderColor: selected ? "transparent" : colors.border,
+                          backgroundColor: selected ? colors.primary : colors.card,
+                        }}
+                      >
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            fontWeight: "600",
+                            color: selected
                               ? colors.primaryForeground
                               : colors.mutedForeground,
-                        },
-                      ]}
+                          }}
+                        >
+                          {d}
+                        </Text>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </View>
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: colors.mutedForeground,
+                  }}
+                >
+                  We&apos;ll try to schedule sessions on these days.
+                </Text>
+              </View>
+
+              {/* Scheduling constraints */}
+              <View
+                style={{
+                  borderRadius: 18,
+                  backgroundColor: colors.card,
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  shadowColor: "#000",
+                  shadowOpacity: 0.04,
+                  shadowRadius: 8,
+                  shadowOffset: { width: 0, height: 3 },
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 15,
+                    fontWeight: "600",
+                    color: colors.foreground,
+                    marginBottom: 4,
+                  }}
+                >
+                  Any scheduling constraints?
+                </Text>
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: colors.mutedForeground,
+                    marginBottom: 10,
+                  }}
+                >
+                  Travel, work shifts, kids — anything that affects your week.
+                </Text>
+                <View
+                  style={{
+                    borderRadius: 16,
+                    backgroundColor: colors.background,
+                    paddingHorizontal: 12,
+                    paddingVertical: 10,
+                    minHeight: 120,
+                    justifyContent: "flex-start",
+                  }}
+                >
+                  <TextInput
+                    style={{
+                      fontSize: 14,
+                      color: colors.foreground,
+                      flexGrow: 1,
+                      textAlignVertical: "top",
+                    }}
+                    multiline
+                    value={answers.schedulingNote}
+                    onChangeText={(v) => updateAnswers({ schedulingNote: v })}
+                    placeholder="E.g. I travel often, long runs only on Sundays, early mornings work best..."
+                    placeholderTextColor={colors.mutedForeground}
+                  />
+                </View>
+                <View
+                  style={{
+                    flexDirection: "row",
+                    flexWrap: "wrap",
+                    gap: 8,
+                    marginTop: 10,
+                  }}
+                >
+                  {[
+                    "Travel often",
+                    "Night shifts",
+                    "Weekends only",
+                    "Early mornings",
+                  ].map((chip) => (
+                    <TouchableOpacity
+                      key={chip}
+                      activeOpacity={0.85}
+                      onPress={() => {
+                        const current = answers.schedulingNote ?? "";
+                        if (!current) {
+                          updateAnswers({ schedulingNote: chip });
+                          return;
+                        }
+                        if (current.includes(chip)) return;
+                        const separator = current.trim().endsWith(".") ? " " : " ";
+                        updateAnswers({
+                          schedulingNote: `${current.trim()}${separator}${chip}`,
+                        });
+                      }}
+                      style={{
+                        borderRadius: 999,
+                        paddingHorizontal: 10,
+                        paddingVertical: 6,
+                        backgroundColor: "#eef2ff",
+                      }}
                     >
-                      {d}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+                      <Text
+                        style={{
+                          fontSize: 12,
+                          color: "#4f46e5",
+                          fontWeight: "500",
+                        }}
+                      >
+                        {chip}
+                      </Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
               </View>
-              <Text style={styles.label}>Longest session available</Text>
-              <View style={styles.row}>
-                {[
-                  { id: "45", label: "45 min" },
-                  { id: "60", label: "1 hour" },
-                  { id: "90", label: "90 min" },
-                  { id: "120", label: "2+ hours" },
-                ].map((s) => (
-                  <TouchableOpacity
-                    key={s.id}
-                    activeOpacity={0.85}
-                    style={[
-                      styles.pill,
-                      answers.sessionLength === s.id && styles.pillSelected,
-                    ]}
-                    onPress={() => updateAnswers({ sessionLength: s.id })}
-                  >
-                    <Text
-                      style={[
-                        styles.pillText,
-                        answers.sessionLength === s.id && { color: colors.primaryForeground },
-                      ]}
-                    >
-                      {s.label}
-                    </Text>
-                  </TouchableOpacity>
-                ))}
+
+              {/* Motivational card */}
+              <View
+                style={{
+                  borderRadius: 20,
+                  backgroundColor: "#e0f2fe",
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 13,
+                    color: "#0f172a",
+                    fontStyle: "italic",
+                    textAlign: "center",
+                  }}
+                >
+                  💡 Consistency beats perfection. An honest plan you follow beats an
+                  ambitious one you don&apos;t.
+                </Text>
               </View>
-              <View style={{ marginTop: 12 }}>
-                <ExpandableText
-                  label="Any scheduling constraints?"
-                  value={answers.schedulingNote}
-                  onChange={(v) => updateAnswers({ schedulingNote: v })}
-                  placeholder="E.g. I travel for work every other week, long runs only on Sundays..."
-                />
-              </View>
-            </GlassCard>
+            </View>
           </>
         );
       case 6: {
@@ -1861,35 +2603,69 @@ export const PlanOnboardingScreen: FC = () => {
             <Text style={styles.subtitle}>
               This shapes your plan more than anything else. Don&apos;t minimise it.
             </Text>
-            <GlassCard>
-              <View style={{ flexDirection: "row", flexWrap: "wrap", columnGap: 8, rowGap: 8 }}>
+            <View style={{ gap: 20, marginTop: 8 }}>
+              {/* Injury cards grid */}
+              <View
+                style={{
+                  flexDirection: "row",
+                  flexWrap: "wrap",
+                  justifyContent: "space-between",
+                  rowGap: 16,
+                }}
+              >
                 {INJURIES.map((inj) => {
                   const selected = answers.injuries.includes(inj.id);
+                  const isNone = inj.id === "none";
+                  const subtitle =
+                    inj.id === "achilles"
+                      ? "Heel & lower leg"
+                      : inj.id === "shin"
+                      ? "Front of lower leg"
+                      : inj.id === "knee"
+                      ? "Around the kneecap"
+                      : inj.id === "hip"
+                      ? "Hip & groin area"
+                      : inj.id === "plantar"
+                      ? "Bottom of foot"
+                      : inj.id === "it_band"
+                      ? "Outer knee & thigh"
+                      : inj.id === "stress_fracture"
+                      ? "Bone stress injury"
+                      : inj.id === "back"
+                      ? "Lower or upper back"
+                      : "";
+                  const baseBorderColor = isNone ? "#16a34a33" : colors.border;
+                  const selectedBorderColor = isNone ? "#16a34a" : "#f97316";
+                  const selectedBg = isNone ? "#dcfce7" : "#fef2f2";
+                  const cardStyle = {
+                    minHeight: 100,
+                    borderRadius: 18,
+                    paddingVertical: 16,
+                    paddingHorizontal: 16,
+                    borderWidth: StyleSheet.hairlineWidth,
+                    borderColor: selected ? selectedBorderColor : baseBorderColor,
+                    backgroundColor: selected ? selectedBg : colors.card,
+                    shadowColor: "#000",
+                    shadowOpacity: selected ? 0.06 : 0.02,
+                    shadowRadius: selected ? 10 : 6,
+                    shadowOffset: { width: 0, height: 3 },
+                  } as const;
                   return (
                     <TouchableOpacity
                       key={inj.id}
-                      activeOpacity={0.85}
+                      activeOpacity={0.9}
                       style={[
+                        cardStyle,
                         {
-                          flexBasis: inj.id === "none" ? "100%" : "48%",
-                          borderRadius: 14,
-                          paddingVertical: 10,
-                          paddingHorizontal: 12,
-                          borderWidth: StyleSheet.hairlineWidth,
-                          borderColor: colors.border,
-                          backgroundColor: colors.card,
-                          flexDirection: "row",
-                          alignItems: "center",
-                          gap: 8,
-                        },
-                        selected && {
-                          borderColor: inj.id === "none" ? "#22c55e" : colors.primary,
-                          backgroundColor:
-                            inj.id === "none" ? "#22c55e1a" : colors.primary + "14",
+                          width: isNone ? "100%" : "48%",
+                          flexDirection: "column",
+                          alignItems: "flex-start",
+                          justifyContent: "flex-start",
                         },
                       ]}
                       onPress={() => {
-                        if (inj.id === "none") {
+                        if (isNone) {
+                          setInjurySeverity(null);
                           updateAnswers({ injuries: ["none"], injuryDetail: "" });
                           return;
                         }
@@ -1897,139 +2673,340 @@ export const PlanOnboardingScreen: FC = () => {
                         const next = current.includes(inj.id)
                           ? current.filter((i) => i !== inj.id)
                           : [...current, inj.id];
+                        if (!next.length) {
+                          setInjurySeverity(null);
+                        }
                         updateAnswers({ injuries: next.length ? next : [] });
                       }}
                     >
-                      <Text style={{ fontSize: 18 }}>{inj.icon}</Text>
+                      <Text style={{ fontSize: 32, marginBottom: 8 }}>{inj.icon}</Text>
                       <Text
-                        style={[
-                          styles.pillText,
-                          selected && { color: inj.id === "none" ? "#22c55e" : colors.foreground },
-                        ]}
+                        style={{
+                          fontSize: 15,
+                          fontWeight: "600",
+                          color: isNone ? "#166534" : colors.foreground,
+                          marginBottom: subtitle ? 2 : 0,
+                        }}
                       >
                         {inj.label}
                       </Text>
+                      {subtitle ? (
+                        <Text
+                          style={{
+                            fontSize: 12,
+                            color: colors.mutedForeground,
+                          }}
+                        >
+                          {subtitle}
+                        </Text>
+                      ) : null}
                     </TouchableOpacity>
                   );
                 })}
               </View>
+
+              {/* Severity selector */}
               {hasInjury && (
-                <>
-                  <Text style={styles.label}>{injuryPrompt}</Text>
-                  <TextInput
-                    style={styles.textArea}
-                    multiline
+                <View
+                  style={{
+                    borderRadius: 18,
+                    backgroundColor: colors.card,
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    shadowColor: "#000",
+                    shadowOpacity: 0.04,
+                    shadowRadius: 8,
+                    shadowOffset: { width: 0, height: 3 },
+                    gap: 10,
+                  }}
+                >
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "600",
+                      color: colors.foreground,
+                    }}
+                  >
+                    How is it right now?
+                  </Text>
+                  <View
+                    style={{
+                      flexDirection: "row",
+                      justifyContent: "space-between",
+                      gap: 8,
+                    }}
+                  >
+                    {[
+                      { id: "managing" as const, label: "Managing it", color: "#22c55e", icon: "🟢" },
+                      { id: "flaring" as const, label: "Flaring up", color: "#eab308", icon: "🟡" },
+                      {
+                        id: "cant_train" as const,
+                        label: "Can't train",
+                        color: "#ef4444",
+                        icon: "🔴",
+                      },
+                    ].map((opt) => {
+                      const selected = injurySeverity === opt.id;
+                      return (
+                        <TouchableOpacity
+                          key={opt.id}
+                          activeOpacity={0.9}
+                          onPress={() => setInjurySeverity(opt.id)}
+                          style={{
+                            flex: 1,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "center",
+                            paddingVertical: 8,
+                            borderRadius: 999,
+                            borderWidth: StyleSheet.hairlineWidth,
+                            borderColor: selected ? opt.color : colors.border,
+                            backgroundColor: selected ? opt.color + "1A" : colors.card,
+                          }}
+                        >
+                          <Text style={{ marginRight: 4 }}>{opt.icon}</Text>
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              fontWeight: "600",
+                              color: selected ? "#111827" : colors.foreground,
+                            }}
+                          >
+                            {opt.label}
+                          </Text>
+                        </TouchableOpacity>
+                      );
+                    })}
+                  </View>
+                </View>
+              )}
+
+              {/* Tell me more expandable section */}
+              {hasInjury && (
+                <View
+                  style={{
+                    borderRadius: 18,
+                    backgroundColor: colors.card,
+                    paddingHorizontal: 16,
+                    paddingVertical: 14,
+                    shadowColor: "#000",
+                    shadowOpacity: 0.04,
+                    shadowRadius: 8,
+                    shadowOffset: { width: 0, height: 3 },
+                    gap: 10,
+                  }}
+                >
+                  <ExpandableText
+                    label="Tell me more about your injury"
                     value={answers.injuryDetail}
-                    onChangeText={(v) => updateAnswers({ injuryDetail: v })}
-                    placeholder="When did it start, how bad is it, what have you tried..."
+                    onChange={(v) => updateAnswers({ injuryDetail: v })}
+                    placeholder="How long ago? Still affecting training? What movements hurt?"
+                    rows={5}
                   />
                   {!answers.injuryDetail.trim() && (
                     <Text style={[styles.smallMuted, { color: "#f97316" }]}>
                       Required — this protects you from a plan that makes it worse.
                     </Text>
                   )}
-                </>
+                </View>
               )}
-            </GlassCard>
+
+              {/* Info card */}
+              <View
+                style={{
+                  borderRadius: 20,
+                  backgroundColor: "#fef3c7",
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 12,
+                    color: "#92400e",
+                    fontStyle: "italic",
+                  }}
+                >
+                  ⚠️ Injuries affect your plan significantly. Be honest — it protects you from
+                  setbacks.
+                </Text>
+              </View>
+            </View>
           </>
         );
       }
-      case 7:
+      case 7: {
+        const totalRunsLabel = state.answers && (currentStats.totalRuns?.toLocaleString() ?? "—");
+        const weeklyKmLabel =
+          currentStats.weeklyKm != null ? `${currentStats.weeklyKm} km/wk` : "—";
+        const lastRunLabel = currentStats.lastRunLabel ?? "—";
+        const levels = [
+          {
+            id: "beginner",
+            emoji: "🌱",
+            title: "Just getting started",
+            sub: "Running less than a year",
+          },
+          {
+            id: "building",
+            emoji: "📈",
+            title: "Building runner",
+            sub: "1-3 years, getting serious",
+          },
+          {
+            id: "experienced",
+            emoji: "🏃",
+            title: "Experienced runner",
+            sub: "3-5 years, done races",
+          },
+          {
+            id: "competitive",
+            emoji: "🏆",
+            title: "Competitive runner",
+            sub: "5+ years, racing regularly",
+          },
+        ] as const;
         return (
           <>
             <Text style={styles.title}>How experienced are you?</Text>
-            <GlassCard>
-              {[
-                {
-                  id: "beginner",
-                  emoji: "🌱",
-                  title: "Just getting started",
-                  sub: "Running less than a year",
-                },
-                {
-                  id: "building",
-                  emoji: "📈",
-                  title: "Building runner",
-                  sub: "1–3 years, getting serious",
-                },
-                {
-                  id: "experienced",
-                  emoji: "🏃",
-                  title: "Experienced runner",
-                  sub: "3–5 years, done races",
-                },
-                {
-                  id: "competitive",
-                  emoji: "🏆",
-                  title: "Competitive runner",
-                  sub: "5+ years, racing regularly",
-                },
-              ].map((lvl) => {
+            <View style={{ gap: 20, marginTop: 8 }}>
+              {/* Experience cards */}
+              {levels.map((lvl) => {
                 const selected = answers.experienceLevel === lvl.id;
                 return (
                   <TouchableOpacity
                     key={lvl.id}
-                    activeOpacity={0.85}
-                    style={[
-                      styles.card,
-                      { marginBottom: 8 },
-                      selected && {
-                        borderWidth: StyleSheet.hairlineWidth,
-                        borderColor: colors.primary,
-                        backgroundColor: colors.primary + "10",
-                      },
-                    ]}
+                    activeOpacity={0.9}
+                    style={{
+                      minHeight: 90,
+                      borderRadius: 18,
+                      paddingHorizontal: 16,
+                      paddingVertical: 16,
+                      backgroundColor: selected ? "#e5f0ff" : colors.card,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor: selected ? colors.primary : colors.border,
+                      shadowColor: "#000",
+                      shadowOpacity: selected ? 0.06 : 0.03,
+                      shadowRadius: selected ? 10 : 6,
+                      shadowOffset: { width: 0, height: 3 },
+                      flexDirection: "row",
+                      alignItems: "center",
+                    }}
                     onPress={() => updateAnswers({ experienceLevel: lvl.id })}
                   >
-                    <View style={{ flexDirection: "row", alignItems: "center" }}>
-                      <Text style={{ fontSize: 24, marginRight: 10 }}>{lvl.emoji}</Text>
-                      <View style={{ flex: 1 }}>
-                        <Text
-                          style={{
-                            fontSize: 14,
-                            fontWeight: "600",
-                            color: selected ? colors.primary : colors.foreground,
-                          }}
-                        >
-                          {lvl.title}
-                        </Text>
-                        <Text style={{ fontSize: 12, color: colors.mutedForeground, marginTop: 2 }}>
-                          {lvl.sub}
-                        </Text>
-                      </View>
+                    <Text style={{ fontSize: 32, marginRight: 12 }}>{lvl.emoji}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text
+                        style={{
+                          fontSize: 15,
+                          fontWeight: "600",
+                          color: colors.foreground,
+                        }}
+                      >
+                        {lvl.title}
+                      </Text>
+                      <Text
+                        style={{
+                          fontSize: 13,
+                          color: colors.mutedForeground,
+                          marginTop: 2,
+                        }}
+                      >
+                        {lvl.sub}
+                      </Text>
                     </View>
+                    <Text
+                      style={{
+                        fontSize: 20,
+                        marginLeft: 8,
+                        color: selected ? colors.primary : colors.mutedForeground,
+                      }}
+                    >
+                      ›
+                    </Text>
                   </TouchableOpacity>
                 );
               })}
-              {answers.experienceLevel ? (
-                <>
-                  <Text style={styles.label}>What&apos;s worked well or blown up in past training?</Text>
-                  <TextInput
-                    style={styles.textArea}
-                    multiline
-                    value={answers.trainingHistoryNote}
-                    onChangeText={(v) => updateAnswers({ trainingHistoryNote: v })}
-                    placeholder="E.g. I respond well to high volume but always get injured when I add speed too fast..."
-                  />
-                </>
-              ) : null}
-            </GlassCard>
+
+              {/* Training history / coming from another sport */}
+              <View
+                style={{
+                  borderRadius: 18,
+                  backgroundColor: colors.card,
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  shadowColor: "#000",
+                  shadowOpacity: 0.03,
+                  shadowRadius: 8,
+                  shadowOffset: { width: 0, height: 3 },
+                }}
+              >
+                  <Text
+                    style={{
+                      fontSize: 14,
+                      fontWeight: "600",
+                      color: colors.foreground,
+                      marginBottom: 2,
+                    }}
+                  >
+                    Coming from another sport or past training?
+                  </Text>
+                  <Text
+                    style={{
+                      fontSize: 13,
+                      color: colors.mutedForeground,
+                      marginBottom: 6,
+                    }}
+                  >
+                    Tell me what you&apos;re used to — training style, volume, and what&apos;s
+                    worked or blown up before.
+                  </Text>
+                  <View
+                    style={{
+                      borderRadius: 16,
+                      backgroundColor: colors.background,
+                      paddingHorizontal: 12,
+                      paddingVertical: 10,
+                    }}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 13,
+                        fontWeight: "600",
+                        color: colors.foreground,
+                        marginBottom: 4,
+                      }}
+                    >
+                      Your training background in that sport
+                    </Text>
+                    <TextInput
+                      style={{
+                        borderRadius: 12,
+                        backgroundColor: colors.card,
+                        paddingHorizontal: 10,
+                        paddingVertical: 8,
+                        fontSize: 14,
+                        color: colors.foreground,
+                        minHeight: 90,
+                        textAlignVertical: "top",
+                      }}
+                      multiline
+                      value={answers.trainingHistoryNote}
+                      onChangeText={(v) => updateAnswers({ trainingHistoryNote: v })}
+                      placeholder="E.g. 8 years of football, 4x/week strength work, used to high-intensity intervals..."
+                      placeholderTextColor={colors.mutedForeground}
+                    />
+                  </View>
+                </View>
+
+              {/* Motivational card removed per request */}
+            </View>
           </>
         );
+      }
       case 8: {
         const rec = state.recommendedPhilosophy;
         if (philoLoading) {
-          useEffect(() => {
-            setVisibleAnalyseSteps(0);
-            let i = 0;
-            const id = setInterval(() => {
-              i += 1;
-              setVisibleAnalyseSteps(i);
-              if (i >= ANALYSE_STEPS.length) clearInterval(id);
-            }, 700);
-            return () => clearInterval(id);
-          }, []);
-
           return (
             <>
               <Text style={styles.title}>Analysing your profile</Text>
@@ -2224,18 +3201,44 @@ export const PlanOnboardingScreen: FC = () => {
         if (planLoading) {
           return (
             <>
-              <Text style={styles.title}>Building your plan.</Text>
+              <Text style={styles.title}>Building your plan…</Text>
               <Text style={styles.subtitle}>This usually takes 10–15 seconds.</Text>
               <GlassCard>
-                <View style={{ flexDirection: "row", alignItems: "center", marginBottom: 6 }}>
-                  <ActivityIndicator
-                    size="small"
-                    color={colors.primary}
-                    style={{ marginRight: 8 }}
-                  />
-                  <Text style={{ fontSize: 13, color: colors.mutedForeground }}>
-                    Building sessions and balancing load…
+                <View style={{ alignItems: "center", marginBottom: 16 }}>
+                  <ActivityIndicator size="large" color={colors.primary} />
+                </View>
+                <View style={{ alignItems: "center", marginBottom: 8 }}>
+                  <Text style={{ fontSize: 32, fontWeight: "700", color: colors.foreground }}>
+                    {planProgress}%
                   </Text>
+                  <Text
+                    style={{
+                      marginTop: 4,
+                      fontSize: 13,
+                      color: colors.mutedForeground,
+                      textAlign: "center",
+                    }}
+                  >
+                    Analysing your profile, balancing load and creating sessions.
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    marginTop: 12,
+                    height: 6,
+                    borderRadius: 999,
+                    backgroundColor: colors.border,
+                    overflow: "hidden",
+                  }}
+                >
+                  <View
+                    style={{
+                      width: `${Math.max(5, planProgress)}%`,
+                      height: "100%",
+                      borderRadius: 999,
+                      backgroundColor: colors.primary,
+                    }}
+                  />
                 </View>
               </GlassCard>
             </>
@@ -2257,7 +3260,32 @@ export const PlanOnboardingScreen: FC = () => {
             </>
           );
         }
-        if (!state.generatedPlan) return null;
+        if (!state.generatedPlan) {
+          return (
+            <>
+              <Text style={styles.title}>Something went wrong</Text>
+              <Text style={styles.subtitle}>
+                Your plan couldn&apos;t be loaded. Let&apos;s try again.
+              </Text>
+              <View style={{ flexDirection: "row", marginTop: 12, gap: 16 }}>
+                {state.selectedPhilosophy ? (
+                  <TouchableOpacity onPress={handleRetryPlan} activeOpacity={0.8}>
+                    <Text style={{ fontSize: 14, color: colors.primary }}>Retry generation</Text>
+                  </TouchableOpacity>
+                ) : null}
+                <TouchableOpacity
+                  onPress={() => {
+                    AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
+                    setState(DEFAULT_STATE);
+                  }}
+                  activeOpacity={0.8}
+                >
+                  <Text style={{ fontSize: 14, color: colors.primary }}>Start over</Text>
+                </TouchableOpacity>
+              </View>
+            </>
+          );
+        }
         const plan = state.generatedPlan;
         return (
           <>
@@ -2411,7 +3439,7 @@ function canProceed(step: number, answers: OnboardingV2Answers): boolean {
       return !hasInjury || !!answers.injuryDetail.trim();
     }
     case 7:
-      return !!answers.experienceLevel;
+      return true;
     case 8:
       return !!answers.goal;
     default:

@@ -27,6 +27,7 @@ import { extractPlanJson, stripPlanJson } from "../lib/coach-plan";
 import { savePlanFromChat } from "../lib/kipcoachee/plan";
 import type { AppTabsParamList } from "../navigation/RootNavigator";
 import { addDays, format, startOfWeek, isToday } from "date-fns";
+import Toast from "react-native-toast-message";
 import { ChatStatChartsMobile } from "../components/ChatStatChartsMobile";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -693,6 +694,7 @@ export const CoachScreen: FC = () => {
         const ok = await savePlanFromChat(plan, isAdjustment, adjustmentReason);
         if (ok) {
           queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+          Toast.show({ type: "success", text1: "Plan applied successfully ✓", position: "bottom" });
           Alert.alert("Plan updated", "View it on the Training Plan tab.", [
             { text: "OK", onPress: () => navigation.navigate("Plan") },
           ]);

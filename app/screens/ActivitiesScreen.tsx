@@ -6,6 +6,7 @@ import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
 import { useTheme } from "../context/ThemeContext";
 import { useActivitiesList, type ActivityListItem } from "../hooks/useActivities";
+import { useActivityStreamsSync } from "../hooks/useActivityStreamsSync";
 import { useIntervalsIntegration } from "../hooks/useIntervalsIntegration";
 import { dailyTSSFromActivities } from "../lib/analytics";
 import type { ActivitiesStackParamList } from "../navigation/RootNavigator";
@@ -49,6 +50,9 @@ export const ActivitiesScreen: FC = () => {
   const { isConnected } = useIntervalsIntegration();
   const { items, isLoading, isEmpty, isRefetching, refetch } = useActivitiesList(730);
   const { plan } = useTrainingPlan();
+
+  // Background sync of activity streams (intervals.icu), rate-limited to once per hour
+  useActivityStreamsSync(items ?? [], isConnected);
   const navigation = useNavigation<ActivitiesNav>();
   const [viewMonth, setViewMonth] = useState(() => new Date());
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);

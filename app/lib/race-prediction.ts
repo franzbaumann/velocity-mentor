@@ -27,7 +27,11 @@ export function predictRaceTime(
   return basePrediction * ctlMultiplier;
 }
 
+const MIN_PACE_SEC_KM = 120; // 2 min/km
+const MAX_PACE_SEC_KM = 1500; // 25 min/km
+
 export function formatRaceTime(seconds: number): string {
+  if (seconds == null || !Number.isFinite(seconds) || seconds <= 0) return "--:--";
   const totalSeconds = Math.round(seconds);
   const h = Math.floor(totalSeconds / 3600);
   const m = Math.floor((totalSeconds % 3600) / 60);
@@ -47,6 +51,7 @@ export function formatPace(seconds: number, distanceKm: number): string {
 }
 
 function formatPaceFromSecondsPerKm(secPerKm: number): string {
+  if (secPerKm == null || !Number.isFinite(secPerKm) || secPerKm <= 0) return "--";
   const rounded = Math.round(secPerKm);
   const m = Math.floor(rounded / 60);
   const s = rounded % 60;
@@ -57,8 +62,17 @@ export function calculateZonePaces(
   goalTimeSeconds: number,
   goalDistanceKm: number,
 ): { zone2: string; threshold: string; vo2max: string } {
+  if (
+    goalTimeSeconds == null ||
+    !Number.isFinite(goalTimeSeconds) ||
+    goalTimeSeconds <= 0 ||
+    goalDistanceKm == null ||
+    !Number.isFinite(goalDistanceKm) ||
+    goalDistanceKm <= 0
+  ) {
+    return { zone2: "--", threshold: "--", vo2max: "--" };
+  }
   const vdotPace = goalTimeSeconds / goalDistanceKm;
-
   return {
     zone2: formatPaceFromSecondsPerKm(vdotPace * 1.25),
     threshold: formatPaceFromSecondsPerKm(vdotPace * 1.05),
@@ -80,8 +94,9 @@ export function findBestEffort(
   for (const a of activities) {
     if (a.distance_km == null || a.duration_seconds == null) continue;
     if (a.distance_km < 3) continue;
-
     const pace = a.duration_seconds / a.distance_km;
+    // Reject impossible paces (e.g. duration in minutes or wrong units)
+    if (pace < MIN_PACE_SEC_KM || pace > MAX_PACE_SEC_KM) continue;
     if (pace < bestPace) {
       bestPace = pace;
       best = {

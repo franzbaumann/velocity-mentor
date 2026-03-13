@@ -295,7 +295,7 @@ export const ActivityDetailScreen: FC = () => {
     );
   }
 
-  if (!activity) {
+  if (!activity && !listActivity) {
     return (
       <ScreenContainer contentContainerStyle={styles.content}>
         <TouchableOpacity
@@ -310,14 +310,39 @@ export const ActivityDetailScreen: FC = () => {
         <Text style={styles.debugText}>
           id: {String(id)}
         </Text>
+      </ScreenContainer>
+    );
+  }
+
+  if (!activity && listActivity) {
+    const dateLabel = format(listActivity.date, "EEEE, MMMM d");
+    return (
+      <ScreenContainer contentContainerStyle={styles.content}>
+        <TouchableOpacity
+          style={styles.backRow}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="arrow-back" size={18} color="#999" />
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>{listActivity.name}</Text>
+        <Text style={styles.debugText}>{dateLabel}</Text>
         <Text style={styles.debugText}>
-          rawId: {String(listActivity?.rawId ?? "null")}
+          {formatDistance(listActivity.nonDist ? null : listActivity.km)}
+          {" · "}
+          {formatDuration(listActivity.durationSeconds)}
+          {listActivity.hr != null ? ` · ${listActivity.hr} bpm` : ""}
         </Text>
         <Text style={styles.debugText}>
-          externalId: {String(listActivity?.externalId ?? "null")}
+          Source: {String(listActivity.source)}
         </Text>
         <Text style={styles.debugText}>
-          source: {String(listActivity?.source ?? "unknown")}
+          Note: detailed charts are not available yet for this activity.
+        </Text>
+        <Text style={styles.debugText}>
+          id: {String(id)} · rawId: {String(listActivity.rawId)} · externalId:{" "}
+          {String(listActivity.externalId ?? "null")}
         </Text>
       </ScreenContainer>
     );
@@ -328,6 +353,8 @@ export const ActivityDetailScreen: FC = () => {
   const hasHrZones = hrZoneTimes.some((t) => t > 0);
   const paceZoneTimes = activity.paceZoneTimes ?? [];
   const hasPaceZones = paceZoneTimes.some((t) => t > 0);
+
+  const distanceLabel = formatDistance(activity.distance_km).replace(/\s*km$/i, "");
 
   return (
     <ScreenContainer
@@ -346,44 +373,7 @@ export const ActivityDetailScreen: FC = () => {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.inner}>
-          {/* Top nav */}
-          <View
-            style={[
-              styles.navRow,
-              isDarkPro && { backgroundColor: theme.appBackground },
-            ]}
-          >
-            <TouchableOpacity
-              onPress={() => navigation.goBack()}
-              activeOpacity={0.8}
-              style={styles.backTouch}
-            >
-              <Ionicons
-                name="arrow-back"
-                size={20}
-                color={isDarkPro ? theme.textPrimary : "#111"}
-              />
-              <Text
-                style={[
-                  styles.backText,
-                  isDarkPro && { color: theme.textPrimary },
-                ]}
-              >
-                Back
-              </Text>
-            </TouchableOpacity>
-            <Text
-              style={[
-                styles.activityTitle,
-                isDarkPro && { color: theme.textPrimary },
-              ]}
-              numberOfLines={1}
-            >
-              {activity.name ?? activity.type}
-            </Text>
-          </View>
-
-        {/* Hero header */}
+          {/* Activity hero header */}
         <View
           style={[
             styles.heroCard,
@@ -395,27 +385,28 @@ export const ActivityDetailScreen: FC = () => {
         >
             <View style={styles.heroHeaderRow}>
               <View style={{ flex: 1 }}>
-              <Text
-                style={[
-                  styles.heroTitle,
-                  isDarkPro && { color: theme.textPrimary },
-                ]}
-                numberOfLines={1}
-              >
+                <Text
+                  style={[
+                    styles.heroTitle,
+                    isDarkPro && { color: theme.textPrimary },
+                  ]}
+                  numberOfLines={2}
+                >
                   {activity.name ?? activity.type}
                 </Text>
-              <Text
-                style={[
-                  styles.heroSubtitle,
-                  isDarkPro && { color: theme.textSecondary },
-                ]}
-              >
+                <Text
+                  style={[
+                    styles.heroSubtitle,
+                    isDarkPro && { color: theme.textSecondary },
+                  ]}
+                  numberOfLines={1}
+                >
                   {activity.date
                     ? format(new Date(activity.date), "EEEE, MMMM d, yyyy")
                     : ""}
                 </Text>
               </View>
-              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+              <View style={{ alignItems: "flex-end", gap: 6 }}>
                 {isPb && (
                   <View
                     style={[
@@ -442,154 +433,72 @@ export const ActivityDetailScreen: FC = () => {
               </View>
             </View>
 
-            <View style={styles.heroStatsRow}>
+            <View style={styles.heroStatsGrid}>
               {!nonDist && (
-                <View style={styles.heroStat}>
-                <Text
-                  style={[
-                    styles.heroStatLabel,
-                    isDarkPro && { color: theme.textSecondary },
-                  ]}
-                >
-                  Distance
-                </Text>
-                <Text
-                  style={[
-                    styles.heroStatValue,
-                    isDarkPro && { color: theme.textPrimary },
-                  ]}
-                >
-                    {formatDistance(activity.distance_km)}
-                  <Text
-                    style={[
-                      styles.heroStatUnit,
-                      isDarkPro && { color: theme.textSecondary },
-                    ]}
-                  >
-                    {" "}
-                    km
-                  </Text>
-                  </Text>
-                </View>
+                <HeroStatCard
+                  label="Distance"
+                  value={distanceLabel}
+                  unit="km"
+                />
               )}
-              <View style={styles.heroStat}>
-              <Text
-                style={[
-                  styles.heroStatLabel,
-                  isDarkPro && { color: theme.textSecondary },
-                ]}
-              >
-                Duration
-              </Text>
-              <Text
-                style={[
-                  styles.heroStatValue,
-                  isDarkPro && { color: theme.textPrimary },
-                ]}
-              >
-                  {formatDuration(activity.duration_seconds)}
-                </Text>
-              </View>
+              <HeroStatCard
+                label="Duration"
+                value={formatDuration(activity.duration_seconds)}
+              />
               {!nonDist && activity.avg_pace && (
-                <View style={styles.heroStat}>
-                <Text
-                  style={[
-                    styles.heroStatLabel,
-                    isDarkPro && { color: theme.textSecondary },
-                  ]}
-                >
-                  Pace
-                </Text>
-                <Text
-                  style={[
-                    styles.heroStatValue,
-                    isDarkPro && { color: theme.textPrimary },
-                  ]}
-                >
-                    {activity.avg_pace}
-                  <Text
-                    style={[
-                      styles.heroStatUnit,
-                      isDarkPro && { color: theme.textSecondary },
-                    ]}
-                  >
-                    {" "}
-                    /km
-                  </Text>
-                  </Text>
-                </View>
+                <HeroStatCard label="Pace" value={activity.avg_pace} />
               )}
               {activity.avg_hr != null && (
-                <View style={styles.heroStat}>
-                <Text
-                  style={[
-                    styles.heroStatLabel,
-                    isDarkPro && { color: theme.textSecondary },
-                  ]}
-                >
-                  Avg HR
-                </Text>
-                <Text
-                  style={[
-                    styles.heroStatValue,
-                    isDarkPro && { color: theme.textPrimary },
-                  ]}
-                >
-                    {activity.avg_hr}
-                  <Text
-                    style={[
-                      styles.heroStatUnit,
-                      isDarkPro && { color: theme.textSecondary },
-                    ]}
-                  >
-                    {" "}
-                    bpm
-                  </Text>
-                  </Text>
-                </View>
+                <HeroStatCard
+                  label="Avg HR"
+                  value={`${activity.avg_hr}`}
+                  unit="bpm"
+                />
               )}
             </View>
 
-            <View style={styles.heroChipsRow}>
-              {activity.max_hr != null && (
-                <HeroChip label="Max HR" value={`${activity.max_hr} bpm`} />
-              )}
-              {activity.intensity != null && (
-                <HeroChip
-                  label="Intensity"
-                  value={`${Math.round(activity.intensity)}%`}
-                />
-              )}
-              {activity.load != null && (
-                <HeroChip label="Load" value={`${Math.round(activity.load)}`} />
-              )}
-              {activity.trimp != null && (
-                <HeroChip label="TRIMP" value={`${Math.round(activity.trimp)}`} />
-              )}
-              {activity.perceivedExertion != null && (
-                <HeroChip
-                  label="RPE"
-                  value={`${Math.round(activity.perceivedExertion)}/10`}
-                />
-              )}
-              {activity.cadence != null && activity.cadence > 0 && (
-                <HeroChip
-                  label="Cadence"
-                  value={`${Math.round(activity.cadence)} spm`}
-                />
-              )}
-              {activity.elevation_gain != null && activity.elevation_gain > 0 && (
-                <HeroChip
-                  label="Climbing"
-                  value={`${Math.round(activity.elevation_gain)} m`}
-                />
-              )}
-              {activity.calories != null && activity.calories > 0 && (
-                <HeroChip
-                  label="Calories"
-                  value={`${Math.round(activity.calories)} kcal`}
-                />
-              )}
+            <View style={styles.secondaryRowWrapper}>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.secondaryChipsContent}
+              >
+                {activity.max_hr != null && (
+                  <SecondaryChip label={`❤️ Max ${activity.max_hr} bpm`} />
+                )}
+                {activity.intensity != null && (
+                  <SecondaryChip
+                    label={`🔥 Intensity ${Math.round(activity.intensity)}%`}
+                  />
+                )}
+                {activity.load != null && (
+                  <SecondaryChip label={`⚡ Load ${Math.round(activity.load)}`} />
+                )}
+                {activity.trimp != null && (
+                  <SecondaryChip
+                    label={`📊 TRIMP ${Math.round(activity.trimp)}`}
+                  />
+                )}
+                {activity.cadence != null && activity.cadence > 0 && (
+                  <SecondaryChip
+                    label={`🦵 Cadence ${Math.round(activity.cadence)} spm`}
+                  />
+                )}
+                {activity.elevation_gain != null &&
+                  activity.elevation_gain > 0 && (
+                    <SecondaryChip
+                      label={`⛰️ Climbing ${Math.round(activity.elevation_gain)} m`}
+                    />
+                  )}
+                {activity.calories != null && activity.calories > 0 && (
+                  <SecondaryChip
+                    label={`🍎 ${Math.round(activity.calories)} kcal`}
+                  />
+                )}
+              </ScrollView>
+              <View pointerEvents="none" style={styles.secondaryMoreHint}>
+                <Text style={styles.secondaryMoreHintText}>⋯</Text>
+              </View>
             </View>
           </View>
 
@@ -622,33 +531,44 @@ export const ActivityDetailScreen: FC = () => {
           <View
             style={[
               styles.tabBar,
-              isDarkPro && { backgroundColor: theme.cardBorder },
+              isDarkPro && { backgroundColor: theme.cardBackground },
             ]}
           >
-            {(["charts", "data", "notes"] as ActivityTab[]).map((t) => (
-              <TouchableOpacity
-                key={t}
+            <View style={styles.tabBarPillTrack}>
+              <View
                 style={[
-                  styles.tabButton,
-                  tab === t && styles.tabButtonActive,
-                  tab === t &&
-                    isDarkPro && { backgroundColor: theme.cardBackground },
+                  styles.tabBarPill,
+                  {
+                    width: `${100 / 3}%`,
+                    left:
+                      tab === "charts"
+                        ? "0%"
+                        : tab === "data"
+                        ? "33.3333%"
+                        : "66.6667%",
+                  },
                 ]}
-                onPress={() => setTab(t)}
-                activeOpacity={0.85}
-              >
-                <Text
-                  style={[
-                    styles.tabText,
-                    isDarkPro && { color: theme.textSecondary },
-                    tab === t && styles.tabTextActive,
-                    tab === t && isDarkPro && { color: theme.textPrimary },
-                  ]}
+              />
+              {(["charts", "data", "notes"] as ActivityTab[]).map((t) => (
+                <TouchableOpacity
+                  key={t}
+                  style={styles.tabButton}
+                  onPress={() => setTab(t)}
+                  activeOpacity={0.85}
                 >
-                  {t === "charts" ? "Charts" : t === "data" ? "Data" : "Notes"}
-                </Text>
-              </TouchableOpacity>
-            ))}
+                  <Text
+                    style={[
+                      styles.tabText,
+                      isDarkPro && { color: theme.textSecondary },
+                      tab === t && styles.tabTextActive,
+                      tab === t && isDarkPro && { color: theme.textPrimary },
+                    ]}
+                  >
+                    {t === "charts" ? "Charts" : t === "data" ? "Data" : "Notes"}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
           </View>
 
           {/* Charts tab */}
@@ -841,7 +761,7 @@ export const ActivityDetailScreen: FC = () => {
                   {!nonDist && (
                     <SummaryItem
                       label="Distance"
-                      value={`${formatDistance(activity.distance_km)} km`}
+                      value={formatDistance(activity.distance_km).replace(/\s*km$/i, " km")}
                     />
                   )}
                   <SummaryItem
@@ -851,7 +771,7 @@ export const ActivityDetailScreen: FC = () => {
                   {!nonDist && activity.avg_pace && (
                     <SummaryItem
                       label="Avg pace"
-                      value={`${activity.avg_pace}/km`}
+                      value={activity.avg_pace}
                     />
                   )}
                   {activity.avg_hr != null && (
@@ -1270,10 +1190,13 @@ function renderZoneRows(
     const pct = total > 0 ? (t / total) * 100 : 0;
     const barPct = maxTime > 0 ? (t / maxTime) * 100 : 0;
     const mins = Math.round(t / 60);
-    const timeStr =
-      mins >= 60
-        ? `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, "0")}m`
-        : `${mins}m`;
+  const totalSec = Math.round(t);
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  const timeStr =
+    m >= 60
+      ? `${Math.floor(m / 60)}h ${String(m % 60).padStart(2, "0")}m`
+      : `${m}:${String(s).padStart(2, "0")}`;
     let hrRange = "";
     if (maxHr && maxHr > 0) {
       const ranges = [
@@ -1288,7 +1211,9 @@ function renderZoneRows(
     }
     return (
       <View key={i} style={styles.zoneRow}>
-        <View style={{ flex: 2, flexDirection: "row", alignItems: "center", gap: 6 }}>
+        <View
+          style={{ flex: 2, flexDirection: "row", alignItems: "center", gap: 6 }}
+        >
           <View
             style={{
               width: 10,
@@ -1302,7 +1227,7 @@ function renderZoneRows(
         {maxHr && (
           <Text style={[styles.zoneCell, { flex: 1.4 }]}>{hrRange}</Text>
         )}
-        <View style={[styles.zoneBarBackground, { flex: 3 }]}>
+        <View style={[styles.zoneBarBackground, { flex: 2.4 }]}>
           <View
             style={[
               styles.zoneBarFill,
@@ -1313,7 +1238,7 @@ function renderZoneRows(
             ]}
           />
         </View>
-        <Text style={[styles.zoneCell, { flex: 1, textAlign: "right" }]}>
+        <Text style={[styles.zoneCell, { flex: 1.4, textAlign: "right" }]}>
           {t > 0 ? timeStr : "—"}
         </Text>
         <Text style={[styles.zoneCell, { flex: 1, textAlign: "right" }]}>
@@ -1325,16 +1250,29 @@ function renderZoneRows(
 }
 
 const SummaryItem: FC<{ label: string; value: string }> = ({ label, value }) => (
-  <View style={{ marginBottom: 8 }}>
+  <View style={styles.summaryItem}>
     <Text style={styles.summaryLabel}>{label}</Text>
     <Text style={styles.summaryValue}>{value}</Text>
   </View>
 );
 
-const HeroChip: FC<{ label: string; value: string }> = ({ label, value }) => (
-  <View style={styles.heroChip}>
-    <Text style={styles.heroChipLabel}>{label}</Text>
-    <Text style={styles.heroChipValue}>{value}</Text>
+const HeroStatCard: FC<{ label: string; value: string; unit?: string }> = ({
+  label,
+  value,
+  unit,
+}) => (
+  <View style={styles.heroStatCard}>
+    <Text style={styles.heroStatLabel}>{label}</Text>
+    <Text style={styles.heroStatValue}>
+      {value}
+      {unit ? <Text style={styles.heroStatUnit}> {unit}</Text> : null}
+    </Text>
+  </View>
+);
+
+const SecondaryChip: FC<{ label: string }> = ({ label }) => (
+  <View style={styles.secondaryChip}>
+    <Text style={styles.secondaryChipText}>{label}</Text>
   </View>
 );
 
@@ -1395,13 +1333,16 @@ const GpxDownloadButtonMobile: FC<{ activityId: string; activityName: string }> 
 
   return (
     <TouchableOpacity
-      style={styles.gpxButton}
+      style={styles.gpxIconButton}
       onPress={onPress}
       activeOpacity={0.8}
       disabled={loading}
     >
-      <Ionicons name="cloud-download-outline" size={12} color="#0f172a" />
-      <Text style={styles.gpxButtonText}>{loading ? "…" : "GPX"}</Text>
+      <Ionicons
+        name="cloud-download-outline"
+        size={16}
+        color={loading ? "#9ca3af" : "#0f172a"}
+      />
     </TouchableOpacity>
   );
 };
@@ -1471,28 +1412,20 @@ const styles = StyleSheet.create({
   content: { padding: 16 },
   scrollContent: { paddingBottom: 40, backgroundColor: "#f5f5f0" },
   inner: { maxWidth: 430, width: "100%", alignSelf: "center" },
-  navRow: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 16,
-    paddingTop: 12,
-    paddingBottom: 8,
-    backgroundColor: "#f5f5f0",
-    gap: 10,
-  },
-  backTouch: { flexDirection: "row", alignItems: "center", gap: 4 },
-  backText: { fontSize: 15, color: "#111", fontWeight: "500" },
-  activityTitle: { flex: 1, fontSize: 17, fontWeight: "600", color: "#111" },
   heroCard: {
     marginHorizontal: 16,
-    marginTop: 8,
-    marginBottom: 12,
+    marginTop: 12,
+    marginBottom: 16,
     backgroundColor: "#ffffff",
     borderRadius: 16,
     paddingHorizontal: 16,
     paddingVertical: 14,
     borderWidth: StyleSheet.hairlineWidth,
     borderColor: "#e5e7eb",
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
   },
   heroHeaderRow: {
     flexDirection: "row",
@@ -1500,7 +1433,7 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   heroTitle: {
-    fontSize: 18,
+    fontSize: 20,
     fontWeight: "700",
     color: "#111827",
   },
@@ -1527,22 +1460,28 @@ const styles = StyleSheet.create({
     fontWeight: "600",
     color: "#0f172a",
   },
-  heroStatsRow: {
+  heroStatsGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    gap: 18,
-    marginBottom: 10,
+    columnGap: 12,
+    rowGap: 12,
+    marginTop: 16,
   },
-  heroStat: {
-    minWidth: 90,
+  heroStatCard: {
+    flexBasis: "48%",
+    paddingVertical: 10,
+    paddingHorizontal: 10,
+    borderRadius: 14,
+    backgroundColor: "#f3f4f6",
+    alignItems: "flex-start",
   },
   heroStatLabel: {
-    fontSize: 11,
+    fontSize: 10,
     color: "#6b7280",
     marginBottom: 2,
   },
   heroStatValue: {
-    fontSize: 20,
+    fontSize: 22,
     fontWeight: "700",
     color: "#111827",
   },
@@ -1551,43 +1490,49 @@ const styles = StyleSheet.create({
     fontWeight: "400",
     color: "#6b7280",
   },
-  heroChipsRow: {
-    flexDirection: "row",
-    flexWrap: "wrap",
-    gap: 10,
+  secondaryChipsContent: {
+    paddingTop: 14,
+    paddingBottom: 2,
+    paddingRight: 4,
+    columnGap: 8,
+  },
+  secondaryRowWrapper: {
     marginTop: 4,
   },
-  heroChip: {
-    flexDirection: "row",
-    alignItems: "baseline",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
+  secondaryChip: {
+    paddingHorizontal: 12,
+    paddingVertical: 6,
     borderRadius: 999,
-    backgroundColor: "#f3f4f6",
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#e5e7eb",
+    backgroundColor: "#ffffff",
+    marginRight: 8,
   },
-  heroChipLabel: {
-    fontSize: 11,
-    color: "#6b7280",
-    marginRight: 4,
-  },
-  heroChipValue: {
-    fontSize: 11,
-    fontWeight: "600",
+  secondaryChipText: {
+    fontSize: 12,
     color: "#111827",
   },
-  gpxButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingHorizontal: 8,
-    paddingVertical: 4,
-    borderRadius: 999,
-    backgroundColor: "#e5e7eb",
+  secondaryMoreHint: {
+    position: "absolute",
+    right: 0,
+    top: 10,
+    bottom: 6,
+    justifyContent: "center",
+    paddingLeft: 12,
+    paddingRight: 8,
+    backgroundColor: "rgba(245,245,240,0.9)",
   },
-  gpxButtonText: {
-    marginLeft: 4,
-    fontSize: 10,
-    fontWeight: "600",
-    color: "#0f172a",
+  secondaryMoreHintText: {
+    fontSize: 14,
+    color: "#9ca3af",
+  },
+  gpxIconButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: "#e5e7eb",
   },
   routeCard: {
     backgroundColor: "#ffffff",
@@ -1611,27 +1556,39 @@ const styles = StyleSheet.create({
   noStreams: { padding: 24, alignItems: "center", backgroundColor: "#f5f5f0" },
   noStreamsText: { fontSize: 13, color: "#999", textAlign: "center", lineHeight: 20 },
   tabBar: {
-    flexDirection: "row",
-    backgroundColor: "#e5e7eb",
-    borderRadius: 999,
     marginHorizontal: 16,
-    marginTop: 4,
-    marginBottom: 10,
-    padding: 2,
+    marginTop: 16,
+    marginBottom: 14,
+    shadowColor: "#000",
+    shadowOpacity: 0.06,
+    shadowRadius: 10,
+    shadowOffset: { width: 0, height: 4 },
   },
-  tabButton: {
-    flex: 1,
-    paddingVertical: 6,
+  tabBarPillTrack: {
+    flexDirection: "row",
+    backgroundColor: "transparent",
     borderRadius: 999,
-    alignItems: "center",
-    justifyContent: "center",
+    padding: 3,
+    overflow: "hidden",
+    backgroundColor: "rgba(148, 163, 184, 0.25)",
   },
-  tabButtonActive: {
+  tabBarPill: {
+    position: "absolute",
+    top: 3,
+    bottom: 3,
+    borderRadius: 999,
     backgroundColor: "#ffffff",
     shadowColor: "#000",
     shadowOpacity: 0.08,
-    shadowRadius: 4,
-    shadowOffset: { width: 0, height: 1 },
+    shadowRadius: 6,
+    shadowOffset: { width: 0, height: 2 },
+  },
+  tabButton: {
+    flex: 1,
+    paddingVertical: 8,
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 1,
   },
   tabText: {
     fontSize: 13,
@@ -1667,7 +1624,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   zoneLabel: {
-    fontSize: 11,
+    fontSize: 10,
     color: "#111827",
   },
   zoneCell: {
@@ -1698,8 +1655,12 @@ const styles = StyleSheet.create({
   summaryGrid: {
     flexDirection: "row",
     flexWrap: "wrap",
-    justifyContent: "space-between",
-    marginTop: 4,
+    marginTop: 6,
+  },
+  summaryItem: {
+    width: "33.3333%",
+    paddingRight: 8,
+    paddingBottom: 10,
   },
   summaryLabel: {
     fontSize: 11,

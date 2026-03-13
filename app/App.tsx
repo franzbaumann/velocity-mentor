@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { SafeAreaProvider } from "react-native-safe-area-context";
 import { GestureHandlerRootView } from "react-native-gesture-handler";
+import Toast from "react-native-toast-message";
 import { ThemeProvider } from "./context/ThemeContext";
 import { SupabaseProvider } from "./SupabaseProvider";
 import { RootNavigator } from "./navigation/RootNavigator";
@@ -15,6 +16,7 @@ export default function App() {
           <ThemeProvider>
             <SupabaseProvider>
               <RootNavigator />
+              <Toast position="bottom" />
             </SupabaseProvider>
           </ThemeProvider>
         </SafeAreaProvider>

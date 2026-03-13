@@ -882,7 +882,7 @@ export const SettingsScreen: FC = () => {
           </View>
         ) : coachingMemories.length === 0 ? (
           <View style={styles.memoryEmptyWrap}>
-            <Ionicons name="brain-outline" size={24} color={colors.mutedForeground} />
+            <Ionicons name="book-outline" size={24} color={colors.mutedForeground} />
             <Text style={styles.body}>No coaching memories yet</Text>
           </View>
         ) : (

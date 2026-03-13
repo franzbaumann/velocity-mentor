@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert } from "react-native";
+import Toast from "react-native-toast-message";
 import { supabase, SUPABASE_URL, SUPABASE_ANON_KEY } from "../shared/supabase";
 
 const COACH_CHAT_URL = `${SUPABASE_URL}/functions/v1/coach-chat`;
@@ -82,6 +83,10 @@ type TrainingPlanRow = {
   race_date?: string | null;
   goal_time?: string | null;
   target_time?: string | null;
+  is_active?: boolean | null;
+  start_date?: string | null;
+  end_date?: string | null;
+  goal_race?: string | null;
 };
 
 export type TrainingPlanSession = {
@@ -96,6 +101,7 @@ export type TrainingPlanSession = {
   target_hr_zone: number | null;
   tss_estimate?: number | null;
   completed_at: string | null;
+  completed_activity_id?: string | null;
   coach_note?: string | null;
   adjustment_notes?: string | null;
   supportsCoachNote?: boolean;
@@ -124,9 +130,10 @@ async function loadTrainingPlan(): Promise<TrainingPlanData> {
   const { data: planRow, error: planErr } = await supabase
     .from("training_plan")
     .select(
-      "id, plan_name, philosophy, race_type, goal_date, race_date, goal_time, target_time",
+      "id, plan_name, philosophy, race_type, goal_date, race_date, goal_time, target_time, is_active, start_date, end_date, goal_race",
     )
     .eq("user_id", user.id)
+    .eq("is_active", true)
     .order("created_at", { ascending: false })
     .limit(1)
     .maybeSingle<TrainingPlanRow>();
@@ -146,7 +153,7 @@ async function loadTrainingPlan(): Promise<TrainingPlanData> {
     const { data: allSessions } = await supabase
       .from("training_session")
       .select(
-        "id, week_id, scheduled_date, session_type, description, distance_km, duration_min, pace_target, notes, target_hr_zone, completed_at",
+        "id, week_id, scheduled_date, session_type, description, distance_km, duration_min, pace_target, notes, target_hr_zone, completed_at, tss_estimate, completed_activity_id",
       )
       .in("week_id", weekIds)
       .order("week_id", { ascending: true })
@@ -173,6 +180,8 @@ async function loadTrainingPlan(): Promise<TrainingPlanData> {
         key_focus: s.notes ?? null,
         target_hr_zone: (s as { target_hr_zone?: number }).target_hr_zone ?? null,
         completed_at: (s as { completed_at?: string | null }).completed_at ?? null,
+        tss_estimate: (s as { tss_estimate?: number | null }).tss_estimate ?? null,
+        completed_activity_id: (s as { completed_activity_id?: string | null }).completed_activity_id ?? null,
         supportsCoachNote: false,
       }));
 
@@ -300,9 +309,10 @@ export function useTrainingPlan() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+      Toast.show({ type: "success", text1: "Session rescheduled ✓", position: "bottom" });
     },
     onError: (e: any) => {
-      Alert.alert("Failed to move session", e?.message ?? "Unknown error");
+      Toast.show({ type: "error", text1: e?.message ?? "Failed to move session", position: "bottom" });
     },
   });
 
@@ -334,11 +344,12 @@ export function useTrainingPlan() {
     onSuccess: (_, { sessionId, done }) => {
       queryClient.invalidateQueries({ queryKey: ["training-plan"] });
       if (done) {
+        Toast.show({ type: "success", text1: "Session marked complete ✓", position: "bottom" });
         triggerNutritionMessage(sessionId).catch(() => {});
       }
     },
     onError: (e: any) => {
-      Alert.alert("Failed to update session", e?.message ?? "Unknown error");
+      Toast.show({ type: "error", text1: e?.message ?? "Failed to update session", position: "bottom" });
     },
   });
 
