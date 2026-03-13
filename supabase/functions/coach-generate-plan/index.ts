@@ -48,7 +48,7 @@ function createFallbackPlan(intake: Record<string, unknown>): PlanOutput {
   return { race_date: null, race_type: "General", weeks };
 }
 
-const PLAN_PROMPT = `You are Kipcoachee. Generate a structured training plan as JSON only. No markdown, no explanation — just valid JSON.
+const PLAN_PROMPT = `You are Coach Cade. Generate a structured training plan as JSON only. No markdown, no explanation — just valid JSON.
 
 Input: athlete intake (goals, experience, volume, race date, philosophy, injuries, stress, available days).
 

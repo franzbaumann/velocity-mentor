@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const PLAN_PROMPT = `You are Kipcoachee — an elite AI running coach built into PaceIQ — building a training plan.
+const PLAN_PROMPT = `You are Coach Cade — an elite AI running coach built into Cade — building a training plan.
 Return ONLY valid JSON, no markdown, no explanation:
 {
   "plan_name": string,

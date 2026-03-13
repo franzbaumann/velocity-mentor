@@ -1,6 +1,6 @@
 # AI Setup (Claude, Groq, Gemini)
 
-Kipcoachee uses **Claude first** (Anthropic), then Groq, then Gemini as fallbacks. At least one key is required.
+Coach Cade uses **Claude first** (Anthropic), then Groq, then Gemini as fallbacks. At least one key is required.
 
 ## Where to put the keys
 

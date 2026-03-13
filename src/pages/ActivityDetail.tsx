@@ -918,7 +918,7 @@ function CoachNote({ activityId, cachedNote }: { activityId: string | undefined;
           <MessageCircle className="w-4 h-4 text-primary" />
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-xs font-medium text-muted-foreground mb-0.5">Kipcoachee</p>
+          <p className="text-xs font-medium text-muted-foreground mb-0.5">Coach Cade</p>
           <p className="text-sm text-muted-foreground">Couldn't generate feedback.</p>
         </div>
         <button onClick={generate} className="text-xs text-primary hover:underline shrink-0">Retry</button>
@@ -932,7 +932,7 @@ function CoachNote({ activityId, cachedNote }: { activityId: string | undefined;
         <MessageCircle className="w-4 h-4 text-primary" />
       </div>
       <div className="flex-1 min-w-0">
-        <p className="text-xs font-medium text-muted-foreground mb-1">Kipcoachee</p>
+        <p className="text-xs font-medium text-muted-foreground mb-1">Coach Cade</p>
         {loading || !note ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground">
             <Loader2 className="w-3.5 h-3.5 animate-spin" />

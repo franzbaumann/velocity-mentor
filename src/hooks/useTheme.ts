@@ -2,7 +2,13 @@ import { useState, useEffect, useCallback } from "react";
 
 export type Theme = "light" | "dark" | "system";
 
-const STORAGE_KEY = "paceiq-theme";
+const STORAGE_KEY = "cade-theme";
+
+function getStoredTheme(): Theme | null {
+  const v = localStorage.getItem(STORAGE_KEY) || localStorage.getItem("paceiq-theme");
+  if (v === "light" || v === "dark" || v === "system") return v;
+  return null;
+}
 
 function getSystemPreference(): "light" | "dark" {
   return window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
@@ -15,9 +21,8 @@ function applyTheme(mode: Theme) {
 
 export function useTheme() {
   const [theme, setThemeState] = useState<Theme>(() => {
-    const stored = localStorage.getItem(STORAGE_KEY);
-    if (stored === "light" || stored === "dark" || stored === "system") return stored;
-    return "system";
+    const stored = getStoredTheme();
+    return stored ?? "system";
   });
 
   const setTheme = useCallback((t: Theme) => {

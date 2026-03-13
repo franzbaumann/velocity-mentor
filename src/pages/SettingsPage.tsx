@@ -305,7 +305,7 @@ function TrainingPlanSection({ queryClient }: { queryClient: ReturnType<typeof u
       );
       queryClient.invalidateQueries({ queryKey: ["training-plan"] });
       queryClient.invalidateQueries({ queryKey: ["athlete_profile"] });
-      localStorage.removeItem("paceiq_onboarding_v2");
+      localStorage.removeItem("cade_onboarding_v2");
       toast.success("Plan deleted. Starting fresh onboarding…");
       navigate("/coach", { replace: true });
     } catch (e) {
@@ -320,9 +320,9 @@ function TrainingPlanSection({ queryClient }: { queryClient: ReturnType<typeof u
   if (!plan) {
     return (
       <div className="glass-card p-5">
-        <p className="section-header">Training Plan (PaceIQ)</p>
+        <p className="section-header">Training Plan (Cade)</p>
         <p className="text-sm text-muted-foreground mb-4">
-          No plan yet. Complete onboarding with Kipcoachee to get a personalized training plan.
+          No plan yet. Complete onboarding with Coach Cade to get a personalized training plan.
         </p>
         <Button
           variant="outline"
@@ -338,7 +338,7 @@ function TrainingPlanSection({ queryClient }: { queryClient: ReturnType<typeof u
 
   return (
     <div className="glass-card p-5">
-      <p className="section-header">Training Plan (PaceIQ)</p>
+      <p className="section-header">Training Plan (Cade)</p>
       <p className="text-sm text-muted-foreground mb-4">
         {plan.plan_name ?? "Your plan"} · {plan.start_date && plan.end_date
           ? `${plan.start_date} – ${plan.end_date}`
@@ -520,7 +520,7 @@ function CoachingMemorySection() {
   };
 
   const handleClearAll = async () => {
-    if (!user || !confirm("Clear all coaching memories? Kipcoachee will lose all context from past conversations.")) return;
+    if (!user || !confirm("Clear all coaching memories? Coach Cade will lose all context from past conversations.")) return;
     setClearingAll(true);
     try {
       await supabase.from("coaching_memory").delete().eq("user_id", user.id);
@@ -553,7 +553,7 @@ function CoachingMemorySection() {
         )}
       </div>
       <p className="text-sm text-muted-foreground mb-4">
-        Kipcoachee remembers key facts from your conversations to personalize coaching across sessions.
+        Coach Cade remembers key facts from your conversations to personalize coaching across sessions.
       </p>
       {isLoading ? (
         <div className="flex items-center gap-2 text-muted-foreground text-sm">
@@ -561,7 +561,7 @@ function CoachingMemorySection() {
         </div>
       ) : memories.length === 0 ? (
         <p className="text-sm text-muted-foreground italic">
-          No memories yet. Chat with Kipcoachee and memories will be extracted automatically.
+          No memories yet. Chat with Coach Cade and memories will be extracted automatically.
         </p>
       ) : (
         <div className="space-y-2 max-h-80 overflow-y-auto">
@@ -1117,7 +1117,7 @@ export default function SettingsPage() {
           <div className="glass-card p-5">
             <p className="section-header">Training Preferences</p>
             <p className="text-sm text-muted-foreground mb-4">
-              These preferences shape how Kipcoachee designs your plan and describes workouts.
+              These preferences shape how Coach Cade designs your plan and describes workouts.
             </p>
             <div className="space-y-4">
               <div className="space-y-2">

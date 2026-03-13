@@ -23,7 +23,7 @@ const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Training Plan", url: "/plan", icon: Calendar },
   { title: "Activities", url: "/activities", icon: Activity },
-  { title: "Kipcoachee", url: "/coach", icon: MessageCircle },
+  { title: "Coach Cade", url: "/coach", icon: MessageCircle },
   { title: "Stats", url: "/stats", icon: BarChart3 },
   { title: "Philosophy", url: "/philosophy", icon: BookOpen },
   { title: "Settings", url: "/settings", icon: Settings },
@@ -84,7 +84,7 @@ export function AppSidebar() {
             expanded ? "opacity-100" : "opacity-0 w-0 overflow-hidden"
           }`}
         >
-          PaceIQ
+          Cade
         </span>
       </div>
 

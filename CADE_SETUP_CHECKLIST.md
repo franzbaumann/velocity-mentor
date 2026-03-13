@@ -1,6 +1,6 @@
-# PaceIQ — End-of-Integration Checklist
+# Cade — End-of-Integration Checklist
 
-Do these steps when you're ready to deploy/test the full PaceIQ flow.
+Do these steps when you're ready to deploy/test the full Cade flow.
 
 ---
 
@@ -77,7 +77,7 @@ WHERE user_id = 'your-user-id';
 ## 6. Context-aware chat (post-onboarding)
 
 When you open the Coach page after onboarding:
-- **Workout context:** If you came from "Ask Kipcoachee about this" on a workout, the input is pre-filled
+- **Workout context:** If you came from "Ask Coach Cade about this" on a workout, the input is pre-filled
 - **Recent run:** "I see you ran Xkm today/yesterday. How did it feel?"
 - **Upcoming workout:** "You've got [workout] tomorrow. Ready for it?"
 - **Low HRV:** "Your HRV has been a bit low lately. How are you feeling?"

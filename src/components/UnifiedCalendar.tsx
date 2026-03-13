@@ -91,10 +91,10 @@ export type CompletedActivity = {
 
 export type UnifiedCalendarProps = {
   defaultView?: "plan" | "activities";
-  onAskKipcoachee?: (date: string, workout?: PlannedWorkout, activity?: CompletedActivity) => void;
+  onAskCoachCade?: (date: string, workout?: PlannedWorkout, activity?: CompletedActivity) => void;
 };
 
-export function UnifiedCalendar({ defaultView = "plan", onAskKipcoachee }: UnifiedCalendarProps) {
+export function UnifiedCalendar({ defaultView = "plan", onAskCoachCade }: UnifiedCalendarProps) {
   const navigate = useNavigate();
   const { data: activities = [] } = useMergedActivities(730);
   const { plan } = useTrainingPlan();
@@ -223,10 +223,10 @@ export function UnifiedCalendar({ defaultView = "plan", onAskKipcoachee }: Unifi
     return "Completed — shorter than planned";
   }, [selectedDate, selectedWorkouts, selectedActivities, firstWorkout, firstActivity]);
 
-  const handleAskKipcoachee = () => {
+  const handleAskCoachCade = () => {
     if (!selectedDate) return;
-    onAskKipcoachee?.(selectedDate, firstWorkout, firstActivity);
-    if (!onAskKipcoachee) {
+    onAskCoachCade?.(selectedDate, firstWorkout, firstActivity);
+    if (!onAskCoachCade) {
       const details = [
         firstWorkout?.description,
         firstWorkout?.distance_km && `${firstWorkout.distance_km}km planned`,
@@ -442,11 +442,11 @@ export function UnifiedCalendar({ defaultView = "plan", onAskKipcoachee }: Unifi
                 )}
 
                 <Button
-                  onClick={handleAskKipcoachee}
+                  onClick={handleAskCoachCade}
                   className="w-full gap-2"
                 >
                   <MessageCircle className="w-4 h-4" />
-                  Ask Kipcoachee about this day
+                  Ask Coach Cade about this day
                 </Button>
               </>
             )}

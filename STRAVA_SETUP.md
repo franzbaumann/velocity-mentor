@@ -40,7 +40,7 @@ supabase functions deploy strava-sync --project-ref nhxwjaqhlbkdnageyavu
    ```bash
    npm run dev
    ```
-2. **Sign in** to PaceIQ (create an account if needed).
+2. **Sign in** to Cade (create an account if needed).
 3. Go to **Settings**.
 4. Click **Connect Strava** (orange button).
 5. You’ll be redirected to Strava and asked to approve access.

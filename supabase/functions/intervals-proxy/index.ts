@@ -143,7 +143,7 @@ Deno.serve(async (req: Request) => {
     const authHeader = req.headers.get("Authorization") ?? "";
     const token = authHeader.replace(/^Bearer\s+/i, "").trim();
     if (!token || token.length < 50) {
-      return jsonErr("No valid session — sign in to PaceIQ", 401);
+      return jsonErr("No valid session — sign in to Cade", 401);
     }
 
     const supabaseUser = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
@@ -229,7 +229,7 @@ Deno.serve(async (req: Request) => {
         return `  <trkpt lat="${ll[0]}" lon="${ll[1]}">${ele}\n    <time>${iso}</time>\n  </trkpt>`;
       }).join("\n");
       const gpx = `<?xml version="1.0" encoding="UTF-8"?>
-<gpx version="1.1" creator="PaceIQ" xmlns="http://www.topografix.com/GPX/1/1">
+<gpx version="1.1" creator="Cade" xmlns="http://www.topografix.com/GPX/1/1">
   <trk>
     <name>${escapeXml(String(body.activityId))}</name>
     <trkseg>
@@ -1629,7 +1629,7 @@ ${trkpts}
           : `This activity is a PERSONAL BEST for: ${pbDistances.join(", ")}. Acknowledge and celebrate it in your feedback.`)
         : "";
 
-      const prompt = `You are Kipcoachee — an elite AI running coach built into PaceIQ. Give brief, personalized feedback (2-4 sentences) for THIS activity. ${typeContext} Reference specific numbers from the athlete's data. Be direct, data-driven, warm but never soft. Never use ## headers or emojis. Use metric units.
+      const prompt = `You are Coach Cade — an elite AI running coach built into Cade. Give brief, personalized feedback (2-4 sentences) for THIS activity. ${typeContext} Reference specific numbers from the athlete's data. Be direct, data-driven, warm but never soft. Never use ## headers or emojis. Use metric units.
 ${pbContext ? `\n${pbContext}\n` : ""}
 
 === ACTIVITY BEING ANALYZED ===
@@ -1874,7 +1874,7 @@ ${workout.key_focus ? `Key focus: ${workout.key_focus}` : ""}
 Distance: ${workout.distance_km != null ? `${workout.distance_km} km` : "?"} | Duration: ${workout.duration_minutes != null ? `${workout.duration_minutes} min` : "?"}
 Target pace: ${workout.target_pace ?? "?"} | HR zone: ${workout.target_hr_zone ?? "?"}`;
 
-      const promptCurrentWeek = `You are Kipcoachee — an elite AI running coach built into PaceIQ. You CREATED this session as part of the athlete's plan. Write a brief, personalized description (2-4 sentences) explaining WHY this specific session is good for THIS athlete right now. Reference their current fitness state (CTL/TSB), the week's load pattern, their philosophy, and race goal. Be direct, data-driven, and specific — use actual numbers. Never use ## headers or emojis.${hasAdjustment ? `\n\nIMPORTANT: This session was modified due to a plan adjustment. The athlete's context for the change: "${adjustmentNotes}". You MUST reference this reason in your explanation — explain how this session helps given that specific situation.` : ""}
+      const promptCurrentWeek = `You are Coach Cade — an elite AI running coach built into Cade. You CREATED this session as part of the athlete's plan. Write a brief, personalized description (2-4 sentences) explaining WHY this specific session is good for THIS athlete right now. Reference their current fitness state (CTL/TSB), the week's load pattern, their philosophy, and race goal. Be direct, data-driven, and specific — use actual numbers. Never use ## headers or emojis.${hasAdjustment ? `\n\nIMPORTANT: This session was modified due to a plan adjustment. The athlete's context for the change: "${adjustmentNotes}". You MUST reference this reason in your explanation — explain how this session helps given that specific situation.` : ""}
 
 ${sessionBlock}
 
@@ -1890,7 +1890,7 @@ ${readinessContext || "No readiness data"}
 
 Reply with ONLY the coach description. No greeting or sign-off. 2-4 punchy, personalized sentences.`;
 
-      const promptFutureWeek = `You are Kipcoachee — an elite AI running coach built into PaceIQ. This session is scheduled for a future week. Write 1-2 short sentences: describe the session purpose, why it fits this athlete's plan and philosophy, and how it builds toward their goal. Do NOT use current CTL, TSB, HRV, or other live data — those will change. Be generic and philosophy-focused. No ## headers or emojis.
+      const promptFutureWeek = `You are Coach Cade — an elite AI running coach built into Cade. This session is scheduled for a future week. Write 1-2 short sentences: describe the session purpose, why it fits this athlete's plan and philosophy, and how it builds toward their goal. Do NOT use current CTL, TSB, HRV, or other live data — those will change. Be generic and philosophy-focused. No ## headers or emojis.
 
 ${sessionBlock}
 
@@ -2039,7 +2039,7 @@ Reply with ONLY the coach description. No greeting or sign-off. 1-2 concise sent
 
       const w = workout as Record<string, unknown>;
 
-      const easyStepsPrompt = `You are Kipcoachee — an elite AI running coach. Break this easy/aerobic run into logical distance or time segments.
+      const easyStepsPrompt = `You are Coach Cade — an elite AI running coach. Break this easy/aerobic run into logical distance or time segments.
 
 Session: ${w.type ?? "easy"} — ${w.name ?? w.description ?? "?"}
 Description: ${w.description ?? "?"}
@@ -2067,7 +2067,7 @@ Return ONLY a valid JSON array of step objects. Each object must have:
 
 No markdown, no explanation — ONLY the JSON array.`;
 
-      const structuredStepsPrompt = `You are Kipcoachee — an elite AI running coach. Break down this training session into structured phases (warm-up, main set, cool-down).
+      const structuredStepsPrompt = `You are Coach Cade — an elite AI running coach. Break down this training session into structured phases (warm-up, main set, cool-down).
 
 Session: ${w.type ?? "easy"} — ${w.name ?? w.description ?? "?"}
 Description: ${w.description ?? "?"}
@@ -2273,7 +2273,7 @@ No markdown, no explanation — ONLY the JSON array.`;
       let analyzed = 0;
       for (const run of unanalyzed.slice(0, 3)) {
         const v = (val: unknown) => val != null ? String(val) : "?";
-        const analysisPrompt = `You are Kipcoachee — an elite AI running coach. Write a SHORT post-workout analysis (2-3 sentences max) for this run. Be specific about the data. No markdown headers.
+        const analysisPrompt = `You are Coach Cade — an elite AI running coach. Write a SHORT post-workout analysis (2-3 sentences max) for this run. Be specific about the data. No markdown headers.
 
 Activity: ${v(run.name)} on ${v(run.date)}
 Distance: ${v(run.distance_km)}km

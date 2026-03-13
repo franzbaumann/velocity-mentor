@@ -297,7 +297,7 @@ export function OnboardingFlow({
       <div className="min-h-screen flex flex-col items-center justify-center px-6 bg-background">
         <ProgressDots current={1} />
         <div className="text-center max-w-md">
-          <h1 className="text-4xl font-bold text-foreground mb-3">Hey, I'm Kipcoachee.</h1>
+          <h1 className="text-4xl font-bold text-foreground mb-3">Hey, I'm Coach Cade.</h1>
           <p className="text-lg text-muted-foreground mb-8">Your AI running coach. Let's build something together.</p>
           {hasIntervalsData && (
             <p className="text-sm text-muted-foreground mb-6">
@@ -919,7 +919,7 @@ export function OnboardingFlow({
                 onComplete(final, p, "chat");
               }}
             >
-              Chat with Kipcoachee
+              Chat with Coach Cade
             </Button>
           </div>
         </div>

@@ -36,7 +36,7 @@ export function Step1Welcome({ onNext, intervalsData }: StepWithDataProps) {
                 <path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z" />
               </svg>
             </div>
-            <span className="text-lg font-bold text-foreground tracking-tight">PaceIQ</span>
+            <span className="text-lg font-bold text-foreground tracking-tight">Cade</span>
           </div>
         </div>
 
@@ -52,7 +52,7 @@ export function Step1Welcome({ onNext, intervalsData }: StepWithDataProps) {
         </h1>
 
         <p className="text-[17px] text-muted-foreground/70 max-w-md leading-relaxed mb-10">
-          Kipcoachee builds your plan from real data —
+          Coach Cade builds your plan from real data —
           your fitness, your physiology, your goal.
         </p>
 

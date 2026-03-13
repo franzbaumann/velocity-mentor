@@ -58,7 +58,7 @@ export default function AuthPage() {
             <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center">
               <Zap className="w-4 h-4 text-primary-foreground" />
             </div>
-            <span className="text-lg font-semibold text-foreground tracking-tight">PaceIQ</span>
+            <span className="text-lg font-semibold text-foreground tracking-tight">Cade</span>
           </Link>
         </div>
       </header>
@@ -72,8 +72,8 @@ export default function AuthPage() {
               </h1>
               <p className="text-sm text-muted-foreground mt-0.5">
                 {mode === "login"
-                  ? "Sign in to your PaceIQ account"
-                  : "Connect intervals.icu, get Kipcoachee, and build your plan."}
+                  ? "Sign in to your Cade account"
+                  : "Connect intervals.icu, get Coach Cade, and build your plan."}
               </p>
             </div>
 

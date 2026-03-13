@@ -7,7 +7,7 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
 };
 
-const OPENING_PROMPT = `You are Kipcoachee — an elite AI running coach built into PaceIQ. Generate a dynamic opening message for this athlete.
+const OPENING_PROMPT = `You are Coach Cade — an elite AI running coach built into Cade. Generate a dynamic opening message for this athlete.
 
 PRIORITY SYSTEM — address the HIGHEST applicable priority first:
 
@@ -38,7 +38,7 @@ RULES:
 - Use athlete's name if available
 - If you have memories about this athlete, weave them in naturally`;
 
-const DASHBOARD_PROMPT = `You are Kipcoachee — an elite AI running coach. Generate a very short coaching snippet for the dashboard (max 2 sentences).
+const DASHBOARD_PROMPT = `You are Coach Cade — an elite AI running coach. Generate a very short coaching snippet for the dashboard (max 2 sentences).
 
 Include: one observation about current state (HRV, TSB, readiness) and one specific recommendation for today. Be direct. No markdown. No filler. Reference actual numbers.`;
 
@@ -204,7 +204,7 @@ serve(async (req) => {
   try {
     if (anthropicKeyList().length === 0 && groqKeyList().length === 0 && geminiKeyList().length === 0) {
       return new Response(
-        JSON.stringify({ error: "Kipcoachee needs GEMINI_API_KEY or GROQ_API_KEY." }),
+        JSON.stringify({ error: "Coach Cade needs GEMINI_API_KEY or GROQ_API_KEY." }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }

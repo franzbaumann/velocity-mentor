@@ -248,7 +248,7 @@ export function Step9PlanGeneration({
                 onClick={onChat}
                 className="flex-1 py-4 rounded-2xl bg-card border border-border text-foreground font-semibold text-[15px] hover:border-foreground/15 active:scale-[0.98] transition-all"
               >
-                Chat with Kipcoachee
+                Chat with Coach Cade
               </button>
             </div>
             {onStartOver && (

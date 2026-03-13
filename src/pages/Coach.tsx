@@ -36,7 +36,7 @@ type ChatFilter = "all" | "analyses" | "chat";
 const CHAT_URL = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/coach-chat`;
 const GENERATE_PLAN_FN = "coach-generate-plan";
 
-const KIPCOACH_WELCOME = `Hey — I'm **Kipcoachee**, your AI running coach.
+const COACH_CADE_WELCOME = `Hey — I'm **Coach Cade**, your AI running coach.
 
 Before we build a plan, I need to understand you. Tell me your running history, goals, weekly volume, and what you’re training for — and I’ll create a personalized plan from that.
 
@@ -251,7 +251,7 @@ async function streamChat({
   onRateLimit?: () => void;
 }) {
   if (!CHAT_URL || CHAT_URL.includes("undefined")) {
-    console.error("[Kipcoachee] CHAT_URL missing - check VITE_SUPABASE_URL in .env");
+    console.error("[Coach Cade] CHAT_URL missing - check VITE_SUPABASE_URL in .env");
   }
 
   const apikey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -269,22 +269,22 @@ async function streamChat({
       body: JSON.stringify({ messages, intakeAnswers, intervalsContext, stream: false }),
     });
   } catch (e) {
-    console.error("[Kipcoachee] fetch error:", e);
-    toast.error("Failed to reach Kipcoachee. Check your connection and try again.");
+    console.error("[Coach Cade] fetch error:", e);
+    toast.error("Failed to reach Coach Cade. Check your connection and try again.");
     onDone();
     return;
   }
 
   if (!resp.ok) {
     const err = await resp.json().catch(() => ({ error: "Request failed" }));
-    console.error("[Kipcoachee]", resp.status, err);
+    console.error("[Coach Cade]", resp.status, err);
     if (resp.status === 429) {
       onRateLimit?.();
       toast.error(err.error || "AI rate limit reached across all providers. Try again in a few minutes.");
     } else if (resp.status === 502 || resp.status === 503) {
-      toast.error("Kipcoachee is temporarily unavailable. Ensure ANTHROPIC_API_KEY is set in Supabase secrets.");
+      toast.error("Coach Cade is temporarily unavailable. Ensure ANTHROPIC_API_KEY is set in Supabase secrets.");
     } else {
-      toast.error(err.error || "Kipcoachee is unavailable right now.");
+      toast.error(err.error || "Coach Cade is unavailable right now.");
     }
     onDone();
     return;
@@ -332,7 +332,7 @@ async function streamChat({
       }
     }
   } catch (e) {
-    console.error("[Kipcoachee] stream error:", e);
+    console.error("[Coach Cade] stream error:", e);
     onDelta("Sorry — the response was interrupted. Please try again.");
   } finally {
     onDone();
@@ -607,7 +607,7 @@ export default function Coach() {
   const [onboardingAnswers, setOnboardingAnswers] = useState<Record<string, unknown>>({});
   const [onboardingPhase, setOnboardingPhase] = useState<"active" | "done">("active");
   const [intakeAnswers] = useState<Record<string, string | string[]> | null>(() => {
-    try { return JSON.parse(localStorage.getItem("paceiq_intake") || "null"); } catch { return null; }
+    try { return JSON.parse(localStorage.getItem("cade_intake") || "null"); } catch { return null; }
   });
   const scrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -695,7 +695,7 @@ export default function Coach() {
     if (openingAttemptedRef.current) return;
 
     const OPENING_COOLDOWN_MS = 30 * 60 * 1000;
-    const cacheKey = "kipcoachee_opening";
+    const cacheKey = "coach_cade_opening";
     try {
       const cached = JSON.parse(localStorage.getItem(cacheKey) || "null") as { msg: string; ts: number } | null;
       if (cached && Date.now() - cached.ts < OPENING_COOLDOWN_MS) {
@@ -1016,8 +1016,8 @@ export default function Coach() {
 
       // Plan JSON is shown in PlanAdjustmentCard — user clicks Apply to save
     } catch (e) {
-      console.error("[Kipcoachee] fetch error", e);
-      toast.error("Failed to reach Kipcoachee. Check console and ensure GROQ_API_KEY or GEMINI_API_KEY is set in Supabase.");
+      console.error("[Coach Cade] fetch error", e);
+      toast.error("Failed to reach Coach Cade. Check console and ensure GROQ_API_KEY or GEMINI_API_KEY is set in Supabase.");
       setIsLoading(false);
     }
   }, [messages, isLoading, intakeAnswers, intervalsContext, rateLimitUntil]);
@@ -1041,7 +1041,7 @@ export default function Coach() {
     extractMemories(messagesRef.current);
     setMessages([]);
     setChatFilter("all");
-    try { localStorage.removeItem("kipcoachee_opening"); } catch { /* ignore */ }
+    try { localStorage.removeItem("coach_cade_opening"); } catch { /* ignore */ }
     toast.success("Started a fresh conversation.");
   };
 
@@ -1094,7 +1094,7 @@ export default function Coach() {
         toast.success("Your plan is ready!");
         window.location.href = "/plan";
       } else {
-        toast.success("Welcome! Chat with Kipcoachee whenever you're ready.");
+        toast.success("Welcome! Chat with Coach Cade whenever you're ready.");
       }
     },
     [updateProfile, queryClient]
@@ -1160,7 +1160,7 @@ export default function Coach() {
       <div className="animate-fade-in flex flex-col xl:flex-row xl:gap-6 h-[calc(100vh-6rem)]">
         <div className="flex flex-col flex-1 min-w-0 xl:max-w-[65%]">
         <div className="flex items-center justify-between mb-4">
-          <h1 className="text-2xl font-semibold text-foreground">Kipcoachee</h1>
+          <h1 className="text-2xl font-semibold text-foreground">Coach Cade</h1>
           <div className="flex items-center gap-2">
             {analyses.length > 0 && messages.length === 0 && (
               <div className="flex items-center gap-1 bg-secondary rounded-full p-0.5">
@@ -1263,7 +1263,7 @@ export default function Coach() {
                       {openingLoading ? (
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <Loader2 className="w-4 h-4 animate-spin" />
-                          <span>Kipcoachee is reading your data…</span>
+                          <span>Coach Cade is reading your data…</span>
                         </div>
                       ) : (
                         <ReactMarkdown components={markdownComponents}>{displayOpener}</ReactMarkdown>
@@ -1404,7 +1404,7 @@ export default function Coach() {
                 value={message}
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyDown={handleKeyDown}
-                placeholder={rateLimitSecs > 0 ? `Wait ${rateLimitSecs}s (rate limit)` : "Tell Kipcoachee your story..."}
+                placeholder={rateLimitSecs > 0 ? `Wait ${rateLimitSecs}s (rate limit)` : "Tell Coach Cade your story..."}
                 disabled={isLoading || rateLimitSecs > 0}
                 className="flex-1 bg-secondary rounded-full px-5 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
               />

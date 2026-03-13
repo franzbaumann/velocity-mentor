@@ -1,7 +1,7 @@
-# PaceIQ Cursor Rules
+# Cade Cursor Rules
 
-## Kipcoachee AI
-- The coach is always called Kipcoachee — never KipCoach, Kipcoach, or any other name
+## Coach Cade AI
+- The coach is always called Coach Cade — never Kipcoachee, KipCoach, or any other name
 - Every conversational AI call MUST go through the coach-chat Edge Function which uses buildKipcoacheeSystemPrompt()
 - System prompt lives in src/lib/kipcoachee/system-prompt.ts — never hardcode conversational prompts in components or other edge functions
 - The edge function (supabase/functions/coach-chat/index.ts) has its own Deno-compatible copy of the prompt builder — keep both in sync
@@ -9,7 +9,7 @@
 - Temperature: 0.6 for chat, 0.4 for plan generation and structured JSON outputs
 - Max tokens: 4096 for chat messages, 4000 for plan generation
 - Claude 3.5 Sonnet (primary), Groq llama-3.3-70b (fallback), Gemini 2.0 Flash-Lite (fallback)
-- Task-specific prompts (activity feedback, workout notes, philosophy) in other edge functions must still identify as "Kipcoachee — an elite AI running coach built into PaceIQ"
+- Task-specific prompts (activity feedback, workout notes, philosophy) in other edge functions must still identify as "Coach Cade — an elite AI running coach built into Cade"
 
 ## Data
 - Never show empty cards — always show meaningful empty states or suggest connecting data sources

@@ -99,13 +99,13 @@ function SessionCard({
   session,
   onReschedule,
   onMarkDone,
-  onAskKipcoachee,
+  onAskCoachCade,
   onSessionClick,
 }: {
   session: SessionLike;
   onReschedule: (args: { sessionId: string; newDate: string }) => void;
   onMarkDone: (args: { sessionId: string; done: boolean }) => void;
-  onAskKipcoachee?: (session: SessionLike) => void;
+  onAskCoachCade?: (session: SessionLike) => void;
   onSessionClick?: (session: SessionLike) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -169,13 +169,13 @@ function SessionCard({
             >
               Move session
             </button>
-            {onAskKipcoachee && (
+            {onAskCoachCade && (
               <button
-                onClick={(e) => { e.stopPropagation(); onAskKipcoachee(session); }}
+                onClick={(e) => { e.stopPropagation(); onAskCoachCade(session); }}
                 className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
               >
                 <MessageCircle className="w-3 h-3" />
-                Ask Kipcoachee
+                Ask Coach Cade
               </button>
             )}
           </div>
@@ -206,13 +206,13 @@ function SessionDetailModal({
   session,
   onClose,
   onMarkDone,
-  onAskKipcoachee,
+  onAskCoachCade,
   onCoachNoteFetched,
 }: {
   session: SessionLike;
   onClose: () => void;
   onMarkDone: (args: { sessionId: string; done: boolean }) => void;
-  onAskKipcoachee?: (session: SessionLike) => void;
+  onAskCoachCade?: (session: SessionLike) => void;
   onCoachNoteFetched?: () => void;
 }) {
   const [coachNote, setCoachNote] = useState<string | null>(session.coach_note ?? null);
@@ -400,10 +400,10 @@ function SessionDetailModal({
           >
             {session.completed_at ? "Mark Incomplete" : "Mark Complete"}
           </Button>
-          {onAskKipcoachee && (
-            <Button size="sm" variant="outline" onClick={() => onAskKipcoachee(session)}>
+          {onAskCoachCade && (
+            <Button size="sm" variant="outline" onClick={() => onAskCoachCade(session)}>
               <MessageCircle className="w-3.5 h-3.5 mr-1" />
-              Ask Kipcoachee about this
+              Ask Coach Cade about this
             </Button>
           )}
           <Button size="sm" variant="ghost" onClick={onClose}>Close</Button>
@@ -421,7 +421,7 @@ export default function TrainingPlan() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
-  const handleAskKipcoachee = (session: SessionLike) => {
+  const handleAskCoachCade = (session: SessionLike) => {
     const weeks = plan?.weeks ?? [];
     const sessionWeek = weeks.find((w) => w.sessions.some((s: SessionLike) => s.id === session.id));
     const weekNum = sessionWeek?.week_number ?? "?";
@@ -482,13 +482,13 @@ export default function TrainingPlan() {
             <Calendar className="w-10 h-10 text-muted-foreground mx-auto mb-4" />
             <h2 className="text-lg font-medium text-foreground mb-2">No plan yet</h2>
             <p className="text-sm text-muted-foreground max-w-md mx-auto mb-6">
-              Complete the onboarding with Kipcoachee to get a personalized training plan, or chat to build one from conversation.
+              Complete the onboarding with Coach Cade to get a personalized training plan, or chat to build one from conversation.
             </p>
             <button
               onClick={() => navigate("/coach?from=plan")}
               className="pill-button bg-primary text-primary-foreground"
             >
-              Get started with Kipcoachee
+              Get started with Coach Cade
             </button>
           </div>
         </div>
@@ -602,7 +602,7 @@ export default function TrainingPlan() {
                         session={session}
                         onReschedule={rescheduleSession}
                         onMarkDone={markSessionDone}
-                        onAskKipcoachee={handleAskKipcoachee}
+                        onAskCoachCade={handleAskCoachCade}
                         onSessionClick={setSelectedSession}
                       />
                     ))}
@@ -618,7 +618,7 @@ export default function TrainingPlan() {
             session={selectedSession}
             onClose={() => setSelectedSession(null)}
             onMarkDone={markSessionDone}
-            onAskKipcoachee={handleAskKipcoachee}
+            onAskCoachCade={handleAskCoachCade}
             onCoachNoteFetched={() => queryClient.invalidateQueries({ queryKey: ["training-plan"] })}
           />
         )}

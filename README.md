@@ -1,4 +1,4 @@
-# PaceIQ
+# Cade
 
 AI-powered running coach. Built with React + TypeScript + Vite + Supabase.
 

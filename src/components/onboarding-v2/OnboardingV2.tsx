@@ -25,7 +25,7 @@ import type {
 } from "./types";
 import { DEFAULT_STATE, getStepOrder } from "./types";
 
-const STORAGE_KEY = "paceiq_onboarding_v2";
+const STORAGE_KEY = "cade_onboarding_v2";
 
 function loadSavedState(): OnboardingV2State | null {
   try {

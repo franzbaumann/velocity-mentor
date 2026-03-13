@@ -142,7 +142,7 @@ function RacePredictionCard({
   );
 }
 
-function KipcoacheeWidget() {
+function CoachCadeWidget() {
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const fetchedRef = useRef(false);
@@ -189,7 +189,7 @@ function KipcoacheeWidget() {
           <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
             <span className="text-sm font-semibold text-primary">K</span>
           </div>
-          <span className="text-sm font-semibold text-foreground">Kipcoachee</span>
+          <span className="text-sm font-semibold text-foreground">Coach Cade</span>
         </div>
         {loading ? (
           <div className="flex items-center gap-2 text-muted-foreground text-sm py-2">
@@ -199,12 +199,12 @@ function KipcoacheeWidget() {
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto">
             <p className="text-sm text-foreground leading-relaxed">
-              {displayText ? `"${displayText}"` : isFallback ? (isConnected ? "Ask Kipcoachee for a quick training check-in." : "Connect intervals.icu in Settings to get personalized coaching.") : "\u2014"}
+              {displayText ? `"${displayText}"` : isFallback ? (isConnected ? "Ask Coach Cade for a quick training check-in." : "Connect intervals.icu in Settings to get personalized coaching.") : "\u2014"}
             </p>
           </div>
         )}
         <div className="flex items-center gap-1 mt-3 text-xs text-primary font-medium shrink-0">
-          Ask Kipcoachee <ChevronRight className="w-3.5 h-3.5" />
+          Ask Coach Cade <ChevronRight className="w-3.5 h-3.5" />
         </div>
       </div>
     </Link>
@@ -503,7 +503,7 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {/* Upcoming 7 days — above Race + Kipcoachee for visibility */}
+        {/* Upcoming 7 days — above Race + Coach Cade for visibility */}
         <div>
           <p className="section-header">Next 7 Days</p>
           <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
@@ -543,14 +543,14 @@ export default function Dashboard() {
           </div>
         </div>
 
-        {/* Race Prediction + Kipcoachee — equal width, side by side */}
+        {/* Race Prediction + Coach Cade — equal width, side by side */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
           <RacePredictionCard
             activities={activities}
             ctl={readiness.ctl}
             goalRaceType={athlete.goalRace.type}
           />
-          <KipcoacheeWidget />
+          <CoachCadeWidget />
         </div>
       </motion.div>
     </AppLayout>

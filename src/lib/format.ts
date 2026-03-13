@@ -1,4 +1,4 @@
-/** Round numbers for display - sensible precision throughout PaceIQ */
+/** Round numbers for display - sensible precision throughout Cade */
 
 export function formatDistance(km: number | null | undefined): string {
   if (km == null || isNaN(km)) return "—";

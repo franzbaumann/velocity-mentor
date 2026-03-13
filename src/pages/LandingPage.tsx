@@ -196,14 +196,14 @@ export default function LandingPage() {
               {
                 icon: Brain,
                 step: "2",
-                title: "Meet Kipcoachee, your coach",
-                desc: "Kipcoachee analyses your physiology and builds a training plan around your goal, your philosophy and your current fitness. Not a template — built from your actual data.",
+                title: "Meet Coach Cade, your coach",
+                desc: "Coach Cade analyses your physiology and builds a training plan around your goal, your philosophy and your current fitness. Not a template — built from your actual data.",
               },
               {
                 icon: TrendingUp,
                 step: "3",
                 title: "Your plan adapts",
-                desc: "Every session adjusts in real time. Tired week? Kipcoachee sees it in your HRV and TSB before you do. Big race coming? Your load is managed automatically.",
+                desc: "Every session adjusts in real time. Tired week? Coach Cade sees it in your HRV and TSB before you do. Big race coming? Your load is managed automatically.",
               },
             ].map(({ icon: Icon, step, title, desc }) => (
               <div key={step} className="flex flex-col gap-4">
@@ -236,8 +236,8 @@ export default function LandingPage() {
             {[
               {
                 icon: MessageCircle,
-                title: "Kipcoachee — AI Coach",
-                desc: "Ask Kipcoachee anything. Pre-run readiness, post-workout analysis, race strategy, pacing questions. Every answer references your actual CTL, HRV and training zones — never generic advice.",
+                title: "Coach Cade — AI Coach",
+                desc: "Ask Coach Cade anything. Pre-run readiness, post-workout analysis, race strategy, pacing questions. Every answer references your actual CTL, HRV and training zones — never generic advice.",
               },
               {
                 icon: Activity,
@@ -262,7 +262,7 @@ export default function LandingPage() {
               {
                 icon: Trophy,
                 title: "Post-Workout Analysis",
-                desc: "Every run automatically analysed. Kipcoachee tells you what the numbers mean and what to do differently next time. No logging required.",
+                desc: "Every run automatically analysed. Coach Cade tells you what the numbers mean and what to do differently next time. No logging required.",
               },
             ].map(({ icon: Icon, title, desc }) => (
               <div
