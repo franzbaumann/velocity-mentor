@@ -21,7 +21,19 @@ supabase migration up
 
 ---
 
-## 2. Set Supabase secrets (Edge Functions)
+## 2. Supabase Auth URL Configuration (production signup)
+
+For email confirmation links to work on production (not redirect to localhost):
+
+1. Go to [Supabase Dashboard](https://supabase.com/dashboard) → your project
+2. **Authentication** → **URL Configuration**
+3. **Site URL:** `https://velocity-mentor.vercel.app` (or your production URL)
+4. **Redirect URLs:** add `https://velocity-mentor.vercel.app/auth` and `https://velocity-mentor.vercel.app/**`
+5. Keep `http://localhost:5173/auth` and `http://localhost:5173/**` for local dev
+
+---
+
+## 3. Set Supabase secrets (Edge Functions)
 
 ```bash
 # Required: at least one of these
