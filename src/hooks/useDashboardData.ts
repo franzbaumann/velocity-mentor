@@ -258,7 +258,7 @@ export function useDashboardData() {
 
     return [0, 1, 2, 3, 4, 5, 6].map((i) => {
       const d = addDays(mon, i);
-      const dateStr = d.toISOString().slice(0, 10);
+      const dateStr = format(d, "yyyy-MM-dd");
       const dayActs = activities.filter((a) => isRunningActivity(a.type) && a.date === dateStr && (a.distance_km ?? 0) >= 0.01 && (a.distance_km ?? 0) <= 150);
       const act = dayActs[0];
       const planned = planSessionsByDate.get(dateStr)?.[0];
