@@ -869,6 +869,7 @@ ${trkpts}
         headers: {
           "Content-Type": "application/json",
           Authorization: authHeader || `Bearer ${token}`,
+          apikey: SUPABASE_ANON_KEY,
         },
         body: JSON.stringify({ action: "full_sync", _background: true }),
       }).catch((e) => console.error("start_sync background fetch error:", e));

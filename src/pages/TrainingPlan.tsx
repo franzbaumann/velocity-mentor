@@ -244,7 +244,13 @@ function SessionDetailModal({
     setStepsLoading(true);
     setStepsError(null);
     try {
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      if (!authSession?.access_token) {
+        setStepsError("Not signed in");
+        return;
+      }
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {
+        headers: { Authorization: `Bearer ${authSession.access_token}` },
         body: { action: "workout_steps", workoutId: session.id, regenerate },
       });
       if (error) throw error;
@@ -274,7 +280,13 @@ function SessionDetailModal({
     setCoachNoteLoading(true);
     setCoachNoteError(null);
     try {
+      const { data: { session: authSession } } = await supabase.auth.getSession();
+      if (!authSession?.access_token) {
+        setCoachNoteError("Not signed in");
+        return;
+      }
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {
+        headers: { Authorization: `Bearer ${authSession.access_token}` },
         body: { action: "workout_coach_note", workoutId: session.id, regenerate },
       });
       if (error) throw error;

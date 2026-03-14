@@ -79,6 +79,7 @@ export function useIntervalsSync() {
     });
 
     try {
+      await supabase.auth.refreshSession();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
         setProgress({ stage: "error", detail: "Not signed in", done: true, runsCount: 0, wellnessDays: 0 });
@@ -189,6 +190,7 @@ export function useIntervalsSync() {
     });
 
     try {
+      await supabase.auth.refreshSession();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
         setProgress({ stage: "error", detail: "Not signed in", done: true, runsCount: 0, wellnessDays: 0 });

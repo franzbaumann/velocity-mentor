@@ -10,24 +10,24 @@ export interface UsageStatus {
 
 export async function checkDailyLimit(userId: string): Promise<UsageStatus> {
   const today = new Date().toISOString().split("T")[0];
-
-  const { data } = await supabase
-    .from("ai_usage")
-    .select("messages_used")
-    .eq("user_id", userId)
-    .eq("date", today)
-    .maybeSingle();
-
-  const used = (data as { messages_used?: number } | null)?.messages_used ?? 0;
   const limit = BETA_LIMITS.coachingMessagesPerDay;
-  const allowed = used < limit;
 
-  return {
-    allowed,
-    used,
-    limit,
-    message: allowed ? undefined : LIMIT_MESSAGES.dailyExhausted,
-  };
+  try {
+    const { data, error } = await supabase
+      .from("ai_usage")
+      .select("messages_used")
+      .eq("user_id", userId)
+      .eq("date", today)
+      .maybeSingle();
+
+    if (error) throw error;
+    const used = (data as { messages_used?: number } | null)?.messages_used ?? 0;
+    const allowed = used < limit;
+    return { allowed, used, limit, message: allowed ? undefined : LIMIT_MESSAGES.dailyExhausted };
+  } catch {
+    // ai_usage table may not exist yet (migration not run) — treat as unlimited
+    return { allowed: true, used: 0, limit, message: undefined };
+  }
 }
 
 export async function checkMonthlyPlanLimit(userId: string): Promise<UsageStatus> {

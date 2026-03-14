@@ -128,6 +128,7 @@ export function useIntervalsActivitiesChunked(enabled = true) {
   return useQuery({
     queryKey: ["intervals-activities-chunked"],
     queryFn: async () => {
+      await supabase.auth.refreshSession();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Not authenticated");
       const newest = new Date().toISOString().slice(0, 10);
@@ -157,6 +158,7 @@ export function useIntervalsData(endpoint: string, oldest: string, newest: strin
   return useQuery({
     queryKey: ["intervals-data", endpoint, oldest, newest],
     queryFn: async () => {
+      await supabase.auth.refreshSession();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) throw new Error("Not authenticated");
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {

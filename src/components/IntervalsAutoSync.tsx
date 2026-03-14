@@ -22,7 +22,9 @@ export function IntervalsAutoSync() {
     const oneDayAgo = Date.now() - ONE_DAY_MS;
     if (lastSync && parseInt(lastSync, 10) >= oneDayAgo) return;
 
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.refreshSession().then(() =>
+      supabase.auth.getSession()
+    ).then(({ data: { session } }) => {
       if (!session?.access_token) return;
       supabase.functions
         .invoke("intervals-proxy", {

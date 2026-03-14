@@ -86,6 +86,7 @@ export function useDailyLoad() {
 
   const calcMutation = useMutation({
     mutationFn: async () => {
+      await supabase.auth.refreshSession();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) throw new Error("Not authenticated");
       const { data, error } = await supabase.functions.invoke("calculate-daily-load", {
@@ -139,7 +140,17 @@ export function useDailyLoadHistory(days = 28) {
         .gte("date", startStr)
         .lte("date", todayStr)
         .order("date", { ascending: true });
-      if (error) throw error;
+      if (error) {
+        const { data: fallback, error: fallbackErr } = await supabase
+          .from("daily_load")
+          .select("date, total_load_score")
+          .eq("user_id", session.user.id)
+          .gte("date", startStr)
+          .lte("date", todayStr)
+          .order("date", { ascending: true });
+        if (fallbackErr) throw fallbackErr;
+        return ((fallback ?? []) as DailyLoadWithBreakdown[]).map((r) => ({ ...r, breakdown: null }));
+      }
       return (data ?? []) as DailyLoadWithBreakdown[];
     },
     staleTime: 60_000,

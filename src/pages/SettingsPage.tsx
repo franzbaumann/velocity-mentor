@@ -686,6 +686,7 @@ export default function SettingsPage() {
     queryKey: ["sync_progress", user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
+      await supabase.auth.refreshSession();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) return null;
       const { data } = await supabase.functions.invoke("intervals-proxy", {
@@ -699,6 +700,7 @@ export default function SettingsPage() {
   });
 
   const handleSyncPRs = async () => {
+    await supabase.auth.refreshSession();
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) {
       toast.error("Not signed in");
@@ -723,6 +725,7 @@ export default function SettingsPage() {
   };
 
   const handleSyncStreams = async () => {
+    await supabase.auth.refreshSession();
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.access_token) {
       toast.error("Not signed in");
@@ -833,6 +836,7 @@ export default function SettingsPage() {
   const handleTestConnection = async () => {
     setIsTesting(true);
     try {
+      await supabase.auth.refreshSession();
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.access_token) {
         toast.error("Not signed in — sign out and sign back in, then try again");
