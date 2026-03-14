@@ -1,31 +1,32 @@
 project_id = "yzrsmntqvonlccrlgtsy"
 
 [functions.coach-chat]
-verify_jwt = false
+verify_jwt = true
 
+# coach-opening returns generic message for unauthenticated users (landing page)
 [functions.coach-opening]
 verify_jwt = false
 
 [functions.intervals-proxy]
-verify_jwt = false
+verify_jwt = true
 
 [functions.coach-generate-plan]
 verify_jwt = true
 
 [functions.paceiq-philosophy]
-verify_jwt = false
+verify_jwt = true
 
 [functions.paceiq-generate-plan]
-verify_jwt = false
+verify_jwt = true
 
 [functions.strava-oauth]
-verify_jwt = false
+verify_jwt = true
 
 [functions.strava-sync]
-verify_jwt = false
+verify_jwt = true
 
 [functions.strava-save-personal-token]
-verify_jwt = false
+verify_jwt = true
 
 [functions.garmin-import-zip]
-verify_jwt = false
+verify_jwt = true

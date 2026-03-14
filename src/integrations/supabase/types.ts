@@ -143,6 +143,45 @@ export type Database = {
         }
         Relationships: []
       }
+      competition_season: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          season_type: string
+          start_date: string
+          end_date: string
+          primary_distance: string | null
+          status: string
+          notes: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          season_type: string
+          start_date: string
+          end_date: string
+          primary_distance?: string | null
+          status?: string
+          notes?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          season_type?: string
+          start_date?: string
+          end_date?: string
+          primary_distance?: string | null
+          status?: string
+          notes?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       athlete_profile: {
         Row: {
           created_at: string
@@ -719,6 +758,102 @@ export type Database = {
           last_sync_at?: string | null
           provider?: Database["public"]["Enums"]["oauth_provider"] | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      season_race: {
+        Row: {
+          id: string
+          season_id: string
+          user_id: string
+          name: string
+          date: string
+          distance: string
+          venue: string | null
+          surface: string | null
+          priority: string
+          goal_time: string | null
+          actual_time: string | null
+          actual_place: number | null
+          notes: string | null
+          status: string
+          activity_id: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          season_id: string
+          user_id: string
+          name: string
+          date: string
+          distance: string
+          venue?: string | null
+          surface?: string | null
+          priority: string
+          goal_time?: string | null
+          actual_time?: string | null
+          actual_place?: number | null
+          notes?: string | null
+          status?: string
+          activity_id?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          season_id?: string
+          user_id?: string
+          name?: string
+          date?: string
+          distance?: string
+          venue?: string | null
+          surface?: string | null
+          priority?: string
+          goal_time?: string | null
+          actual_time?: string | null
+          actual_place?: number | null
+          notes?: string | null
+          status?: string
+          activity_id?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      season_performance: {
+        Row: {
+          id: string
+          season_id: string
+          user_id: string
+          date: string
+          ctl_at_date: number | null
+          atl_at_date: number | null
+          tsb_at_date: number | null
+          hrv_at_date: number | null
+          note: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          season_id: string
+          user_id: string
+          date: string
+          ctl_at_date?: number | null
+          atl_at_date?: number | null
+          tsb_at_date?: number | null
+          hrv_at_date?: number | null
+          note?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          season_id?: string
+          user_id?: string
+          date?: string
+          ctl_at_date?: number | null
+          atl_at_date?: number | null
+          tsb_at_date?: number | null
+          hrv_at_date?: number | null
+          note?: string | null
+          created_at?: string
         }
         Relationships: []
       }

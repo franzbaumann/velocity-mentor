@@ -1538,7 +1538,7 @@ ${trkpts}
       const geminiKeys = [Deno.env.get("GEMINI_API_KEY"), Deno.env.get("GEMINI_API_KEY_2"), Deno.env.get("GEMINI_API_KEY_3")].filter((k): k is string => !!k);
       const groqKeys = [Deno.env.get("GROQ_API_KEY"), Deno.env.get("GROQ_API_KEY_2"), Deno.env.get("GROQ_API_KEY_3")].filter((k): k is string => !!k);
       if (anthropicKeys.length === 0 && geminiKeys.length === 0 && groqKeys.length === 0) {
-        return jsonErr("Set ANTHROPIC_API_KEY, GEMINI_API_KEY, or GROQ_API_KEY in Supabase secrets", 500);
+        return jsonErr("AI service temporarily unavailable", 500);
       }
 
       // Rich context for personalized feedback
@@ -1755,7 +1755,7 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
         // Priority: Claude (primary) → Groq → Gemini
         const note = (await tryClaude()) ?? (await tryGroq()) ?? (await tryGemini());
         if (!note) {
-          return jsonErr("AI generation failed. Check ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets.", 500);
+          return jsonErr("AI generation failed", 500);
         }
 
         if (isUuid) {
@@ -1819,7 +1819,7 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
       const geminiKeys = [Deno.env.get("GEMINI_API_KEY"), Deno.env.get("GEMINI_API_KEY_2"), Deno.env.get("GEMINI_API_KEY_3")].filter((k): k is string => !!k);
       const groqKeys = [Deno.env.get("GROQ_API_KEY"), Deno.env.get("GROQ_API_KEY_2"), Deno.env.get("GROQ_API_KEY_3")].filter((k): k is string => !!k);
       if (anthropicKeys.length === 0 && geminiKeys.length === 0 && groqKeys.length === 0) {
-        return jsonErr("Set ANTHROPIC_API_KEY, GEMINI_API_KEY, or GROQ_API_KEY in Supabase secrets", 500);
+        return jsonErr("AI service temporarily unavailable", 500);
       }
 
       // Fetch the week's other workouts for full context
@@ -1993,7 +1993,7 @@ Reply with ONLY the coach description. No greeting or sign-off. 1-2 concise sent
       // Priority: Claude (primary) → Groq → Gemini
       const note = (await tryClaude()) ?? (await tryGroq()) ?? (await tryGemini());
       if (!note) {
-        return jsonErr("AI generation failed. Check ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets.", 500);
+        return jsonErr("AI generation failed", 500);
       }
 
       await supabaseAdmin

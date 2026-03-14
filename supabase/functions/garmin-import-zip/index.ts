@@ -352,7 +352,9 @@ serve(async (req) => {
       });
     }
 
-    if (!storagePath.startsWith(user.id)) {
+    // Prevent path traversal: must start with user_id/ and contain no ..
+    const prefix = `${user.id}/`;
+    if (!storagePath.startsWith(prefix) || storagePath.includes("..")) {
       return new Response(JSON.stringify({ error: "Invalid storage path" }), {
         status: 403,
         headers: { ...corsHeaders, "Content-Type": "application/json" },

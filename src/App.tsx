@@ -7,6 +7,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-route
 import { useAuth } from "@/hooks/use-auth";
 import { useTheme } from "@/hooks/useTheme";
 import { SidebarProvider } from "@/components/SidebarContext";
+import { DailyCheckInProvider } from "@/components/DailyCheckInContext";
 import { IntervalsAutoSync } from "@/components/IntervalsAutoSync";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { IntervalsSetupGuide } from "@/components/onboarding/IntervalsSetupGuide";
@@ -24,6 +25,7 @@ import NotFound from "./pages/NotFound";
 const ActivityDetail = lazy(() => import("./pages/ActivityDetail"));
 const Coach = lazy(() => import("./pages/Coach"));
 const Stats = lazy(() => import("./pages/Stats"));
+const Season = lazy(() => import("./pages/Season"));
 
 const queryClient = new QueryClient();
 
@@ -90,6 +92,7 @@ const App = () => (
       <Sonner />
       <BrowserRouter>
         <SidebarProvider>
+        <DailyCheckInProvider>
         <Suspense fallback={
             <div className="min-h-screen bg-background flex items-center justify-center">
               <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
@@ -141,6 +144,14 @@ const App = () => (
             }
           />
           <Route
+            path="/season"
+            element={
+              <AuthGuard>
+                <Season />
+              </AuthGuard>
+            }
+          />
+          <Route
             path="/philosophy"
             element={
               <AuthGuard>
@@ -159,6 +170,7 @@ const App = () => (
           <Route path="*" element={<NotFound />} />
         </Routes>
         </Suspense>
+        </DailyCheckInProvider>
         </SidebarProvider>
       </BrowserRouter>
     </TooltipProvider>

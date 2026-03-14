@@ -2,6 +2,7 @@ import { NavLink } from "@/components/NavLink";
 import {
   LayoutDashboard,
   Calendar,
+  Trophy,
   Activity,
   MessageCircle,
   BarChart3,
@@ -12,7 +13,10 @@ import {
   Sun,
   Moon,
   Monitor,
+  Plus,
 } from "lucide-react";
+import { useDailyCheckIn } from "@/components/DailyCheckInContext";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
@@ -22,6 +26,7 @@ import { useSidebar } from "@/components/SidebarContext";
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Training Plan", url: "/plan", icon: Calendar },
+  { title: "Season", url: "/season", icon: Trophy },
   { title: "Activities", url: "/activities", icon: Activity },
   { title: "Coach Cade", url: "/coach", icon: MessageCircle },
   { title: "Stats", url: "/stats", icon: BarChart3 },
@@ -37,6 +42,7 @@ const themeOptions: { value: Theme; icon: typeof Sun; label: string }[] = [
 
 export function AppSidebar() {
   const { collapsed, setCollapsed, hoverExpanded, setHoverExpanded } = useSidebar();
+  const { openCheckIn, hasCheckedInToday } = useDailyCheckIn();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
   const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -109,6 +115,26 @@ export function AppSidebar() {
           </NavLink>
         ))}
       </nav>
+
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            onClick={openCheckIn}
+            className={`relative flex items-center justify-center w-10 h-10 mx-2 mb-2 rounded-full transition-colors ${
+              hasCheckedInToday ? "bg-green-500/20 text-green-600 dark:text-green-400" : "bg-primary/10 text-primary hover:bg-primary/20"
+            }`}
+            title={hasCheckedInToday ? "Check-in done ✓" : "Daily check-in"}
+          >
+            <Plus className="w-5 h-5" />
+            {hasCheckedInToday && (
+              <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-background" />
+            )}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          <p>{hasCheckedInToday ? "Check-in done ✓" : "Daily check-in"}</p>
+        </TooltipContent>
+      </Tooltip>
 
       {!expanded ? (
         <button

@@ -186,7 +186,7 @@ serve(async (req) => {
     if (!result) {
       const errMsg = rateLimit
         ? "Rate limit reached. Try again in 15–60 minutes, or add more API keys."
-        : "AI unavailable. Set ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets.";
+        : "AI service temporarily unavailable.";
       return new Response(
         JSON.stringify({ error: errMsg }),
         { status: rateLimit ? 429 : 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }

@@ -22,7 +22,6 @@ Deno.serve(async (req) => {
       console.error("Edge function missing SUPABASE_URL or SUPABASE_ANON_KEY");
       return jsonResponse({
         error: "Server configuration error",
-        detail: "Missing Supabase env vars (check function secrets)",
       }, 500);
     }
 
@@ -81,7 +80,7 @@ Deno.serve(async (req) => {
     const serviceKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
     if (!serviceKey) {
       console.error("Missing SUPABASE_SERVICE_ROLE_KEY");
-      return jsonResponse({ error: "Server configuration error", detail: "Missing service role key" }, 500);
+      return jsonResponse({ error: "Server configuration error" }, 500);
     }
     const supabase = createClient(supabaseUrl, serviceKey);
 

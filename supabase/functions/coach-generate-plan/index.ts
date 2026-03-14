@@ -174,7 +174,7 @@ serve(async (req) => {
     const groqKeys = [Deno.env.get("GROQ_API_KEY"), Deno.env.get("GROQ_API_KEY_2"), Deno.env.get("GROQ_API_KEY_3")].filter((k): k is string => !!k);
     const geminiKeys = [Deno.env.get("GEMINI_API_KEY"), Deno.env.get("GEMINI_API_KEY_2"), Deno.env.get("GEMINI_API_KEY_3")].filter((k): k is string => !!k);
     if (anthropicKeys.length === 0 && groqKeys.length === 0 && geminiKeys.length === 0) {
-      return new Response(JSON.stringify({ error: "Set ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets" }), {
+      return new Response(JSON.stringify({ error: "AI service temporarily unavailable." }), {
         status: 500,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -215,7 +215,7 @@ serve(async (req) => {
     const rawContent =
       (await callClaude(userPrompt)) ?? (await callGroq(userPrompt)) ?? (await callGemini(userPrompt));
     if (!rawContent) {
-      return new Response(JSON.stringify({ error: "AI unavailable. Set ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets." }), {
+      return new Response(JSON.stringify({ error: "AI service temporarily unavailable." }), {
         status: 503,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });

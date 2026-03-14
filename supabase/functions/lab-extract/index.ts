@@ -22,7 +22,7 @@ serve(async (req) => {
     const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
 
     if (!ANTHROPIC_API_KEY && !GEMINI_API_KEY) {
-      return new Response(JSON.stringify({ error: "ANTHROPIC_API_KEY or GEMINI_API_KEY not configured" }), {
+      return new Response(JSON.stringify({ error: "AI service not configured" }), {
         status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }

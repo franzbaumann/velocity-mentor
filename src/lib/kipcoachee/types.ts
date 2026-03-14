@@ -30,6 +30,45 @@ export interface CoachingMemory {
   expires_at: string | null;
 }
 
+export interface SeasonContextForPrompt {
+  active_season: {
+    name: string;
+    type: string;
+    weeks_remaining: number;
+    primary_distance: string | null;
+    phase: string;
+  } | null;
+  next_race: {
+    name: string;
+    date: string;
+    distance: string;
+    priority: string;
+    days_away: number;
+    taper_starts: string | null;
+    goal_time: string | null;
+  } | null;
+  next_a_race: {
+    name: string;
+    date: string;
+    days_away: number;
+  } | null;
+  upcoming_races_30d: Array<{
+    name: string;
+    date: string;
+    priority: string;
+    distance: string;
+  }>;
+}
+
+export interface TLSContextForPrompt {
+  today: number;
+  status: string;
+  breakdown: Record<string, number>;
+  last7Days: number[];
+  average7d: number;
+  hasCheckedInToday: boolean;
+}
+
 export interface AthleteContext {
   name: string;
   ctl: number | null;
@@ -56,4 +95,6 @@ export interface AthleteContext {
   onboarding_answers: Record<string, unknown> | null;
   readiness_history_text: string;
   memories: CoachingMemory[];
+  season?: SeasonContextForPrompt;
+  tls?: TLSContextForPrompt;
 }

@@ -1,4 +1,4 @@
-import { Line, LineChart, ResponsiveContainer } from "recharts";
+import { Line, LineChart, ResponsiveContainer, YAxis } from "recharts";
 
 interface SparklineProps {
   data: number[];
@@ -21,16 +21,20 @@ export function Sparkline({ data, color = "hsl(var(--primary))" }: SparklineProp
     );
   }
 
+  const maxVal = Math.max(...chartData.map((d) => d.value), 1);
+
   return (
     <div className="w-full" style={{ height: SPARKLINE_HEIGHT, minHeight: SPARKLINE_HEIGHT }}>
       <ResponsiveContainer width="100%" height="100%">
-        <LineChart data={chartData}>
+        <LineChart data={chartData} margin={{ top: 2, right: 2, bottom: 2, left: 2 }}>
+          <YAxis domain={[0, maxVal]} hide />
           <Line
-            type="natural"
+            type="monotone"
             dataKey="value"
             stroke={color}
             strokeWidth={2}
             dot={false}
+            isAnimationActive={false}
           />
         </LineChart>
       </ResponsiveContainer>

@@ -92,6 +92,10 @@ ${memoriesBlock ? `WHAT I REMEMBER ABOUT THIS ATHLETE
 These are coaching memories from previous conversations. Use them to personalize advice, avoid re-asking known information, and show continuity. Reference memories naturally — don't announce "I remember that...". Just use the knowledge.
 ${memoriesBlock}` : ""}
 
+${buildSeasonBlock(ctx)}
+
+${buildTLSBlock(ctx)}
+
 HOW YOU THINK — DECISION FRAMEWORK
 
 Before every response, silently run through this:
@@ -282,6 +286,93 @@ When recommending a session: name it from the library, give exact structure (rep
 When an athlete asks about training: reference elite methods if applicable ("This is the same threshold structure Ingebrigtsen's athletes use"), explain WHY not just WHAT.
 Scaling: CTL<40/<3yr: Easy runs, Z2 Builders, Hill Repeats, Broken Tempo. CTL 40-55/3-5yr: add Cruise Intervals, Threshold Singles, Classic Intervals, Progressive Long Run. CTL 55-70/5+yr: full library, consider Back-to-Back, Double Threshold intro. CTL>70/competitive: Double Threshold, Back-to-Back, Kipchoge Long Run, twice-daily.
 Never recommend: Double Threshold if CTL<55 or ramp>5. Back-to-Back if stress fracture history. VO2max when TSB<-20 or HRV suppressed >15%. Any intensity work the week after a race.`;
+}
+
+function buildSeasonBlock(ctx: AthleteContext): string {
+  if (!ctx.season?.active_season) return "";
+
+  const s = ctx.season;
+  const lines: string[] = [
+    "COMPETITION SEASON",
+    `Season: ${s.active_season.name} (${s.active_season.type})`,
+    `Phase: ${s.active_season.phase}`,
+    `Weeks remaining: ${s.active_season.weeks_remaining}`,
+  ];
+
+  if (s.active_season.primary_distance) {
+    lines.push(`Primary distance: ${s.active_season.primary_distance}`);
+  }
+
+  if (s.next_race) {
+    lines.push("");
+    lines.push(
+      `Next race: ${s.next_race.name} — ${s.next_race.distance}, ${s.next_race.priority}-priority, ${s.next_race.days_away} days away (${s.next_race.date})`,
+    );
+    if (s.next_race.goal_time) lines.push(`Goal time: ${s.next_race.goal_time}`);
+    if (s.next_race.taper_starts) lines.push(`Taper starts: ${s.next_race.taper_starts}`);
+  }
+
+  if (s.next_a_race && (!s.next_race || s.next_a_race.name !== s.next_race.name)) {
+    lines.push(
+      `Next A-race: ${s.next_a_race.name}, ${s.next_a_race.days_away} days away (${s.next_a_race.date})`,
+    );
+  }
+
+  if (s.upcoming_races_30d.length > 0) {
+    lines.push("");
+    lines.push("Upcoming races (30 days):");
+    for (const r of s.upcoming_races_30d) {
+      lines.push(`- ${r.date}: ${r.name} (${r.priority}) — ${r.distance}`);
+    }
+  }
+
+  lines.push("");
+  lines.push(
+    "TAPER RULES (enforce strictly):",
+    "- A-race: 3-week taper. Week -3: reduce volume 20-30%, keep 1 quality session. Week -2: reduce another 20%, sharpening workout only. Race week: easy running + strides. Target TSB: +10 to +20.",
+    "- B-race: 10-day mini-taper. Maintain intensity, reduce volume 15%. Last hard session 10 days out. Sharpening 3 days out. Target TSB: 0 to +10.",
+    "- C-race: no taper. Train through. Race replaces a quality session. Target TSB: as-is.",
+    "- Never schedule VO2max or threshold work during taper week for A/B races.",
+    "- After an A-race: 1 week easy recovery minimum before resuming structured training.",
+  );
+
+  return lines.join("\n");
+}
+
+function buildTLSBlock(ctx: AthleteContext): string {
+  if (!ctx.tls) return "";
+
+  const t = ctx.tls;
+  const lines: string[] = [
+    "TOTAL LOAD MANAGEMENT",
+    "You have access to the athlete's Total Load Score (TLS) — a composite of running load, other training, sleep quality, work stress, travel, and how the athlete actually feels. This context is critical.",
+    "",
+    `Today's TLS: ${t.today > 0 ? t.today : "No check-in yet"}`,
+    `Status: ${t.status}`,
+    `7-day average: ${t.average7d ?? "Insufficient data"}`,
+  ];
+
+  if (t.breakdown && Object.keys(t.breakdown).length > 0) {
+    lines.push("");
+    lines.push("Breakdown:");
+    if (t.breakdown.running != null) lines.push(`- Running: ${t.breakdown.running}`);
+    if (t.breakdown.otherTraining != null) lines.push(`- Other training: ${t.breakdown.otherTraining}`);
+    if (t.breakdown.sleep != null) lines.push(`- Sleep: ${t.breakdown.sleep}`);
+    if (t.breakdown.lifeStress != null) lines.push(`- Life stress: ${t.breakdown.lifeStress}`);
+    if (t.breakdown.subjective != null) lines.push(`- Subjective: ${t.breakdown.subjective}`);
+  }
+
+  lines.push("");
+  lines.push(
+    "RULES FOR HOW TO USE THIS:",
+    "When TLS is 'loaded' (65+): Acknowledge the full picture, not just running. Frame it: 'Your system is carrying more than just running stress.' Suggest session modifications — never force, always explain why.",
+    "When TLS is 'overloaded' (80+): Proactively suggest reducing or swapping the next hard session. Reference the specific stressors by name. Never shame the athlete — this is smart training.",
+    "When TLS is 'critical' (90+): Strongly recommend rest or very easy movement only. If athlete pushes back, explain: adaptation happens during recovery, not during stress.",
+    "When no check-in today: Work with available HRV and sleep data. Note once that subjective data would improve your recommendations. Do not ask repeatedly.",
+    "Always reference specific numbers from the data. Never give generic advice.",
+  );
+
+  return lines.join("\n");
 }
 
 function buildPhilosophyDetail(philosophy: string | null): string {

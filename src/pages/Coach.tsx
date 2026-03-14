@@ -30,6 +30,8 @@ type StoredMsg = {
   message_type: string;
   activity_id: string | null;
   created_at: string;
+  ui_component?: string | null;
+  ui_data?: Record<string, unknown> | null;
 };
 type ChatFilter = "all" | "analyses" | "chat";
 
@@ -580,6 +582,96 @@ function PostWorkoutAnalysisCard({ content, date }: { content: string; date: str
   );
 }
 
+type TLSProposalUiData = {
+  workoutId?: string;
+  planId?: string;
+  date?: string;
+  originalWorkout?: Record<string, unknown>;
+  proposedWorkout?: Record<string, unknown>;
+  reason?: string;
+  tlsScore?: number;
+};
+
+function TLSAdjustmentProposalCard({
+  uiData,
+  date,
+  onAccept,
+  onKeepOriginal,
+  onAskWhy,
+  isApplying,
+}: {
+  uiData: TLSProposalUiData;
+  date: string;
+  onAccept: () => void;
+  onKeepOriginal: () => void;
+  onAskWhy: () => void;
+  isApplying: boolean;
+}) {
+  const orig = uiData.originalWorkout ?? {};
+  const prop = uiData.proposedWorkout ?? {};
+  const origDesc = String(orig.description ?? orig.name ?? orig.session_type ?? "Workout");
+  const propDesc = String(prop.description ?? prop.name ?? prop.session_type ?? "Easy run");
+  const origDetail = orig.distance_km != null ? `${orig.distance_km} km` : orig.duration_minutes != null ? `${orig.duration_minutes} min` : null;
+  const propDetail = prop.distance_km != null ? `${prop.distance_km} km` : prop.duration_minutes != null ? `${prop.duration_minutes} min` : null;
+  const reason = uiData.reason ?? "TLS is elevated — consider easing this session.";
+  const tlsScore = uiData.tlsScore;
+
+  return (
+    <div className="flex gap-3 max-w-lg">
+      <div className="w-8 h-8 rounded-full bg-amber-500/10 flex items-center justify-center flex-shrink-0">
+        <span className="text-xs font-semibold text-amber-600 dark:text-amber-400">TLS</span>
+      </div>
+      <div className="rounded-2xl border border-amber-500/20 bg-amber-500/5 p-4 text-sm flex-1 space-y-3">
+        <div className="flex items-center gap-2">
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-600 dark:text-amber-400">
+            Load adjustment suggestion
+          </span>
+          {tlsScore != null && (
+            <span className="text-[10px] text-muted-foreground">TLS: {Math.round(tlsScore)}</span>
+          )}
+          <span className="text-[10px] text-muted-foreground">{date}</span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 text-xs">
+          <div className="rounded-lg bg-muted/50 p-2">
+            <p className="font-medium text-muted-foreground mb-0.5">Original</p>
+            <p className="text-foreground">{origDesc}</p>
+            {origDetail && <p className="text-muted-foreground">{origDetail}</p>}
+          </div>
+          <div className="rounded-lg bg-primary/10 p-2 border border-primary/20">
+            <p className="font-medium text-primary mb-0.5">Proposed</p>
+            <p className="text-foreground">{propDesc}</p>
+            {propDetail && <p className="text-muted-foreground">{propDetail}</p>}
+          </div>
+        </div>
+        <p className="text-muted-foreground text-xs">{reason}</p>
+        <div className="flex flex-wrap gap-2">
+          <button
+            onClick={onAccept}
+            disabled={isApplying}
+            className="rounded-full px-3 py-1.5 text-xs font-medium bg-primary text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          >
+            {isApplying ? "Applying…" : "Accept change"}
+          </button>
+          <button
+            onClick={onKeepOriginal}
+            disabled={isApplying}
+            className="rounded-full px-3 py-1.5 text-xs font-medium bg-secondary text-secondary-foreground hover:bg-secondary/80"
+          >
+            Keep original
+          </button>
+          <button
+            onClick={onAskWhy}
+            disabled={isApplying}
+            className="rounded-full px-3 py-1.5 text-xs font-medium text-muted-foreground hover:text-foreground"
+          >
+            Ask why
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 async function extractMemories(msgs: Msg[]) {
   const userMsgCount = msgs.filter((m) => m.role === "user").length;
   if (userMsgCount < 3) return;
@@ -604,6 +696,8 @@ export default function Coach() {
   const [rateLimitUntil, setRateLimitUntil] = useState<number>(0);
   const [generatingPlan, setGeneratingPlan] = useState(false);
   const [applyingPlan, setApplyingPlan] = useState(false);
+  const [applyingTls, setApplyingTls] = useState(false);
+  const [dismissedTlsIds, setDismissedTlsIds] = useState<Set<string>>(new Set());
   const [onboardingAnswers, setOnboardingAnswers] = useState<Record<string, unknown>>({});
   const [onboardingPhase, setOnboardingPhase] = useState<"active" | "done">("active");
   const [intakeAnswers] = useState<Record<string, string | string[]> | null>(() => {
@@ -632,7 +726,7 @@ export default function Coach() {
       if (!u) return [];
       const { data, error } = await supabase
         .from("coach_message")
-        .select("id, role, content, message_type, activity_id, created_at")
+        .select("id, role, content, message_type, activity_id, created_at, ui_component, ui_data")
         .eq("user_id", u.id)
         .order("created_at", { ascending: false })
         .limit(50);
@@ -649,6 +743,14 @@ export default function Coach() {
 
   const analyses = useMemo(
     () => chatHistory.filter((m) => m.message_type === "post_workout_analysis"),
+    [chatHistory],
+  );
+
+  const tlsProposals = useMemo(
+    () =>
+      chatHistory.filter(
+        (m) => m.message_type === "tls_adjustment_proposal" && m.ui_data && typeof m.ui_data === "object"
+      ) as StoredMsg[],
     [chatHistory],
   );
 
@@ -1072,6 +1174,61 @@ export default function Coach() {
     [queryClient]
   );
 
+  const handleAcceptTls = useCallback(
+    async (proposal: StoredMsg) => {
+      const uiData = proposal.ui_data as TLSProposalUiData | undefined;
+      if (!uiData?.workoutId || !uiData.proposedWorkout || !uiData.originalWorkout) {
+        toast.error("Missing workout data for this proposal.");
+        return;
+      }
+      setApplyingTls(true);
+      try {
+        const prop = uiData.proposedWorkout;
+        const orig = uiData.originalWorkout;
+        const { error } = await supabase
+          .from("training_plan_workout")
+          .update({
+            type: (prop.type as string) ?? "easy",
+            name: (prop.name as string) ?? (prop.description as string) ?? "",
+            description: (prop.description as string) ?? "",
+            key_focus: (prop.key_focus as string | null) ?? null,
+            distance_km: (prop.distance_km as number | null) ?? null,
+            duration_minutes: (prop.duration_minutes as number | null) ?? null,
+            target_pace: (prop.target_pace as string | null) ?? null,
+            target_hr_zone: (prop.target_hr_zone as number | null) ?? null,
+            tss_estimate: (prop.tss_estimate as number | null) ?? null,
+            tls_adjusted: true,
+            tls_adjustment_reason: (uiData.reason as string) ?? null,
+            original_workout: orig,
+          } as Record<string, unknown>)
+          .eq("id", uiData.workoutId);
+        if (error) throw error;
+        queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+        queryClient.invalidateQueries({ queryKey: ["coach_history"] });
+        setDismissedTlsIds((prev) => new Set(prev).add(proposal.id));
+        toast.success("Workout adjusted. Plan updated.");
+      } catch (e) {
+        toast.error(e instanceof Error ? e.message : "Failed to apply adjustment");
+      } finally {
+        setApplyingTls(false);
+      }
+    },
+    [queryClient]
+  );
+
+  const handleKeepOriginalTls = useCallback((proposal: StoredMsg) => {
+    setDismissedTlsIds((prev) => new Set(prev).add(proposal.id));
+    toast.success("Keeping original workout.");
+  }, []);
+
+  const handleAskWhyTls = useCallback(
+    (proposal: StoredMsg) => {
+      const reason = (proposal.ui_data as TLSProposalUiData)?.reason ?? "TLS adjustment";
+      send(`Why did you suggest changing this workout? ${reason}`);
+    },
+    [send]
+  );
+
   const handleOnboardingComplete = useCallback(
     (
       finalAnswers: Record<string, unknown>,
@@ -1162,7 +1319,7 @@ export default function Coach() {
         <div className="flex items-center justify-between mb-4">
           <h1 className="text-2xl font-semibold text-foreground">Coach Cade</h1>
           <div className="flex items-center gap-2">
-            {analyses.length > 0 && messages.length === 0 && (
+            {(analyses.length > 0 || tlsProposals.length > 0) && messages.length === 0 && (
               <div className="flex items-center gap-1 bg-secondary rounded-full p-0.5">
                 {([["all", "All"], ["analyses", "Analyses"], ["chat", "Chat"]] as [ChatFilter, string][]).map(([key, label]) => (
                   <button
@@ -1283,6 +1440,30 @@ export default function Coach() {
                         key={a.id}
                         content={a.content}
                         date={format(new Date(a.created_at), "MMM d, HH:mm")}
+                      />
+                    ))}
+                  </div>
+                )}
+
+                {/* TLS adjustment proposals */}
+                {(chatFilter === "all" || chatFilter === "chat") &&
+                  tlsProposals.filter((p) => !dismissedTlsIds.has(p.id)).length > 0 && (
+                  <div className="space-y-3 mt-2">
+                    {chatFilter === "all" && (
+                      <p className="text-xs text-muted-foreground uppercase tracking-wider font-medium">Load adjustments</p>
+                    )}
+                    {tlsProposals
+                      .filter((p) => !dismissedTlsIds.has(p.id))
+                      .slice(0, 5)
+                      .map((p) => (
+                      <TLSAdjustmentProposalCard
+                        key={p.id}
+                        uiData={(p.ui_data ?? {}) as TLSProposalUiData}
+                        date={format(new Date(p.created_at), "MMM d, HH:mm")}
+                        onAccept={() => handleAcceptTls(p)}
+                        onKeepOriginal={() => handleKeepOriginalTls(p)}
+                        onAskWhy={() => handleAskWhyTls(p)}
+                        isApplying={applyingTls}
                       />
                     ))}
                   </div>

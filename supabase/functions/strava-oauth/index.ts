@@ -11,10 +11,28 @@ Deno.serve(async (req) => {
   }
 
   try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Missing Authorization header" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     const { code, redirect_uri } = await req.json();
 
-    if (!code) {
+    if (!code || typeof code !== "string") {
       return new Response(JSON.stringify({ error: "Missing authorization code" }), {
+        status: 400,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    // Validate redirect_uri against allowlist (prevents OAuth redirect hijacking)
+    const allowedList = (Deno.env.get("ALLOWED_REDIRECT_URIS") ?? "http://localhost:5173/auth/strava/callback,http://localhost:8080/auth/strava/callback,http://127.0.0.1:5173/auth/strava/callback,http://127.0.0.1:8080/auth/strava/callback").split(",").map((u) => u.trim());
+    const redirectUri = typeof redirect_uri === "string" ? redirect_uri.trim() : "";
+    if (!redirectUri || !allowedList.includes(redirectUri)) {
+      return new Response(JSON.stringify({ error: "Invalid redirect_uri" }), {
         status: 400,
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
@@ -30,6 +48,22 @@ Deno.serve(async (req) => {
       });
     }
 
+    // Authenticate user before exchanging code
+    const token = authHeader.replace("Bearer ", "").trim();
+    const userClient = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_ANON_KEY")!,
+      { global: { headers: { Authorization: authHeader } } },
+    );
+    const { data: { user }, error: userError } = await userClient.auth.getUser(token);
+
+    if (userError || !user) {
+      return new Response(JSON.stringify({ error: "Unauthorized" }), {
+        status: 401,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
     // Exchange authorization code for tokens
     const tokenRes = await fetch("https://www.strava.com/oauth/token", {
       method: "POST",
@@ -39,7 +73,7 @@ Deno.serve(async (req) => {
         client_secret: clientSecret,
         code,
         grant_type: "authorization_code",
-        redirect_uri,
+        redirect_uri: redirectUri,
       }),
     });
 
@@ -54,35 +88,10 @@ Deno.serve(async (req) => {
     const tokenData = await tokenRes.json();
     const { access_token, refresh_token, expires_at, athlete } = tokenData;
 
-    // Authenticate the calling user via their JWT
-    const authHeader = req.headers.get("Authorization");
-    if (!authHeader) {
-      return new Response(JSON.stringify({ error: "Missing Authorization header" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
-
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
     );
-
-    // Resolve the user from their JWT
-    const token = authHeader.replace("Bearer ", "");
-    const userClient = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_ANON_KEY")!,
-      { global: { headers: { Authorization: authHeader } } },
-    );
-    const { data: { user }, error: userError } = await userClient.auth.getUser(token);
-
-    if (userError || !user) {
-      return new Response(JSON.stringify({ error: "Unauthorized" }), {
-        status: 401,
-        headers: { ...corsHeaders, "Content-Type": "application/json" },
-      });
-    }
 
     // Upsert tokens using service role (bypasses RLS for INSERT)
     const { error: upsertError } = await supabase

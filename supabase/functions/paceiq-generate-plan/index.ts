@@ -252,7 +252,7 @@ serve(async (req) => {
     if (!planRaw || typeof planRaw !== "object") {
       console.error("paceiq-generate-plan: all AI providers failed");
       return new Response(
-        JSON.stringify({ error: "AI unavailable. Set ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets." }),
+        JSON.stringify({ error: "AI service temporarily unavailable." }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } }
       );
     }

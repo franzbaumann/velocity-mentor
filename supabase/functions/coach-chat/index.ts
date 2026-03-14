@@ -52,6 +52,45 @@ interface CoachingMemory {
   expires_at: string | null;
 }
 
+interface SeasonContextForPrompt {
+  active_season: {
+    name: string;
+    type: string;
+    weeks_remaining: number;
+    primary_distance: string | null;
+    phase: string;
+  } | null;
+  next_race: {
+    name: string;
+    date: string;
+    distance: string;
+    priority: string;
+    days_away: number;
+    taper_starts: string | null;
+    goal_time: string | null;
+  } | null;
+  next_a_race: {
+    name: string;
+    date: string;
+    days_away: number;
+  } | null;
+  upcoming_races_30d: Array<{
+    name: string;
+    date: string;
+    priority: string;
+    distance: string;
+  }>;
+}
+
+interface TLSContextForPrompt {
+  today: number;
+  status: string;
+  breakdown: Record<string, number>;
+  last7Days: number[];
+  average7d: number;
+  hasCheckedInToday: boolean;
+}
+
 interface AthleteContext {
   name: string;
   ctl: number | null;
@@ -78,6 +117,8 @@ interface AthleteContext {
   onboarding_answers: Record<string, unknown> | null;
   readiness_history_text: string;
   memories: CoachingMemory[];
+  season?: SeasonContextForPrompt;
+  tls?: TLSContextForPrompt;
 }
 
 // ---------------------------------------------------------------------------
@@ -110,19 +151,141 @@ function calculate4WeekAvg(activities: Record<string, unknown>[]): number {
   return Math.round((totalKm / 4) * 10) / 10;
 }
 
+async function buildSeasonContext(
+  supabaseAdmin: ReturnType<typeof createClient>,
+  userId: string,
+): Promise<SeasonContextForPrompt | undefined> {
+  const { data: seasons } = await supabaseAdmin
+    .from("competition_season")
+    .select("*")
+    .eq("user_id", userId)
+    .eq("status", "active")
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  if (!seasons || seasons.length === 0) return undefined;
+
+  const season = seasons[0] as Record<string, unknown>;
+  const seasonId = String(season.id);
+
+  const { data: races } = await supabaseAdmin
+    .from("season_race")
+    .select("*")
+    .eq("season_id", seasonId)
+    .order("date", { ascending: true });
+
+  const raceList = (races ?? []) as Record<string, unknown>[];
+  const now = new Date();
+  const nowMs = now.getTime();
+  const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
+
+  const upcoming = raceList.filter(
+    (r) => String(r.status) === "upcoming" && new Date(String(r.date)).getTime() >= nowMs,
+  );
+
+  const endDate = new Date(String(season.end_date));
+  const weeksRemaining = Math.max(
+    0,
+    Math.ceil((endDate.getTime() - nowMs) / (7 * 24 * 60 * 60 * 1000)),
+  );
+
+  const TAPER_DAYS: Record<string, number> = { A: 21, B: 10, C: 0 };
+
+  function taperStart(raceDate: string, priority: string): string | null {
+    const days = TAPER_DAYS[priority] ?? 0;
+    if (days === 0) return null;
+    const d = new Date(raceDate);
+    d.setDate(d.getDate() - days);
+    return d.toISOString().slice(0, 10);
+  }
+
+  function daysAway(dateStr: string): number {
+    return Math.ceil((new Date(dateStr).getTime() - nowMs) / (24 * 60 * 60 * 1000));
+  }
+
+  // Determine phase
+  const recentCompleted = raceList.filter(
+    (r) => String(r.status) === "completed" &&
+      (nowMs - new Date(String(r.date)).getTime()) <= 7 * 24 * 60 * 60 * 1000 &&
+      String(r.priority) === "A",
+  );
+  let phase = "base";
+  if (recentCompleted.length > 0) {
+    phase = "recovery";
+  } else if (upcoming.length > 0) {
+    const next = upcoming[0];
+    const d = daysAway(String(next.date));
+    if (d <= 7) phase = "race_week";
+    else if ((TAPER_DAYS[String(next.priority)] ?? 0) > 0 && d <= (TAPER_DAYS[String(next.priority)] ?? 0)) phase = "taper";
+    else {
+      const nextA = upcoming.find((r) => String(r.priority) === "A");
+      if (nextA) {
+        const da = daysAway(String(nextA.date));
+        if (da <= 42) phase = "peak";
+        else if (da <= 84) phase = "build";
+      }
+    }
+  }
+
+  const nextRace = upcoming[0] ?? null;
+  const nextARace = upcoming.find((r) => String(r.priority) === "A") ?? null;
+
+  const upcoming30 = upcoming
+    .filter((r) => new Date(String(r.date)).getTime() - nowMs <= thirtyDaysMs)
+    .map((r) => ({
+      name: String(r.name),
+      date: String(r.date),
+      priority: String(r.priority),
+      distance: String(r.distance),
+    }));
+
+  return {
+    active_season: {
+      name: String(season.name),
+      type: String(season.season_type),
+      weeks_remaining: weeksRemaining,
+      primary_distance: season.primary_distance ? String(season.primary_distance) : null,
+      phase,
+    },
+    next_race: nextRace
+      ? {
+          name: String(nextRace.name),
+          date: String(nextRace.date),
+          distance: String(nextRace.distance),
+          priority: String(nextRace.priority),
+          days_away: daysAway(String(nextRace.date)),
+          taper_starts: taperStart(String(nextRace.date), String(nextRace.priority)),
+          goal_time: nextRace.goal_time ? String(nextRace.goal_time) : null,
+        }
+      : null,
+    next_a_race: nextARace
+      ? {
+          name: String(nextARace.name),
+          date: String(nextARace.date),
+          days_away: daysAway(String(nextARace.date)),
+        }
+      : null,
+    upcoming_races_30d: upcoming30,
+  };
+}
+
 async function buildAthleteContext(
   supabaseAdmin: ReturnType<typeof createClient>,
   userId: string,
   intakeAnswers: Record<string, unknown> | null,
   intervalsContext: { wellness?: unknown[]; activities?: unknown[] } | null,
 ): Promise<AthleteContext> {
-  const [profileRes, readinessRes, activitiesRes, planRes, workoutsRes, pbsRes] = await Promise.all([
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const [profileRes, readinessRes, activitiesRes, planRes, workoutsRes, pbsRes, dailyLoadRes] = await Promise.all([
     supabaseAdmin.from("athlete_profile").select("*").eq("user_id", userId).maybeSingle(),
     supabaseAdmin.from("daily_readiness").select("*").eq("user_id", userId).order("date", { ascending: false }).limit(7),
     supabaseAdmin.from("activity").select("*").eq("user_id", userId).order("date", { ascending: false }).limit(30),
     supabaseAdmin.from("training_plan").select("*").eq("user_id", userId).eq("is_active", true).order("created_at", { ascending: false }).limit(1).maybeSingle(),
     supabaseAdmin.from("training_plan_workout").select("*").eq("user_id", userId).order("date", { ascending: true }).limit(200),
     supabaseAdmin.from("personal_records").select("distance, date_achieved, best_time_seconds, best_pace").eq("user_id", userId).order("date_achieved", { ascending: false }).limit(20),
+    supabaseAdmin.from("daily_load").select("date, total_load_score, cns_status, mood, energy, legs, breakdown").eq("user_id", userId).gte("date", sevenDaysAgo).lte("date", todayStr).order("date", { ascending: true }),
   ]);
 
   const p = profileRes?.data as Record<string, unknown> | null;
@@ -131,6 +294,7 @@ async function buildAthleteContext(
   const planRow = planRes?.data as Record<string, unknown> | null;
   const workouts = (workoutsRes?.data ?? []) as Record<string, unknown>[];
   const pbs = (pbsRes?.data ?? []) as Record<string, unknown>[];
+  const dailyLoadRows = (dailyLoadRes?.data ?? []) as Record<string, unknown>[];
 
   // Readiness
   const today = readiness[0] ?? {};
@@ -290,6 +454,44 @@ async function buildAthleteContext(
     }
   }
 
+  const seasonCtx = await buildSeasonContext(supabaseAdmin, userId);
+
+  // TLS (Total Load Management) context
+  let tlsCtx: TLSContextForPrompt | undefined;
+  const todayLoad = dailyLoadRows.find((r) => String(r.date ?? "").slice(0, 10) === todayStr);
+  const last7Scores = dailyLoadRows
+    .map((r) => (r.total_load_score != null ? Number(r.total_load_score) : null))
+    .filter((v): v is number => v != null);
+  const avg7d = last7Scores.length > 0
+    ? Math.round((last7Scores.reduce((a, b) => a + b, 0) / last7Scores.length) * 10) / 10
+    : 0;
+  if (todayLoad && todayLoad.total_load_score != null) {
+    const breakdown = (todayLoad.breakdown as Record<string, number>) ?? {};
+    tlsCtx = {
+      today: Number(todayLoad.total_load_score),
+      status: String(todayLoad.cns_status ?? "normal"),
+      breakdown: {
+        running: breakdown.running ?? 0,
+        otherTraining: breakdown.otherTraining ?? 0,
+        sleep: breakdown.sleep ?? 0,
+        lifeStress: breakdown.lifeStress ?? 0,
+        subjective: breakdown.subjective ?? 0,
+      },
+      last7Days: last7Scores,
+      average7d: avg7d,
+      hasCheckedInToday: true,
+    };
+  } else if (last7Scores.length > 0) {
+    tlsCtx = {
+      today: 0,
+      status: "unknown",
+      breakdown: {},
+      last7Days: last7Scores,
+      average7d: avg7d,
+      hasCheckedInToday: false,
+    };
+  }
+
   return {
     name: String(p?.name ?? "there").split(" ")[0],
     ctl: resolveCtlAtlTsb(today).ctl,
@@ -316,6 +518,8 @@ async function buildAthleteContext(
     onboarding_answers: onboarding,
     readiness_history_text: readinessHistoryText,
     memories,
+    season: seasonCtx,
+    tls: tlsCtx,
   };
 }
 
@@ -323,6 +527,93 @@ async function buildAthleteContext(
 // System Prompt Builder — canonical version lives in src/lib/kipcoachee/system-prompt.ts
 // This is the Deno-compatible copy used by the edge function.
 // ---------------------------------------------------------------------------
+
+function buildSeasonBlockDeno(ctx: AthleteContext): string {
+  if (!ctx.season?.active_season) return "";
+
+  const s = ctx.season;
+  const lines: string[] = [
+    "COMPETITION SEASON",
+    `Season: ${s.active_season.name} (${s.active_season.type})`,
+    `Phase: ${s.active_season.phase}`,
+    `Weeks remaining: ${s.active_season.weeks_remaining}`,
+  ];
+
+  if (s.active_season.primary_distance) {
+    lines.push(`Primary distance: ${s.active_season.primary_distance}`);
+  }
+
+  if (s.next_race) {
+    lines.push("");
+    lines.push(
+      `Next race: ${s.next_race.name} — ${s.next_race.distance}, ${s.next_race.priority}-priority, ${s.next_race.days_away} days away (${s.next_race.date})`,
+    );
+    if (s.next_race.goal_time) lines.push(`Goal time: ${s.next_race.goal_time}`);
+    if (s.next_race.taper_starts) lines.push(`Taper starts: ${s.next_race.taper_starts}`);
+  }
+
+  if (s.next_a_race && (!s.next_race || s.next_a_race.name !== s.next_race.name)) {
+    lines.push(
+      `Next A-race: ${s.next_a_race.name}, ${s.next_a_race.days_away} days away (${s.next_a_race.date})`,
+    );
+  }
+
+  if (s.upcoming_races_30d.length > 0) {
+    lines.push("");
+    lines.push("Upcoming races (30 days):");
+    for (const r of s.upcoming_races_30d) {
+      lines.push(`- ${r.date}: ${r.name} (${r.priority}) — ${r.distance}`);
+    }
+  }
+
+  lines.push("");
+  lines.push(
+    "TAPER RULES (enforce strictly):",
+    "- A-race: 3-week taper. Week -3: reduce volume 20-30%, keep 1 quality session. Week -2: reduce another 20%, sharpening workout only. Race week: easy running + strides. Target TSB: +10 to +20.",
+    "- B-race: 10-day mini-taper. Maintain intensity, reduce volume 15%. Last hard session 10 days out. Sharpening 3 days out. Target TSB: 0 to +10.",
+    "- C-race: no taper. Train through. Race replaces a quality session. Target TSB: as-is.",
+    "- Never schedule VO2max or threshold work during taper week for A/B races.",
+    "- After an A-race: 1 week easy recovery minimum before resuming structured training.",
+  );
+
+  return lines.join("\n");
+}
+
+function buildTLSBlockDeno(ctx: AthleteContext): string {
+  if (!ctx.tls) return "";
+
+  const t = ctx.tls;
+  const lines: string[] = [
+    "TOTAL LOAD MANAGEMENT",
+    "You have access to the athlete's Total Load Score (TLS) — a composite of running load, other training, sleep quality, work stress, travel, and how the athlete actually feels. This context is critical.",
+    "",
+    `Today's TLS: ${t.today > 0 ? t.today : "No check-in yet"}`,
+    `Status: ${t.status}`,
+    `7-day average: ${t.average7d ?? "Insufficient data"}`,
+  ];
+
+  if (t.breakdown && Object.keys(t.breakdown).length > 0) {
+    lines.push("");
+    lines.push("Breakdown:");
+    if (t.breakdown.running != null) lines.push(`- Running: ${t.breakdown.running}`);
+    if (t.breakdown.otherTraining != null) lines.push(`- Other training: ${t.breakdown.otherTraining}`);
+    if (t.breakdown.sleep != null) lines.push(`- Sleep: ${t.breakdown.sleep}`);
+    if (t.breakdown.lifeStress != null) lines.push(`- Life stress: ${t.breakdown.lifeStress}`);
+    if (t.breakdown.subjective != null) lines.push(`- Subjective: ${t.breakdown.subjective}`);
+  }
+
+  lines.push("");
+  lines.push(
+    "RULES FOR HOW TO USE THIS:",
+    "When TLS is 'loaded' (65+): Acknowledge the full picture, not just running. Frame it: 'Your system is carrying more than just running stress.' Suggest session modifications — never force, always explain why.",
+    "When TLS is 'overloaded' (80+): Proactively suggest reducing or swapping the next hard session. Reference the specific stressors by name. Never shame the athlete — this is smart training.",
+    "When TLS is 'critical' (90+): Strongly recommend rest or very easy movement only. If athlete pushes back, explain: adaptation happens during recovery, not during stress.",
+    "When no check-in today: Work with available HRV and sleep data. Note once that subjective data would improve your recommendations. Do not ask repeatedly.",
+    "Always reference specific numbers from the data. Never give generic advice.",
+  );
+
+  return lines.join("\n");
+}
 
 function buildPhilosophyDetail(philosophy: string | null): string {
   switch (philosophy) {
@@ -423,6 +714,10 @@ ${JSON.stringify(ctx.onboarding_answers, null, 2)}` : ""}
 ${memoriesBlock ? `WHAT I REMEMBER ABOUT THIS ATHLETE
 These are coaching memories from previous conversations. Use them to personalize advice, avoid re-asking known information, and show continuity. Reference memories naturally — don't announce "I remember that...". Just use the knowledge.
 ${memoriesBlock}` : ""}
+
+${buildSeasonBlockDeno(ctx)}
+
+${buildTLSBlockDeno(ctx)}
 
 HOW YOU THINK — DECISION FRAMEWORK
 
@@ -643,7 +938,7 @@ serve(async (req) => {
     ].filter((k): k is string => !!k);
     if (anthropicKeys.length === 0 && groqKeys.length === 0 && geminiKeys.length === 0) {
       return new Response(
-        JSON.stringify({ error: "Coach Cade needs ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY." }),
+        JSON.stringify({ error: "Coach is temporarily unavailable." }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -908,7 +1203,7 @@ ${conversationText}`;
         const rateLimit = any429;
         const errMsg = rateLimit
           ? "Rate limit reached. Try again in a few minutes."
-          : "AI unavailable. Set ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY in Supabase secrets.";
+          : "AI service temporarily unavailable.";
         return new Response(JSON.stringify({ error: errMsg }), {
           status: rateLimit ? 429 : 503,
           headers: { ...corsHeaders, "Content-Type": "application/json" },

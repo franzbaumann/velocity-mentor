@@ -6,13 +6,18 @@ import { AppLayout } from "@/components/AppLayout";
 import { useGreeting } from "@/hooks/useGreeting";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
+import { useSeason } from "@/hooks/useSeason";
 import { predictRaceTime, formatRaceTime, calculateZonePaces, findBestEffort } from "@/lib/race-prediction";
 import { useZoneSource } from "@/hooks/useZoneSource";
-import { TrendingDown, Moon, Heart, ChevronRight, Loader2 } from "lucide-react";
+import { calculateTaperStart, daysUntil } from "@/lib/season/periodisation";
+import { TrendingDown, Moon, Heart, ChevronRight, Loader2, Trophy, AlertTriangle } from "lucide-react";
+import { useDailyLoad } from "@/hooks/useDailyLoad";
+import { useDailyCheckIn } from "@/components/DailyCheckInContext";
 import { supabase } from "@/integrations/supabase/client";
 import { formatSleepHours } from "@/lib/format";
 import { motion } from "framer-motion";
 import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -211,11 +216,72 @@ function CoachCadeWidget() {
   );
 }
 
+function SeasonWidget() {
+  const { activeSeason, nextRace, nextARace, nextRaceTaperStart, nextRaceDaysAway, seasonPhase, loading } = useSeason();
+
+  if (loading || !activeSeason) return null;
+
+  const taperDaysAway = nextRaceTaperStart ? daysUntil(nextRaceTaperStart) : null;
+  const progressToTaper = nextRaceDaysAway != null && taperDaysAway != null && nextRaceDaysAway > 0
+    ? Math.max(0, Math.min(100, ((nextRaceDaysAway - taperDaysAway) / nextRaceDaysAway) * 100))
+    : null;
+
+  const secondRace = activeSeason.races
+    .filter((r) => r.status === "upcoming" && r.date >= new Date().toISOString().slice(0, 10))
+    .sort((a, b) => a.date.localeCompare(b.date))[1] ?? null;
+
+  return (
+    <Link to="/season" className="block">
+      <div className="glass-card p-5 hover:opacity-95 transition-opacity cursor-pointer">
+        <div className="flex items-center gap-2 mb-3">
+          <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
+            <Trophy className="w-4 h-4 text-primary" />
+          </div>
+          <span className="text-sm font-semibold text-foreground">{activeSeason.name}</span>
+          <span className="ml-auto text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium capitalize">{seasonPhase.replace("_", " ")}</span>
+        </div>
+        {nextRace ? (
+          <div>
+            <p className="text-sm text-foreground font-medium">
+              Next: {nextRace.name} {nextRace.distance}
+            </p>
+            <p className="text-xs text-muted-foreground mt-0.5">
+              {new Date(nextRace.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })} · {nextRaceDaysAway} days · {nextRace.priority}-race
+            </p>
+            {progressToTaper != null && nextRaceTaperStart && (
+              <div className="mt-2">
+                <div className="h-1.5 bg-muted rounded-full overflow-hidden">
+                  <div className="h-full bg-primary rounded-full transition-all duration-500" style={{ width: `${progressToTaper}%` }} />
+                </div>
+                <p className="text-[10px] text-muted-foreground mt-1">
+                  Taper {new Date(nextRaceTaperStart + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+                </p>
+              </div>
+            )}
+            {secondRace && (
+              <p className="text-xs text-muted-foreground mt-2">
+                Then: {secondRace.name} · {secondRace.priority} · {new Date(secondRace.date + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}
+              </p>
+            )}
+          </div>
+        ) : (
+          <p className="text-sm text-muted-foreground">No upcoming races</p>
+        )}
+        <div className="flex items-center gap-1 mt-3 text-xs text-primary font-medium">
+          View season <ChevronRight className="w-3.5 h-3.5" />
+        </div>
+      </div>
+    </Link>
+  );
+}
+
 export default function Dashboard() {
   const greeting = useGreeting();
   const zoneSource = useZoneSource();
   const { weekStats, lastActivity, recoveryMetrics, readiness, weekPlan, todaysWorkout, athlete, isSampleData, activities } = useDashboardData();
   const { isConnected: intervalsConnected } = useIntervalsIntegration();
+  const { todayLoad, hasCheckedInToday } = useDailyLoad();
+  const { openCheckIn } = useDailyCheckIn();
   const isCurrentWeekInPlan = weekStats.isCurrentWeekInPlan && weekStats.plannedKm != null && weekStats.plannedKm > 0;
   const progressPct = isCurrentWeekInPlan ? Math.round((weekStats.actualKm / weekStats.plannedKm!) * 100) : 0;
 
@@ -267,7 +333,7 @@ export default function Dashboard() {
                       Rest recommended — weekly load is {progressPct}% of target
                     </p>
                   )}
-                <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+                <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground flex-wrap">
                   <span className="flex items-center gap-1">
                     <Heart className="w-3 h-3" /> HRV {readiness.hrv}ms
                     <TrendingDown className="w-3 h-3 text-warning" />
@@ -276,6 +342,21 @@ export default function Dashboard() {
                     <Moon className="w-3 h-3" /> {formatSleepHours(readiness.sleepHours)} sleep
                   </span>
                   <span className="mono-text">TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}</span>
+                  {todayLoad?.total_load_score != null && (
+                    <button
+                      type="button"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); openCheckIn(); }}
+                      className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded font-medium ${
+                        (todayLoad.total_load_score ?? 0) < 50 ? "text-green-600 dark:text-green-400"
+                        : (todayLoad.total_load_score ?? 0) < 65 ? "text-yellow-600 dark:text-yellow-400"
+                        : (todayLoad.total_load_score ?? 0) < 80 ? "text-orange-600 dark:text-orange-400"
+                        : "text-red-600 dark:text-red-400"
+                      }`}
+                    >
+                      TLS {Math.round(todayLoad.total_load_score!)}
+                      {(todayLoad.total_load_score ?? 0) > 65 && <AlertTriangle className="w-3 h-3" />}
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
                   View details <ChevronRight className="w-3.5 h-3.5" />
@@ -284,6 +365,21 @@ export default function Dashboard() {
             </div>
           </div>
         </Link>
+
+        {!hasCheckedInToday && !isSampleData && (
+          <div className="rounded-xl border border-border bg-card p-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-foreground">30-second check-in</p>
+              <p className="text-xs text-muted-foreground">Help Coach Cade understand your full load today</p>
+            </div>
+            <Button type="button" size="sm" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openCheckIn(); }}>
+              Start <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+            </Button>
+          </div>
+        )}
+
+        {/* Season widget */}
+        <SeasonWidget />
 
         {/* 3-column grid */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

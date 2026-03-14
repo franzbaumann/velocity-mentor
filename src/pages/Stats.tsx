@@ -1,6 +1,7 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useMergedActivities } from "@/hooks/useMergedIntervalsData";
 import { useMergedReadiness } from "@/hooks/useMergedIntervalsData";
+import { useDailyLoadHistory } from "@/hooks/useDailyLoad";
 import { resolveCtlAtlTsb, type ReadinessRow } from "@/hooks/useReadiness";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useAthleteProfile } from "@/hooks/useAthleteProfile";
@@ -107,6 +108,12 @@ const STAT_INFO: Record<string, React.ReactNode> = {
     <>
       <p className="font-semibold text-foreground mb-1">Ramp Rate</p>
       <p className="text-muted-foreground text-xs">CTL change per week. &gt;5 pts/week = injury risk.</p>
+    </>
+  ),
+  tls: (
+    <>
+      <p className="font-semibold text-foreground mb-1">Total Load (TLS)</p>
+      <p className="text-muted-foreground text-xs">Composite of running, other training, sleep, life stress, and how you feel. &lt;50 = fresh, 50–65 = loaded, 65–80 = overloaded, &gt;80 = critical.</p>
     </>
   ),
 };
@@ -852,6 +859,72 @@ function SleepScoreChart({ readiness }: { readiness: { date: string; sleep_score
   );
 }
 
+// ── TLS Total Load (from daily_load check-ins) ──
+function TLSChart() {
+  const { data: loadHistory = [], isLoading } = useDailyLoadHistory(28);
+
+  const chartData = useMemo(() => {
+    return loadHistory
+      .filter((r) => r.total_load_score != null)
+      .map((r) => {
+        const b = (r as { breakdown?: { running?: number; otherTraining?: number; sleep?: number; lifeStress?: number } }).breakdown ?? {};
+        return {
+          date: r.date,
+          running: b.running ?? 0,
+          otherTraining: b.otherTraining ?? 0,
+          sleep: b.sleep ?? 0,
+          lifeStress: b.lifeStress ?? 0,
+          total: r.total_load_score ?? 0,
+        };
+      })
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }, [loadHistory]);
+
+  if (isLoading) return <LoadingSkeleton />;
+  if (!chartData.length) return <EmptyState message="Complete your daily check-in to see your total load trends." sub="30-second check-in on the dashboard" tall />;
+
+  const CustomTooltip = ({ active, payload, label }: { active?: boolean; payload?: { name: string; value: number }[]; label?: string }) => {
+    if (!active || !payload?.length || !label) return null;
+    const total = payload.reduce((s, p) => s + (p.value ?? 0), 0);
+    return (
+      <div className="rounded-xl border border-border bg-card px-3 py-2 shadow-lg text-sm">
+        <p className="font-medium text-foreground mb-1">{format(new Date(label), "MMM d, yyyy")}</p>
+        <p className="text-muted-foreground">Total: {Math.round(total)}</p>
+        {payload.filter((p) => (p.value ?? 0) > 0).map((p) => (
+          <p key={p.name} className="text-xs">{p.name}: {Math.round(p.value ?? 0)}</p>
+        ))}
+      </div>
+    );
+  };
+
+  return (
+    <div className="h-[260px]">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={chartData} margin={{ top: 5, right: 10, left: -10, bottom: 40 }} stackOffset="none">
+          <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+          <XAxis dataKey="date" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => format(new Date(v), "MMM d")} interval={chartData.length > 14 ? Math.floor(chartData.length / 7) : "preserveStartEnd"} />
+          <YAxis tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} domain={[0, 100]} />
+          <Tooltip content={<CustomTooltip />} />
+          <ReferenceLine y={50} stroke="hsl(141 72% 50% / 0.6)" strokeDasharray="4 4" />
+          <ReferenceLine y={65} stroke="hsl(38 92% 50% / 0.6)" strokeDasharray="4 4" />
+          <ReferenceLine y={80} stroke="hsl(0 84% 60% / 0.6)" strokeDasharray="4 4" />
+          <Bar dataKey="running" stackId="tls" fill="hsl(142 71% 45%)" radius={[0, 0, 0, 0]} name="Running" />
+          <Bar dataKey="otherTraining" stackId="tls" fill="hsl(211 100% 52%)" radius={[0, 0, 0, 0]} name="Other training" />
+          <Bar dataKey="sleep" stackId="tls" fill="hsl(45 93% 47%)" radius={[0, 0, 0, 0]} name="Sleep deficit" />
+          <Bar dataKey="lifeStress" stackId="tls" fill="hsl(0 84% 60%)" radius={[0, 0, 0, 0]} name="Life stress" />
+        </BarChart>
+      </ResponsiveContainer>
+      <div className="flex gap-4 mt-3 flex-wrap text-xs text-muted-foreground">
+        <span><span className="inline-block w-2 h-2 rounded-full bg-[hsl(142_71%_45%)] mr-1" />Running</span>
+        <span><span className="inline-block w-2 h-2 rounded-full bg-[hsl(211_100%_52%)] mr-1" />Other training</span>
+        <span><span className="inline-block w-2 h-2 rounded-full bg-[hsl(45_93%_47%)] mr-1" />Sleep deficit</span>
+        <span><span className="inline-block w-2 h-2 rounded-full bg-[hsl(0_84%_60%)] mr-1" />Life stress</span>
+        <span className="ml-auto">— 50 Normal · 65 Loaded · 80 Overloaded</span>
+      </div>
+    </div>
+  );
+}
+
 // ── 11. Weight (from intervals.icu wellness) ──
 function WeightChart({ readiness }: { readiness: { date: string; weight?: number | null }[] }) {
   const chartData = readiness
@@ -1208,6 +1281,10 @@ export default function Stats() {
           hrv7dAvg={fitnessSummary.hrv7dAvg}
           hrvVsAvg={fitnessSummary.hrvVsAvg}
         />
+
+        <ChartCard icon={Battery} title="Total Load — 4 weeks" info="tls">
+          <TLSChart />
+        </ChartCard>
 
         {tab === "runs" && (
           <div className="flex flex-col gap-4">

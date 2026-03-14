@@ -15,6 +15,7 @@ PRIORITY SYSTEM — address the HIGHEST applicable priority first:
 - Injury or pain reported in memories → ask for update, suggest caution
 - Ramp rate > 7 → flag overtraining risk immediately
 - TSB < -25 → serious fatigue warning
+- TLS > 65 with hard session in next 24h → suggest scaling back
 
 **HIGH** (mention if no critical):
 - Days since last session > 7 → welcome back, acknowledge the break
@@ -26,6 +27,7 @@ PRIORITY SYSTEM — address the HIGHEST applicable priority first:
 - One observation about current state (CTL trend, TSB, HRV, readiness)
 - One observation about load (weekly volume vs target, consistency)
 - One specific recommendation for today
+- If no daily check-in today → briefly prompt: "Haven't seen your check-in today — how are you feeling?"
 
 **LOW** (if nothing else):
 - Acknowledge consistency and progress
@@ -167,6 +169,7 @@ function buildContextSummary(ctx: Record<string, unknown>): string {
   const lines: string[] = [
     `Athlete: ${v(ctx.name, "Athlete")}`,
     `CTL: ${v(ctx.ctl)} | ATL: ${v(ctx.atl)} | TSB: ${v(ctx.tsb)}`,
+    `Daily check-in today: ${ctx.has_checked_in_today ? `yes (TLS ${v(ctx.tls_today)}, mood ${v(ctx.mood_today)})` : "no"}`,
     `Ramp rate: ${v(ctx.ramp_rate)} CTL pts/week`,
     `HRV today: ${v(ctx.hrv_today)}ms | HRV 7d avg: ${v(ctx.hrv_7d_avg)}ms | HRV trend: ${v(ctx.hrv_trend)}`,
     `This week: ${v(ctx.this_week_km)}km done / ${v(ctx.planned_week_km)}km planned`,
@@ -204,7 +207,7 @@ serve(async (req) => {
   try {
     if (anthropicKeyList().length === 0 && groqKeyList().length === 0 && geminiKeyList().length === 0) {
       return new Response(
-        JSON.stringify({ error: "Coach Cade needs GEMINI_API_KEY or GROQ_API_KEY." }),
+        JSON.stringify({ error: "Coach is temporarily unavailable." }),
         { status: 503, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
@@ -250,7 +253,7 @@ serve(async (req) => {
     const monStr = mon.toISOString().slice(0, 10);
     const sunStr = sun.toISOString().slice(0, 10);
 
-    const [readinessRes, activitiesRes, planRes, workoutsRes, weekWorkoutsRes, profileRes, memoriesRes, lastMsgRes] = await Promise.all([
+    const [readinessRes, activitiesRes, planRes, workoutsRes, weekWorkoutsRes, profileRes, memoriesRes, lastMsgRes, dailyLoadRes] = await Promise.all([
       supabaseAdmin.from("daily_readiness").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(14),
       supabaseAdmin.from("activity").select("*").eq("user_id", user.id).order("date", { ascending: false }).limit(30),
       supabaseAdmin.from("training_plan").select("*").eq("user_id", user.id).eq("is_active", true).order("created_at", { ascending: false }).limit(1).maybeSingle(),
@@ -262,6 +265,7 @@ serve(async (req) => {
         .order("importance", { ascending: false }).limit(10),
       supabaseAdmin.from("coach_message").select("created_at").eq("user_id", user.id).eq("role", "user")
         .order("created_at", { ascending: false }).limit(1),
+      supabaseAdmin.from("daily_load").select("total_load_score, mood").eq("user_id", user.id).eq("date", todayStr).maybeSingle(),
     ]);
 
     const readiness = (readinessRes?.data ?? []) as Record<string, unknown>[];
@@ -272,6 +276,7 @@ serve(async (req) => {
     const profile = profileRes?.data as Record<string, unknown> | null;
     const memories = (memoriesRes?.data ?? []) as { category: string; content: string; importance: number }[];
     const lastMsg = (lastMsgRes?.data?.[0] as { created_at?: string } | undefined);
+    const dailyLoad = dailyLoadRes?.data as { total_load_score?: number; mood?: string } | null;
 
     // Days since last session
     const daysSinceLastSession = lastMsg?.created_at
@@ -344,6 +349,9 @@ serve(async (req) => {
       days_since_last_session: daysSinceLastSession,
       activities_since_last_session: activitiesSinceLastSession.slice(0, 5),
       memories,
+      has_checked_in_today: !!dailyLoad,
+      tls_today: dailyLoad?.total_load_score ?? null,
+      mood_today: dailyLoad?.mood ?? null,
     };
 
     const contextStr = buildContextSummary(ctx);
