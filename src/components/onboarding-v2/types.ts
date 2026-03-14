@@ -19,6 +19,9 @@ export interface OnboardingV2Answers {
   injuryDetail: string;
   experienceLevel: string;
   trainingHistoryNote: string;
+  doubleRunsEnabled: boolean;
+  doubleRunDays: string[];
+  doubleRunDuration: number;
 }
 
 export interface IntervalsData {
@@ -86,6 +89,9 @@ export const DEFAULT_ANSWERS: OnboardingV2Answers = {
   injuryDetail: "",
   experienceLevel: "",
   trainingHistoryNote: "",
+  doubleRunsEnabled: false,
+  doubleRunDays: [],
+  doubleRunDuration: 0,
 };
 
 export const DEFAULT_STATE: OnboardingV2State = {

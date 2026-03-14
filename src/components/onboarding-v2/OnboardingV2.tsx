@@ -299,6 +299,9 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
       }
       if (answers.daysPerWeek > 0) updates.days_per_week = answers.daysPerWeek;
       if (answers.injuryDetail) updates.injury_history_text = answers.injuryDetail;
+      updates.double_runs_enabled = answers.doubleRunsEnabled ?? false;
+      if (answers.doubleRunDays?.length) updates.double_run_days = answers.doubleRunDays;
+      if (answers.doubleRunDuration > 0) updates.double_run_duration = answers.doubleRunDuration;
       if (philosophy) {
         updates.recommended_philosophy = philosophy;
         const enumVal = PHILOSOPHY_TO_ENUM[philosophy];

@@ -1807,7 +1807,7 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
 
       const { data: planRow } = await supabaseAdmin
         .from("training_plan")
-        .select("plan_name, philosophy, goal_race, goal_date, goal_time")
+        .select("plan_name, philosophy, goal_race, goal_date, goal_time, target_time")
         .eq("id", workout.plan_id)
         .maybeSingle();
 
@@ -1849,8 +1849,9 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
       if (ap?.narrative != null) profileLines.push(`Context: ${ap.narrative}`);
 
       const plan = planRow as Record<string, unknown> | null;
+      const planGoalTime = plan?.goal_time ?? plan?.target_time;
       const planContext = plan
-        ? `Plan: ${plan.plan_name ?? "?"} | Goal: ${plan.goal_race ?? "?"} | Race date: ${plan.goal_date ?? "?"} | Target: ${plan.goal_time ?? "?"}`
+        ? `Plan: ${plan.plan_name ?? "?"} | Goal: ${plan.goal_race ?? "?"} | Race date: ${plan.goal_date ?? "?"} | Target time: ${planGoalTime ?? "?"}`
         : "No plan context";
 
       const weekSummary = (weekWorkouts ?? []).map((w: Record<string, unknown>) =>
@@ -2041,7 +2042,7 @@ Reply with ONLY the coach description. No greeting or sign-off. 1-2 concise sent
 
       const w = workout as Record<string, unknown>;
 
-      const easyStepsPrompt = `You are Coach Cade — an elite AI running coach. Break this easy/aerobic run into logical distance or time segments.
+      const easyStepsPrompt = `You are Coach Cade — an elite AI running coach.
 
 Session: ${w.type ?? "easy"} — ${w.name ?? w.description ?? "?"}
 Description: ${w.description ?? "?"}
@@ -2052,22 +2053,12 @@ Target pace: ${w.target_pace ?? "?"}
 HR zone: ${w.target_hr_zone ?? "?"}
 Phase: ${w.phase ?? "base"} | Week: ${w.week_number ?? "?"}
 
-Easy runs do NOT have a structured warm-up or cool-down — the entire run is at easy/aerobic effort.
-Return ONLY "main" phase steps (1–3 segments max, e.g. first km, middle, final stretch).
+CRITICAL: This is an easy/recovery run. The ENTIRE run is at one uniform effort. Return EXACTLY ONE step — never split into segments. There is no warm-up or cool-down for easy runs.
 
-Return ONLY a valid JSON array of step objects. Each object must have:
-- "phase": always "main"
-- "label": short title (e.g. "Easy Run", "First 5km", "Finish strong")
-- "duration_min": number or null
-- "distance_km": number or null
-- "target_pace": string or null (e.g. "6:30/km")
-- "target_hr_zone": number or null
-- "notes": string or null (effort cue or purpose)
-- "reps": null
-- "rep_distance_km": null
-- "rest_label": null
+Return ONLY a valid JSON array with exactly one object:
+[{"phase":"main","label":"Easy Run","duration_min":NUMBER_OR_NULL,"distance_km":NUMBER_OR_NULL,"target_pace":"PACE_OR_NULL","target_hr_zone":NUMBER_OR_NULL,"notes":"Short effort cue","reps":null,"rep_distance_km":null,"rest_label":null}]
 
-No markdown, no explanation — ONLY the JSON array.`;
+No markdown, no explanation — ONLY the JSON array with one element.`;
 
       const structuredStepsPrompt = `You are Coach Cade — an elite AI running coach. Break down this training session into structured phases (warm-up, main set, cool-down).
 

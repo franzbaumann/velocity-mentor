@@ -15,11 +15,15 @@ interface PlanSession {
   distance_km?: number;
   duration_min?: number;
   pace_target?: string;
+  session_library_id?: string | null;
+  structure_detail?: string | null;
+  is_double_run?: boolean;
 }
 
 interface PlanWeek {
   week_number: number;
   start_date: string;
+  phase?: string;
   sessions: PlanSession[];
 }
 
@@ -49,40 +53,67 @@ function createFallbackPlan(intake: Record<string, unknown>): PlanOutput {
   return { race_date: null, race_type: "General", weeks };
 }
 
-const PLAN_PROMPT = `You are Coach Cade. Generate a structured training plan as JSON only. No markdown, no explanation — just valid JSON.
+const PLAN_PROMPT = `You are Coach Cade — an elite AI running coach. Generate a structured training plan as JSON only. No markdown, no explanation — just valid JSON.
 
 Input: athlete intake (goals, experience, volume, race date, philosophy, injuries, stress, available days).
 
 Output JSON format:
 {
-  "race_date": "YYYY-MM-DD" or null if no date,
+  "race_date": "YYYY-MM-DD" or null,
   "race_type": "5K" | "10K" | "Half Marathon" | "Marathon" | "Ultra" | "General",
   "target_time": "e.g. 3:30:00" or omit,
   "weeks": [
     {
       "week_number": 1,
       "start_date": "YYYY-MM-DD (Monday of that week)",
+      "phase": "base" | "build" | "peak" | "taper",
       "sessions": [
         {
           "day_of_week": 1,
           "session_type": "easy" | "tempo" | "intervals" | "long" | "recovery" | "rest",
+          "session_library_id": "m-01" or null,
           "description": "e.g. Easy 45min",
           "distance_km": 8,
           "duration_min": 45,
-          "pace_target": "5:30/km"
+          "pace_target": "5:30/km",
+          "structure_detail": "e.g. 5×1000m @ 3:45/km w/ 90s jog" or null,
+          "is_double_run": false
         }
       ]
     }
   ]
 }
 
-Rules:
-- day_of_week: 0=Sun, 1=Mon, ..., 6=Sat. Use athlete's available_days and long_run_day.
-- start_date: MUST be the Monday (YYYY-MM-DD) of each week. If race_date exists, work backward: race week = taper, then count back. If no race, start from next Monday from today.
-- Plan length: weeks until race (if known), else 8 weeks. If no race, 8 weeks.
-- Sessions per week: match weekly_frequency from intake. Include rest days.
-- Progress: base → intensity → taper. Recovery weeks every 3-4 weeks.
-- Use metric (km, /km). Be specific: distance or duration, target pace.`;
+SESSION LIBRARY IDs — ALWAYS use these when possible:
+1500m: 1500-01 to 1500-10 (Easy Run, Strides, Hill Sprints, LT Continuous, Cruise Intervals, VO2max Short/Medium, Race Pace Rehearsal, Short Fartlek, Long Run)
+5K: 5k-01 to 5k-12 (Easy Run, Recovery Run, LT Continuous, Cruise Intervals, Billat VO2max, 30-30, 1000m Repeats, Race Pace Intervals, Pyramid, Kenyan Fartlek, Long Run)
+10K: 10k-03 to 10k-12 (LT Continuous, Threshold Intervals, Long Cruise, 1200m Repeats, Race Pace, Tempo Race Sim, General Aerobic MLR)
+Half Marathon: hm-04 to hm-12 (Medium Long, Long Threshold, HM Pace Intervals, HM Pace Tempo, VO2max Sparse, Long Run Easy, Progressive Long)
+Marathon: m-01 to m-16 (Easy Run, Recovery, GA Run, LT Continuous, Cruise Intervals, MP Short, MP Long, Long Run Easy, Progressive Long, B2B Day 1/2, Kipchoge Long, VO2max Sparse, Easy Double)
+Ultra: u-01 to u-08 (Easy Trail, Long Aerobic, B2B Day 1/2, Long Hill Repeats, Trail Fartlek, Power Hiking)
+Season: s-01 to s-08 (Sharpening, Pre-Race Tune-Up, Maintenance Threshold)
+Strength: str-01, str-02. Mobility: mob-01, mob-02.
+
+PLAN GENERATION RULES:
+1. ALWAYS reference sessions by library ID in session_library_id field.
+2. Calculate ALL paces from athlete's VDOT or race times. Never use generic percentages.
+3. Apply philosophy rules strictly:
+   - 80/20: NEVER use Z3 sessions. Only Z1-Z2 or Z4-Z5. No gray zone.
+   - Norwegian: Dominate with threshold doubles. Minimal VO2max.
+   - Lydiard: No intensity until Build week 3+. Aerobic base first.
+   - Hansons: No run > 26km. Back-to-back is core. MP work is king.
+   - Pfitzinger: Medium long runs every week. General aerobic important.
+   - Daniels: Exact VDOT paces always. Structured intervals.
+   - Japanese: Very high volume base. Long jogs at moderate effort.
+4. Distance rules: Ultra=no VO2max; Marathon=VO2max max 1x/2wks peak only; 5K/10K=VO2max freely Build/Peak.
+5. Volume from CTL: <30→50%; 30-50→65%; 50-70→75%; 70+→85% of target.
+6. Double runs (is_double_run=true): only if athlete enabled AND CTL>65. Second run always easy. Max 3/week.
+7. Recovery weeks: every 3rd week reduce volume 25%. Max 7% weekly volume increase.
+8. day_of_week: 0=Sun, 1=Mon, ..., 6=Sat.
+9. start_date: Monday of each week. If race_date exists, work backward.
+10. Plan length: weeks until race, else 8 weeks.
+11. Sessions per week: match weekly_frequency. Include rest days.
+12. Progress: base → build → peak → taper. Use metric (km, /km pace).`;
 
 async function fetchWith429Retry(url: string, init: RequestInit, maxRetries = 2): Promise<Response> {
   let res = await fetch(url, init);
@@ -269,6 +300,7 @@ serve(async (req) => {
           plan_id: planRow.id,
           week_number: wk.week_number,
           start_date: wk.start_date,
+          phase: wk.phase ?? null,
         })
         .select("id")
         .single();
@@ -298,6 +330,9 @@ serve(async (req) => {
           duration_min: s.duration_min ?? null,
           pace_target: s.pace_target ?? null,
           order_index: i,
+          session_library_id: s.session_library_id ?? null,
+          structure_detail: s.structure_detail ?? null,
+          is_double_run: s.is_double_run ?? false,
         });
       }
     }

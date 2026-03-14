@@ -22,6 +22,8 @@ import {
   Check,
   Clock,
   MapPin,
+  Trash2,
+  PlusCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -641,22 +643,60 @@ function SeasonTimeline({ season }: { season: { start_date: string; end_date: st
 }
 
 // ── Main Season View ────────────────────────────────────────────────────────
-function SeasonView() {
-  const { activeSeason, raceCounts, seasonPhase, weeksRemaining: wk, updateRace, deleteRace } = useSeason();
+function SeasonView({ onCreateNewSeason }: { onCreateNewSeason: () => void }) {
+  const { activeSeason, raceCounts, seasonPhase, weeksRemaining: wk, updateRace, deleteRace, deleteSeason, deleteSeasonAsync } = useSeason();
   const [selectedRace, setSelectedRace] = useState<SeasonRace | null>(null);
+  const [deleting, setDeleting] = useState(false);
 
   if (!activeSeason) return null;
 
   const { races } = activeSeason;
 
+  const handleDeleteSeason = () => {
+    if (!confirm("Delete this season? All races and data will be removed. This cannot be undone.")) return;
+    setDeleting(true);
+    deleteSeason(activeSeason.id, {
+      onSuccess: () => toast.success("Season deleted"),
+      onSettled: () => setDeleting(false),
+    });
+  };
+
+  const handleCreateNewSeason = async () => {
+    if (!confirm("Create a new season? Your current season will be removed first.")) return;
+    setDeleting(true);
+    try {
+      await deleteSeasonAsync(activeSeason.id);
+      onCreateNewSeason();
+      toast.success("Season removed. Create your new season.");
+    } catch {
+      toast.error("Failed to remove season");
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div>
       {/* Header */}
       <div className="mb-6">
-        <h1 className="text-2xl font-bold text-foreground">{activeSeason.name}</h1>
-        <p className="text-sm text-muted-foreground mt-1">
-          {formatDate(activeSeason.start_date)} — {formatDate(activeSeason.end_date)} · {wk} weeks remaining
-        </p>
+        <div className="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 className="text-2xl font-bold text-foreground">{activeSeason.name}</h1>
+            <p className="text-sm text-muted-foreground mt-1">
+              {formatDate(activeSeason.start_date)} — {formatDate(activeSeason.end_date)} · {wk} weeks remaining
+            </p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <Button variant="outline" size="sm" className="rounded-full" onClick={handleCreateNewSeason} disabled={deleting}>
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <PlusCircle className="w-4 h-4 mr-1" />}
+              Create new season
+            </Button>
+            <Button variant="outline" size="sm" className="rounded-full text-destructive hover:text-destructive" onClick={handleDeleteSeason} disabled={deleting}>
+              {deleting ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Trash2 className="w-4 h-4 mr-1" />}
+              Delete season
+            </Button>
+          </div>
+        </div>
         <div className="flex gap-2 mt-3">
           <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-primary/15 text-primary">{raceCounts.A} A-race{raceCounts.A !== 1 ? "s" : ""}</span>
           <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-yellow-500/15 text-yellow-600 dark:text-yellow-400">{raceCounts.B} B-race{raceCounts.B !== 1 ? "s" : ""}</span>
@@ -744,7 +784,7 @@ export default function Season() {
       ) : showWizard ? (
         <CreationWizard onDone={() => setShowWizard(false)} />
       ) : activeSeason ? (
-        <SeasonView />
+        <SeasonView onCreateNewSeason={() => setShowWizard(true)} />
       ) : (
         <EmptyState onCreate={() => setShowWizard(true)} />
       )}

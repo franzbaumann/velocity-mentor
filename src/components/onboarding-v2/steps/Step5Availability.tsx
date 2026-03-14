@@ -11,8 +11,32 @@ const SESSION_OPTIONS = [
   { id: "120", label: "2+ hours" },
 ];
 
+const DOUBLE_RUN_DAY_OPTIONS = [
+  { id: "monday", label: "Mon" },
+  { id: "tuesday", label: "Tue" },
+  { id: "wednesday", label: "Wed" },
+  { id: "thursday", label: "Thu" },
+  { id: "friday", label: "Fri" },
+];
+
+const DOUBLE_DURATION_OPTIONS = [
+  { id: 30, label: "30 min" },
+  { id: 45, label: "45 min" },
+  { id: 60, label: "60 min" },
+];
+
 export function Step5Availability({ answers, onUpdate, onNext, onBack }: StepProps) {
   const canProceed = answers.daysPerWeek > 0 && answers.sessionLength;
+
+  const toggleDoubleDay = (day: string) => {
+    const current = answers.doubleRunDays ?? [];
+    const next = current.includes(day)
+      ? current.filter((d) => d !== day)
+      : current.length < 3
+        ? [...current, day]
+        : current;
+    onUpdate({ doubleRunDays: next });
+  };
 
   return (
     <TwoColumnLayout
@@ -75,6 +99,85 @@ export function Step5Availability({ answers, onUpdate, onNext, onBack }: StepPro
               </button>
             ))}
           </div>
+        </div>
+
+        {/* Double runs */}
+        <div>
+          <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-4">
+            Can you train twice on some days?
+          </label>
+          <div className="flex gap-2.5">
+            {[
+              { val: false, label: "No, single sessions only" },
+              { val: true, label: "Yes, morning + evening" },
+            ].map((opt) => (
+              <button
+                key={String(opt.val)}
+                onClick={() =>
+                  onUpdate({
+                    doubleRunsEnabled: opt.val,
+                    ...(!opt.val ? { doubleRunDays: [], doubleRunDuration: 0 } : {}),
+                  })
+                }
+                className={`px-5 py-3 rounded-xl text-[13px] font-semibold transition-all duration-150 ${
+                  answers.doubleRunsEnabled === opt.val
+                    ? "bg-primary text-primary-foreground shadow-[0_0_16px_hsl(var(--primary)/0.15)]"
+                    : "bg-card border border-border text-muted-foreground hover:border-foreground/15 hover:text-foreground/70"
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {answers.doubleRunsEnabled && (
+            <div className="mt-6 space-y-6">
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-3">
+                  Which days work for doubles? <span className="text-muted-foreground/50">(max 3)</span>
+                </label>
+                <div className="flex gap-2.5 flex-wrap">
+                  {DOUBLE_RUN_DAY_OPTIONS.map((d) => {
+                    const selected = (answers.doubleRunDays ?? []).includes(d.id);
+                    return (
+                      <button
+                        key={d.id}
+                        onClick={() => toggleDoubleDay(d.id)}
+                        className={`px-5 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-150 ${
+                          selected
+                            ? "bg-primary text-primary-foreground shadow-[0_0_16px_hsl(var(--primary)/0.15)]"
+                            : "bg-card border border-border text-muted-foreground hover:border-foreground/15 hover:text-foreground/70"
+                        }`}
+                      >
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-3">
+                  How long for the second run?
+                </label>
+                <div className="flex gap-2.5">
+                  {DOUBLE_DURATION_OPTIONS.map((opt) => (
+                    <button
+                      key={opt.id}
+                      onClick={() => onUpdate({ doubleRunDuration: opt.id })}
+                      className={`px-5 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-150 ${
+                        answers.doubleRunDuration === opt.id
+                          ? "bg-primary text-primary-foreground shadow-[0_0_16px_hsl(var(--primary)/0.15)]"
+                          : "bg-card border border-border text-muted-foreground hover:border-foreground/15 hover:text-foreground/70"
+                      }`}
+                    >
+                      {opt.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Scheduling constraints */}

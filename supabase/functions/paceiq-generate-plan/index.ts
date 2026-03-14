@@ -22,6 +22,7 @@ Return ONLY valid JSON, no markdown, no explanation:
     "workouts": [{
       "day_of_week": number,
       "type": "easy|tempo|interval|long|rest|strides",
+      "session_library_id": string_or_null,
       "name": string,
       "description": string,
       "key_focus": string,
@@ -29,17 +30,33 @@ Return ONLY valid JSON, no markdown, no explanation:
       "duration_minutes": number,
       "target_pace": string,
       "target_hr_zone": number,
-      "tss_estimate": number
+      "tss_estimate": number,
+      "structure_detail": string_or_null,
+      "is_double_run": boolean
     }]
   }]
 }
 
-Rules:
-- day_of_week: 1=Mon, 2=Tue, ..., 7=Sun
-- Match athlete's days_per_week and longest_day from intake
-- Respect injuries: avoid high load where relevant
-- Use metric (km, /km pace)
-- Include rest days. Progress: base → build → peak → taper.`;
+SESSION LIBRARY IDs — you MUST choose from these when possible:
+Easy/Recovery: e-01 Recovery Run, e-02 Easy Run with Strides, e-03 Double Easy (CTL>65 only)
+Aerobic: a-01 Zone 2 Builder, a-02 Aerobic Long Run, a-03 High Aerobic Run
+Threshold: t-01 Cruise Intervals, t-02 Continuous Tempo, t-03 Threshold Singles, t-04 Double Threshold AM/PM (CTL>55), t-05 Broken Tempo
+VO2max: v-01 Classic Intervals, v-02 Billat 30-30, v-03 Pyramid Session, v-04 Hill Repeats, v-05 Long Intervals
+Marathon: m-01 to m-16 (Easy Run, Recovery, Z2 Builder, Tempo, Cruise Intervals, Progressive Long, MP Run Short, MP Run Long, Fueling Long Run, Dress Rehearsal, Aerobic Long Run, Hill Repeats, Strides, Broken Tempo, Taper Run, Easy Double)
+Long Runs: l-01 Classic Long Run, l-02 Progressive Long Run, l-03 Hanson Long Run, l-04 Back-to-Back Day 1, l-05 Back-to-Back Day 2, l-06 Kipchoge Long Run (elite only)
+Race-Specific: r-01 Race Pace Rehearsal, r-02 Pre-Race Tune-Up, r-03 Sharpening Session
+
+PLAN GENERATION RULES:
+1. ALWAYS reference sessions by their library ID in session_library_id field.
+2. Calculate ALL paces from athlete's VDOT or race times. Never use generic percentages.
+3. Apply philosophy rules strictly (80/20: no Z3; Norwegian: threshold doubles; Lydiard: no intensity until Build week 3+; Hansons: no run > 26km; Pfitzinger: MLR every week; Daniels: exact VDOT paces).
+4. Apply distance rules: Ultra = no VO2max intervals; Marathon = VO2max max 1x/2 weeks peak only; 5K/10K = VO2max freely in Build/Peak.
+5. Volume starting point from CTL: <30 → 50%; 30-50 → 65%; 50-70 → 75%; 70+ → 85%.
+6. Double runs (is_double_run=true): only if athlete enabled AND CTL > 65. Second run is always easy. Max 3/week.
+7. Recovery weeks: every 3rd week reduce volume 25%. Max 7% weekly volume increase.
+8. day_of_week: 1=Mon, 2=Tue, ..., 7=Sun
+9. Match athlete's days_per_week and session_length from intake.
+10. Use metric (km, /km pace). Include rest days. Progress: base → build → peak → taper.`;
 
 function buildPlanUserPrompt(
   answers: Record<string, unknown>,
@@ -352,6 +369,9 @@ serve(async (req) => {
           target_pace: w.target_pace ?? null,
           target_hr_zone: w.target_hr_zone ?? null,
           tss_estimate: w.tss_estimate ?? null,
+          session_library_id: w.session_library_id ?? null,
+          structure_detail: w.structure_detail ?? null,
+          is_double_run: w.is_double_run ?? false,
           completed: false,
         });
       }

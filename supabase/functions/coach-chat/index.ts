@@ -420,8 +420,10 @@ async function buildAthleteContext(
     }
   }
 
-  // Weeks to race
-  const raceDate = p?.goal_race_date ? String(p.goal_race_date) : null;
+  // Weeks to race — prefer training plan when active (plan is source of truth for current block)
+  const planRaceDate = planRow?.goal_date ? String(planRow.goal_date) : null;
+  const profileRaceDate = p?.goal_race_date ? String(p.goal_race_date) : null;
+  const raceDate = planRaceDate ?? profileRaceDate;
   const weeksToRace = raceDate ? Math.ceil((new Date(raceDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 7)) : null;
 
   // Onboarding answers
@@ -504,8 +506,8 @@ async function buildAthleteContext(
     hrv_trend: hrvTrend,
     resting_hr: (today.resting_hr ?? null) as number | null,
     philosophy: String(p?.training_philosophy ?? p?.recommended_philosophy ?? p?.philosophy ?? ""),
-    goal: String(p?.goal_race_name ?? p?.goal_distance ?? ""),
-    goal_time: p?.goal_time ? String(p.goal_time) : null,
+    goal: String(planRow?.goal_race ?? planRow?.goal ?? p?.goal_race_name ?? p?.goal_distance ?? ""),
+    goal_time: (planRow?.goal_time ?? planRow?.target_time ?? nextRace?.goal_time ?? p?.goal_time) ? String(planRow?.goal_time ?? planRow?.target_time ?? nextRace?.goal_time ?? p?.goal_time) : null,
     race_date: raceDate,
     weeks_to_race: weeksToRace,
     injuries: p?.injury_history_text ? String(p.injury_history_text) : null,
@@ -628,6 +630,10 @@ function buildPhilosophyDetail(philosophy: string | null): string {
       return `   - Hansons: Cumulative fatigue is the training stimulus. Back-to-back quality days are intentional — they teach the body to perform on tired legs. Long run cap at ~26km (16mi) because it's run on fatigued legs. No single run dominates the week. Something of Quality (SOS) days are Tuesday/Thursday/Sunday. Easy days are truly easy. Weekly volume is high. The marathon long run doesn't need to be 32km+ because you're always running on cumulative fatigue.`;
     case "pfitzinger":
       return `   - Pfitzinger: High volume with structured quality. Medium-long runs (MLR) are a distinguishing feature — they build endurance without the recovery cost of a full long run. Lactate threshold runs are bread-and-butter quality. General aerobic runs (GA) at moderate effort fill the week. VO2max work comes in the late build phase. Plans are 12-18 weeks. Recovery runs are very short and slow. Back-to-back long efforts (long run then MLR next day) are a key stress.`;
+    case "norwegian":
+      return `   - Norwegian / Threshold-Dominant: Built around double threshold sessions — two threshold workouts in one day separated by 4-6 hours. Minimal VO2max work. Lactate-controlled intensity at LT1-LT2. Key sessions: 4-6×8-10 min at threshold with 1-2 min jog recovery, or continuous 25-40 min at threshold. Use cardiac drift as proxy for lactate: if HR rises >5% in final interval vs first, intensity was too high. For Cade athletes: adapted as AM easy + PM threshold. Only for CTL >55 with established aerobic base. High aerobic volume. Feel-based with lactate validation.`;
+    case "japanese":
+      return `   - Japanese / High-Volume Base: Extremely high aerobic volume with group-oriented training. Emphasis on long steady jogs at moderate effort building massive aerobic base. Quality sessions are shorter but very intense — track repetitions at race pace. Long runs are frequent and moderately paced. Morning runs are a non-negotiable daily habit. Recovery is built around nutrition, sleep, and baths. Volume before intensity — base periods are long and patient. Ekiden-style relay culture emphasizes consistency and team accountability.`;
     case "kenyan":
       return `   - Kenyan / East African model: Very high aerobic volume, fartlek-heavy, group-driven intensity. Easy runs are truly easy, often very slow. Hard days are very hard — long fartleks, hill repeats, track work. Training is feel-based more than data-driven, but structured around a weekly pattern: long run, fartlek, track, tempo. Double days are common. Rest and sleep are prioritized fiercely. Diet and altitude matter. The athlete should learn to run by feel and not be enslaved to the watch.`;
     default:
@@ -669,7 +675,7 @@ Your coaching is grounded in exercise physiology:
 - You understand CTL/ATL/TSB and use them to guide load decisions
 - You know the difference between aerobic and anaerobic adaptation
 - You understand HRV as a recovery signal, not just a number
-- You know all major training philosophies: 80/20, Jack Daniels, Lydiard, Hansons, Pfitzinger, Kenyan model
+- You know all major training philosophies: 80/20, Jack Daniels, Lydiard, Hansons, Pfitzinger, Norwegian, Japanese, Kenyan model
 - You understand lactate threshold, VO2max, cardiac drift, running economy
 - You can read FIT file metrics and explain what they mean
 
@@ -909,8 +915,41 @@ VO2max: "Classic Intervals" (5×1000m 3-5km pace, equal rest), "Billat 30-30" (3
 Long Runs: "Classic Long Run" (25-35km easy), "Progressive Long Run" (18km easy→8km MP→4km HMP), "Hanson Long Run" (25-30km, last third MP), "Back-to-Back Day 1/2", "Kipchoge Long Run" (35-38km, final 15km MP — elite only).
 Race-Specific: "Race Pace Rehearsal" (5km WU + 8-10km goal pace + 3km CD), "Pre-Race Tune-Up" (6×200m mile pace, 5 days out), "Sharpening Session" (6×1km goal pace, 90s rest, 10 days out).
 
+PLAN GENERATION — RULES YOU MUST FOLLOW
+
+You have access to a complete session library (sessionLibrary.ts). When generating ANY training plan you MUST:
+
+1. ALWAYS choose sessions from the session library by their ID. Never invent sessions freely.
+2. Reference sessions by ID in your output: "Tuesday: [m-07] Marathon Pace Run Short — 3km EZ + 16km @ 3:58/km + 3km EZ"
+3. Calculate ALL paces from the athlete's current VDOT or LT1/LT2 data from intervals.icu. Never use generic percentages.
+   VDOT pace zones: E-pace (Easy), M-pace (Marathon), T-pace (Threshold), I-pace (Interval/VO2max), R-pace (Repetition).
+4. Apply philosophy rules strictly:
+   - 80/20: NEVER use Z3 sessions. Only Z1-Z2 or Z4-Z5. No gray zone.
+   - Norwegian: Dominate with threshold doubles. Minimal VO2max.
+   - Lydiard: No intensity until Build week 3+. Aerobic base first.
+   - Hansons: No run > 26km. Back-to-back is core. MP work is king.
+   - Pfitzinger: Medium long runs every week. General aerobic important.
+   - Daniels: Exact VDOT paces always. Structured intervals.
+   - Japanese: Very high volume base. Long jogs at moderate effort. Group-driven.
+5. Apply distance rules strictly:
+   - Ultra: NEVER use VO2max intervals. Use hill repeats instead.
+   - Marathon: VO2max max 1x per 2 weeks, peak phase only.
+   - HM: VO2max sparingly, peak phase only.
+   - 1500m/5K/10K: VO2max is a primary training tool, use freely in Build/Peak.
+6. Skeleton generation (full plan on day 1):
+   Generate complete skeleton showing all weeks with phase label, total weekly volume, session type per day.
+7. Detailed sessions (rolling 2 weeks):
+   Every Sunday auto-generate next 2 weeks with exact session IDs, distances and paces from current VDOT/CTL.
+8. Volume starting point from CTL:
+   CTL < 30 → start at 50% of target weekly volume.
+   CTL 30-50 → start at 65%. CTL 50-70 → start at 75%. CTL 70+ → start at 85%.
+9. Double runs:
+   Only if athlete enabled in onboarding AND CTL > 65. Second run is ALWAYS Easy Double — never quality. Start with 1 double day/week, max 3/week.
+10. Recovery weeks:
+   Every 3rd week reduce volume 25%. Never increase both volume AND intensity same week. Max 7% weekly volume increase.
+
 HOW TO USE THIS KNOWLEDGE
-When recommending a session: name it from the library, give exact structure (reps × distance × pace × rest), explain the purpose in one sentence, state actual pace in athlete's zones.
+When recommending a session: name it from the library by ID, give exact structure (reps × distance × pace × rest), explain the purpose in one sentence, state actual pace in athlete's zones.
 When an athlete asks about training: reference elite methods if applicable ("This is the same threshold structure Ingebrigtsen's athletes use"), explain WHY not just WHAT.
 Scaling: CTL<40/<3yr: Easy runs, Z2 Builders, Hill Repeats, Broken Tempo. CTL 40-55/3-5yr: add Cruise Intervals, Threshold Singles, Classic Intervals, Progressive Long Run. CTL 55-70/5+yr: full library, consider Back-to-Back, Double Threshold intro. CTL>70/competitive: Double Threshold, Back-to-Back, Kipchoge Long Run, twice-daily.
 Never recommend: Double Threshold if CTL<55 or ramp>5. Back-to-Back if stress fracture history. VO2max when TSB<-20 or HRV suppressed >15%. Any intensity work the week after a race.`;

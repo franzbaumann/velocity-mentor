@@ -165,6 +165,7 @@ export function useSeason() {
     deleteRace: deleteRaceMutation.mutate,
     logRaceResult,
     deleteSeason: deleteSeasonMutation.mutate,
+    deleteSeasonAsync: deleteSeasonMutation.mutateAsync,
 
     nextRaceTaperStart: nextRace ? calculateTaperStart(nextRace.date, nextRace.priority) : null,
     nextRaceDaysAway: nextRace ? daysUntil(nextRace.date) : null,

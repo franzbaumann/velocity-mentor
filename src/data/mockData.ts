@@ -1,15 +1,15 @@
-// Mock data for a fictional athlete: 38yo male, VDOT 52, targeting 2:55 marathon in 14 weeks
+// Mock data for a sample athlete, used only as fallback when no real data is loaded
 
 export const athlete = {
   name: "Sample Athlete",
-  vdot: 52,
+  vdot: 50,
   maxHr: 186,
   restingHr: 48,
-  weeklyMileage: 75,
+  weeklyMileage: 60,
   trainingPhilosophy: "jack_daniels" as const,
   goalRace: {
     type: "Marathon",
-    targetTime: "2:55:00",
+    targetTime: "3:00:00",
     raceDate: "2026-05-31",
     weeksRemaining: 14,
   },
