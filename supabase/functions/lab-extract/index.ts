@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { AI_LIMITS } from "../_shared/ai-models.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -54,6 +55,7 @@ serve(async (req) => {
 
     let rawText = "";
 
+    // USAGE: exempt — not counted against daily limit (lab report extraction, not coaching chat)
     // Priority: Claude (primary) → Gemini (fallback)
     if (ANTHROPIC_API_KEY) {
       const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
@@ -64,8 +66,8 @@ serve(async (req) => {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-5",
-          max_tokens: 1000,
+          model: AI_LIMITS.labExtract.model,
+          max_tokens: AI_LIMITS.labExtract.max_tokens,
           messages: [{
             role: "user",
             content: [
@@ -100,7 +102,7 @@ serve(async (req) => {
                 { text: EXTRACTION_PROMPT },
               ],
             }],
-            generationConfig: { temperature: 0.1, maxOutputTokens: 1000 },
+            generationConfig: { temperature: 0.1, maxOutputTokens: AI_LIMITS.labExtract.max_tokens },
           }),
         },
       );

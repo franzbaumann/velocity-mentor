@@ -1,4 +1,5 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { AI_LIMITS } from "../_shared/ai-models.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -1666,8 +1667,8 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                model: "claude-sonnet-4-5",
-                max_tokens: 300,
+                model: AI_LIMITS.postWorkoutAnalysis.model,
+                max_tokens: AI_LIMITS.postWorkoutAnalysis.max_tokens,
                 messages: [{ role: "user", content: prompt }],
               }),
             };
@@ -1698,7 +1699,7 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { maxOutputTokens: 300, temperature: 0.6 },
+                generationConfig: { maxOutputTokens: AI_LIMITS.postWorkoutAnalysis.max_tokens, temperature: 0.6 },
               }),
             };
             const res = await fetchWith429Retry(url, init);
@@ -1731,7 +1732,7 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
                 messages: [{ role: "user", content: prompt }],
                 stream: false,
                 temperature: 0.6,
-                max_tokens: 300,
+                max_tokens: AI_LIMITS.postWorkoutAnalysis.max_tokens,
               }),
             };
             const res = await fetchWith429Retry(url, init);
@@ -1914,8 +1915,8 @@ Reply with ONLY the coach description. No greeting or sign-off. 1-2 concise sent
                 "Content-Type": "application/json",
               },
               body: JSON.stringify({
-                model: "claude-sonnet-4-5",
-                max_tokens: 300,
+                model: AI_LIMITS.postWorkoutAnalysis.model,
+                max_tokens: AI_LIMITS.postWorkoutAnalysis.max_tokens,
                 messages: [{ role: "user", content: prompt }],
               }),
             };
@@ -1943,7 +1944,7 @@ Reply with ONLY the coach description. No greeting or sign-off. 1-2 concise sent
               headers: { "Content-Type": "application/json" },
               body: JSON.stringify({
                 contents: [{ parts: [{ text: prompt }] }],
-                generationConfig: { maxOutputTokens: 300, temperature: 0.6 },
+                generationConfig: { maxOutputTokens: AI_LIMITS.postWorkoutAnalysis.max_tokens, temperature: 0.6 },
               }),
             };
             const res = await fetchWith429Retry(url, init);
@@ -1973,7 +1974,7 @@ Reply with ONLY the coach description. No greeting or sign-off. 1-2 concise sent
                 messages: [{ role: "user", content: prompt }],
                 stream: false,
                 temperature: 0.6,
-                max_tokens: 300,
+                max_tokens: AI_LIMITS.postWorkoutAnalysis.max_tokens,
               }),
             };
             const res = await fetchWith429Retry(url, init);
@@ -2124,7 +2125,7 @@ No markdown, no explanation — ONLY the JSON array.`;
             const init: RequestInit = {
               method: "POST",
               headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
-              body: JSON.stringify({ model: "claude-sonnet-4-5", max_tokens: 1000, messages: [{ role: "user", content: stepsPrompt }] }),
+              body: JSON.stringify({ model: AI_LIMITS.workoutSteps.model, max_tokens: AI_LIMITS.workoutSteps.max_tokens, messages: [{ role: "user", content: stepsPrompt }] }),
             };
             const res = await fetchWith429Retry(url, init);
             if (res.status === 429) continue;
@@ -2149,7 +2150,7 @@ No markdown, no explanation — ONLY the JSON array.`;
             const init: RequestInit = {
               method: "POST",
               headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-              body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: stepsPrompt }], temperature: 0.4, max_tokens: 1000 }),
+              body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "user", content: stepsPrompt }], temperature: 0.4, max_tokens: AI_LIMITS.workoutSteps.max_tokens }),
             };
             const res = await fetchWith429Retry(url, init);
             if (res.status === 429) continue;
@@ -2170,7 +2171,7 @@ No markdown, no explanation — ONLY the JSON array.`;
             const init: RequestInit = {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ contents: [{ parts: [{ text: stepsPrompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: 1000 } }),
+              body: JSON.stringify({ contents: [{ parts: [{ text: stepsPrompt }] }], generationConfig: { temperature: 0.4, maxOutputTokens: AI_LIMITS.workoutSteps.max_tokens } }),
             };
             const res = await fetchWith429Retry(url, init);
             if (res.status === 429) continue;
@@ -2200,7 +2201,9 @@ No markdown, no explanation — ONLY the JSON array.`;
     }
 
     // ─── ACTION: post_workout_analysis (auto-analyze recent unanalyzed runs) ───
+    // USAGE: exempt — not counted against daily limit (automated, athlete didn't ask)
     if (action === "post_workout_analysis") {
+      const anthropicKeysAll = [Deno.env.get("ANTHROPIC_API_KEY"), Deno.env.get("ANTHROPIC_API_KEY_2"), Deno.env.get("ANTHROPIC_API_KEY_3")].filter((k): k is string => !!k);
       const groqKeysAll = [
         Deno.env.get("GROQ_API_KEY"),
         Deno.env.get("GROQ_API_KEY_2"),
@@ -2289,6 +2292,32 @@ ${memoryLines ? `\nAthlete context:\n${memoryLines}` : ""}
 Comment on: effort level, HR vs pace (efficiency/decoupling), what it means for fitness, and one forward-looking note.`;
 
         let text: string | null = null;
+        for (const key of anthropicKeysAll) {
+          try {
+            const res = await fetch("https://api.anthropic.com/v1/messages", {
+              method: "POST",
+              headers: {
+                "x-api-key": key,
+                "anthropic-version": "2023-06-01",
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                model: AI_LIMITS.postWorkoutAnalysis.model,
+                max_tokens: AI_LIMITS.postWorkoutAnalysis.max_tokens,
+                messages: [{ role: "user", content: analysisPrompt }],
+                temperature: 0.4,
+              }),
+            });
+            if (res.ok) {
+              const json = await res.json() as Record<string, unknown>;
+              const content = (json.content ?? []) as Array<Record<string, unknown>>;
+              const textBlock = content.find((b) => b.type === "text");
+              text = textBlock?.text ? String(textBlock.text).trim() : null;
+              if (text) break;
+            }
+          } catch { /* try next */ }
+        }
+        if (!text) {
         for (const key of groqKeysAll) {
           try {
             const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
@@ -2298,7 +2327,7 @@ Comment on: effort level, HR vs pace (efficiency/decoupling), what it means for 
                 model: "llama-3.3-70b-versatile",
                 messages: [{ role: "user", content: analysisPrompt }],
                 temperature: 0.4,
-                max_tokens: 350,
+                max_tokens: AI_LIMITS.postWorkoutAnalysis.max_tokens,
               }),
             });
             if (res.ok) {
@@ -2324,7 +2353,7 @@ Comment on: effort level, HR vs pace (efficiency/decoupling), what it means for 
                   headers: { "Content-Type": "application/json" },
                   body: JSON.stringify({
                     contents: [{ parts: [{ text: analysisPrompt }] }],
-                    generationConfig: { temperature: 0.4, maxOutputTokens: 350 },
+                    generationConfig: { temperature: 0.4, maxOutputTokens: AI_LIMITS.postWorkoutAnalysis.max_tokens },
                   }),
                 },
               );
@@ -2337,6 +2366,7 @@ Comment on: effort level, HR vs pace (efficiency/decoupling), what it means for 
               }
             } catch { /* try next */ }
           }
+        }
         }
 
         if (text && text.length > 10) {

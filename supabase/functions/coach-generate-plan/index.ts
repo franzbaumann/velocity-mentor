@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { AI_LIMITS } from "../_shared/ai-models.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -99,8 +100,8 @@ async function callClaude(userPrompt: string): Promise<string | null> {
       method: "POST",
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5",
-        max_tokens: 8000,
+        model: AI_LIMITS.planGeneration.model,
+        max_tokens: AI_LIMITS.planGeneration.max_tokens,
         system: PLAN_PROMPT,
         messages: [{ role: "user", content: userPrompt }],
       }),
@@ -127,7 +128,7 @@ async function callGroq(userPrompt: string): Promise<string | null> {
         model: "llama-3.3-70b-versatile",
         messages: [{ role: "system", content: PLAN_PROMPT }, { role: "user", content: userPrompt }],
         temperature: 0.4,
-        max_tokens: 4000,
+        max_tokens: AI_LIMITS.planGeneration.max_tokens,
       }),
     });
     if (res.status === 429) continue;
@@ -150,7 +151,7 @@ async function callGemini(userPrompt: string): Promise<string | null> {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.4, maxOutputTokens: 4000 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: AI_LIMITS.planGeneration.max_tokens },
       }),
     });
     if (res.status === 429) continue;

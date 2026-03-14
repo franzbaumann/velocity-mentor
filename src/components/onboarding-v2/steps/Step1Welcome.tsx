@@ -3,6 +3,7 @@ import { resolveCtlAtlTsb } from "@/hooks/useReadiness";
 import { isRunningActivity } from "@/lib/analytics";
 import type { StepWithDataProps } from "../types";
 import { OnboardingLayout } from "../OnboardingLayout";
+import { Marquee } from "@/components/ui/marquee";
 
 export function Step1Welcome({ onNext, intervalsData }: StepWithDataProps) {
   const stats = useMemo(() => {
@@ -96,6 +97,18 @@ export function Step1Welcome({ onNext, intervalsData }: StepWithDataProps) {
         </button>
 
         <p className="text-xs text-muted-foreground/70 mt-5">Takes about 3 minutes</p>
+
+        <div className="mt-10 overflow-hidden -mx-4 py-3 border-t border-border/50">
+          <Marquee pauseOnHover direction="left" duration={35} className="py-1" fadeAmount={15}>
+            <span className="mx-5 text-xs text-muted-foreground/80">Garmin</span>
+            <span className="mx-5 text-muted-foreground/40">·</span>
+            <span className="mx-5 text-xs text-muted-foreground/80">Coros</span>
+            <span className="mx-5 text-muted-foreground/40">·</span>
+            <span className="mx-5 text-xs text-muted-foreground/80">intervals.icu</span>
+            <span className="mx-5 text-muted-foreground/40">·</span>
+            <span className="mx-5 text-xs text-muted-foreground/80">80/20 · Lydiard · Pfitzinger</span>
+          </Marquee>
+        </div>
       </div>
     </OnboardingLayout>
   );

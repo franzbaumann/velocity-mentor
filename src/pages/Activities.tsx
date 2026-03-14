@@ -8,6 +8,7 @@ import { useNavigate } from "react-router-dom";
 import { formatDistance } from "@/lib/format";
 import { isNonDistanceActivity } from "@/lib/analytics";
 import { UnifiedCalendar } from "@/components/UnifiedCalendar";
+import { Marquee } from "@/components/ui/marquee";
 
 function formatDuration(sec: number | null): string {
   if (sec == null) return "";
@@ -80,6 +81,21 @@ export default function Activities() {
               Go to Settings
               <ArrowRight className="w-4 h-4" />
             </button>
+            <div className="mt-8 pt-6 border-t border-border overflow-hidden">
+              <Marquee pauseOnHover direction="left" duration={40} className="py-1" fadeAmount={12}>
+                <span className="mx-6 text-sm text-muted-foreground">Garmin</span>
+                <span className="mx-6 text-muted-foreground/50">·</span>
+                <span className="mx-6 text-sm text-muted-foreground">Coros</span>
+                <span className="mx-6 text-muted-foreground/50">·</span>
+                <span className="mx-6 text-sm text-muted-foreground">Apple Watch</span>
+                <span className="mx-6 text-muted-foreground/50">·</span>
+                <span className="mx-6 text-sm text-muted-foreground">Polar</span>
+                <span className="mx-6 text-muted-foreground/50">·</span>
+                <span className="mx-6 text-sm text-muted-foreground">Suunto</span>
+                <span className="mx-6 text-muted-foreground/50">·</span>
+                <span className="mx-6 text-sm text-muted-foreground">intervals.icu</span>
+              </Marquee>
+            </div>
           </div>
         </div>
       </AppLayout>
@@ -121,6 +137,21 @@ export default function Activities() {
                 Go to Settings
                 <ArrowRight className="w-4 h-4" />
               </Button>
+            </div>
+            <div className="mt-8 pt-6 border-t border-border overflow-hidden">
+              <Marquee pauseOnHover direction="left" duration={40} className="py-1" fadeAmount={12}>
+                <span className="mx-6 text-sm text-muted-foreground">Garmin</span>
+                <span className="mx-6 text-muted-foreground/50">·</span>
+                <span className="mx-6 text-sm text-muted-foreground">Coros</span>
+                <span className="mx-6 text-muted-foreground/50">·</span>
+                <span className="mx-6 text-sm text-muted-foreground">Apple Watch</span>
+                <span className="mx-6 text-muted-foreground/50">·</span>
+                <span className="mx-6 text-sm text-muted-foreground">Polar</span>
+                <span className="mx-6 text-muted-foreground/50">·</span>
+                <span className="mx-6 text-sm text-muted-foreground">Suunto</span>
+                <span className="mx-6 text-muted-foreground/50">·</span>
+                <span className="mx-6 text-sm text-muted-foreground">intervals.icu</span>
+              </Marquee>
             </div>
           </div>
         </div>

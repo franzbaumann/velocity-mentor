@@ -4,12 +4,20 @@ import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
 import { Textarea } from "@/components/ui/textarea";
 import { Input } from "@/components/ui/input";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { DateWheelPicker } from "@/components/ui/date-wheel-picker";
+import { TimeWheelPicker } from "@/components/ui/time-wheel-picker";
+import { parseGoalTimeToSeconds, formatSecondsToGoalTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { OnboardingAnswers } from "@/hooks/useAthleteProfile";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useMergedActivities } from "@/hooks/useMergedIntervalsData";
 import { useMergedReadiness } from "@/hooks/useMergedIntervalsData";
-import { format, startOfWeek, addDays, isValid } from "date-fns";
+import { format, parseISO, startOfWeek, addDays, isValid } from "date-fns";
 import { supabase } from "@/integrations/supabase/client";
 
 const TOTAL_STEPS = 9;
@@ -411,19 +419,37 @@ export function OnboardingFlow({
           <div className="flex gap-4 mb-4">
             <div className="flex-1">
               <label className="text-xs text-muted-foreground block mb-1">Race date</label>
-              <Input
-                type="date"
-                value={answers.raceDate ?? ""}
-                onChange={(e) => onAnswersChange({ ...answers, raceDate: e.target.value })}
-              />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start text-left font-normal">
+                    {answers.raceDate ? format(parseISO(answers.raceDate), "MMM d, yyyy") : "Pick date"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <DateWheelPicker
+                    value={answers.raceDate ? parseISO(answers.raceDate) : new Date()}
+                    onChange={(d) => onAnswersChange({ ...answers, raceDate: format(d, "yyyy-MM-dd") })}
+                    size="sm"
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
             <div className="flex-1">
               <label className="text-xs text-muted-foreground block mb-1">Goal time (e.g. 3:30:00)</label>
-              <Input
-                placeholder="3:30:00"
-                value={answers.goalTime ?? ""}
-                onChange={(e) => onAnswersChange({ ...answers, goalTime: e.target.value })}
-              />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="w-full justify-start font-normal tabular-nums">
+                    {answers.goalTime || "Pick time"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <TimeWheelPicker
+                    value={parseGoalTimeToSeconds(answers.goalTime)}
+                    onChange={(sec) => onAnswersChange({ ...answers, goalTime: formatSecondsToGoalTime(sec) })}
+                    size="sm"
+                  />
+                </PopoverContent>
+              </Popover>
             </div>
           </div>
           <div className="flex flex-wrap gap-2 mb-4">

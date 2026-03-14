@@ -52,3 +52,24 @@ export function formatNumber(n: number | null | undefined, decimals = 0): string
   if (n == null || isNaN(n)) return "—";
   return decimals > 0 ? n.toFixed(decimals) : String(Math.round(n));
 }
+
+/** Parse goal time string (e.g. "2:55:00", "1:25:00", "45:00") to seconds */
+export function parseGoalTimeToSeconds(s: string | null | undefined): number {
+  if (s == null || s.trim() === "") return 0;
+  const parts = s.trim().split(":").map(Number);
+  if (parts.some(isNaN)) return 0;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  if (parts.length === 1) return parts[0];
+  return 0;
+}
+
+/** Format seconds to goal time string "H:MM:SS" */
+export function formatSecondsToGoalTime(sec: number | null | undefined): string {
+  if (sec == null || isNaN(sec) || sec < 0) return "0:00:00";
+  const s = Math.round(sec);
+  const h = Math.floor(s / 3600);
+  const m = Math.floor((s % 3600) / 60);
+  const ss = s % 60;
+  return `${h}:${String(m).padStart(2, "0")}:${String(ss).padStart(2, "0")}`;
+}

@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { AI_LIMITS } from "../_shared/ai-models.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -81,8 +82,8 @@ async function callClaude(systemPrompt: string, userContent: string): Promise<Ap
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5",
-        max_tokens: 256,
+        model: AI_LIMITS.openingMessage.model,
+        max_tokens: AI_LIMITS.openingMessage.max_tokens,
         system: systemPrompt,
         messages: [{ role: "user", content: userContent }],
       }),
@@ -357,6 +358,7 @@ serve(async (req) => {
     const contextStr = buildContextSummary(ctx);
     const prompt = short ? DASHBOARD_PROMPT : OPENING_PROMPT;
 
+    // USAGE: exempt — not counted against daily limit (opening message, cached on client)
     // Priority: Claude (primary) → Groq → Gemini
     const claudeResult = await callClaude(prompt, contextStr);
     const groqResult = claudeResult?.ok ? null : await callGroq(prompt, contextStr);

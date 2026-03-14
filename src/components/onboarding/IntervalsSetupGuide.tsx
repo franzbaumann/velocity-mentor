@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { Check, ChevronRight, ExternalLink, Zap, ArrowLeft, Loader2 } from "lucide-react";
+import { Marquee } from "@/components/ui/marquee";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
@@ -174,6 +175,22 @@ function Step2({
         <p className="text-muted-foreground leading-relaxed">
           Link your Garmin, Coros or Polar to intervals.icu so your activities sync automatically.
         </p>
+      </div>
+
+      <div className="overflow-hidden -mx-2 py-2 border border-border rounded-xl bg-muted/20">
+        <Marquee pauseOnHover direction="left" duration={30} className="py-1" fadeAmount={12}>
+          <span className="mx-5 text-sm text-muted-foreground">Garmin</span>
+          <span className="mx-5 text-muted-foreground/50">·</span>
+          <span className="mx-5 text-sm text-muted-foreground">Coros</span>
+          <span className="mx-5 text-muted-foreground/50">·</span>
+          <span className="mx-5 text-sm text-muted-foreground">Polar</span>
+          <span className="mx-5 text-muted-foreground/50">·</span>
+          <span className="mx-5 text-sm text-muted-foreground">Suunto</span>
+          <span className="mx-5 text-muted-foreground/50">·</span>
+          <span className="mx-5 text-sm text-muted-foreground">Apple Watch</span>
+          <span className="mx-5 text-muted-foreground/50">·</span>
+          <span className="mx-5 text-sm text-muted-foreground">intervals.icu</span>
+        </Marquee>
       </div>
 
       <div className="grid grid-cols-3 gap-3">

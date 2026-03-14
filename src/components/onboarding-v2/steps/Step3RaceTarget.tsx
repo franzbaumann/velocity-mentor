@@ -3,6 +3,9 @@ import { differenceInWeeks, format, parseISO, isValid } from "date-fns";
 import type { StepProps } from "../types";
 import { TwoColumnLayout } from "../OnboardingLayout";
 import { ExpandableText } from "../components/ExpandableText";
+import { DateWheelPicker } from "@/components/ui/date-wheel-picker";
+import { TimeWheelPicker } from "@/components/ui/time-wheel-picker";
+import { parseGoalTimeToSeconds, formatSecondsToGoalTime } from "@/lib/format";
 
 const DISTANCES = [
   { id: "5K", label: "5K" },
@@ -18,14 +21,6 @@ const DISTANCE_KM: Record<string, number> = {
   "Half Marathon": 21.0975,
   Marathon: 42.195,
 };
-
-function parseGoalTimeSeconds(time: string): number | null {
-  const parts = time.split(":").map(Number);
-  if (parts.some(isNaN)) return null;
-  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
-  if (parts.length === 2) return parts[0] * 60 + parts[1];
-  return null;
-}
 
 function formatPace(totalSeconds: number, distanceKm: number): string {
   const paceSeconds = totalSeconds / distanceKm;
@@ -52,7 +47,7 @@ export function Step3RaceTarget({ answers, onUpdate, onNext, onBack }: StepProps
 
     const pace = (() => {
       if (!answers.goalTime || !answers.raceDistance) return null;
-      const totalSec = parseGoalTimeSeconds(answers.goalTime);
+      const totalSec = parseGoalTimeToSeconds(answers.goalTime);
       const km = DISTANCE_KM[answers.raceDistance];
       if (!totalSec || !km) return null;
       return formatPace(totalSec, km);
@@ -149,29 +144,26 @@ export function Step3RaceTarget({ answers, onUpdate, onNext, onBack }: StepProps
         {/* Race date */}
         <div>
           <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2.5">Race date</label>
-          <input
-            type="date"
-            value={answers.raceDate}
-            onChange={(e) => onUpdate({ raceDate: e.target.value })}
-            min={format(new Date(), "yyyy-MM-dd")}
-            className="w-full rounded-2xl border border-border bg-card px-4 py-3.5 text-sm text-foreground outline-none focus:border-primary/60 transition-colors [color-scheme:dark]"
-          />
+          <div className="rounded-2xl border border-border bg-card p-3">
+            <DateWheelPicker
+              value={answers.raceDate ? parseISO(answers.raceDate) : new Date()}
+              onChange={(d) => onUpdate({ raceDate: format(d, "yyyy-MM-dd") })}
+              minYear={new Date().getFullYear()}
+              size="sm"
+            />
+          </div>
         </div>
 
         {/* Goal time */}
         <div>
           <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2.5">Goal time</label>
-          <input
-            type="text"
-            value={answers.goalTime}
-            onChange={(e) => {
-              const raw = e.target.value;
-              const clean = raw.replace(/[^\d:]/g, "");
-              onUpdate({ goalTime: clean });
-            }}
-            placeholder={answers.raceDistance === "Marathon" ? "e.g. 2:55:00" : answers.raceDistance === "Half Marathon" ? "e.g. 1:25:00" : "e.g. 45:00"}
-            className="w-full rounded-2xl border border-border bg-card px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/60 transition-colors tabular-nums"
-          />
+          <div className="rounded-2xl border border-border bg-card p-3">
+            <TimeWheelPicker
+              value={parseGoalTimeToSeconds(answers.goalTime)}
+              onChange={(sec) => onUpdate({ goalTime: formatSecondsToGoalTime(sec) })}
+              size="sm"
+            />
+          </div>
         </div>
 
         {/* Optional detail */}

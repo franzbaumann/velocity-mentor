@@ -1,4 +1,5 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { AI_LIMITS } from "../_shared/ai-models.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -63,8 +64,8 @@ async function callClaude(answers: Record<string, unknown>): Promise<ApiResult> 
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5",
-        max_tokens: 2000,
+        model: AI_LIMITS.philosophyMatch.model,
+        max_tokens: AI_LIMITS.philosophyMatch.max_tokens,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: prompt }],
       }),
@@ -101,7 +102,7 @@ async function callGroq(answers: Record<string, unknown>): Promise<ApiResult> {
           { role: "user", content: `Athlete onboarding answers: ${JSON.stringify(answers)}` },
         ],
         temperature: 0.4,
-        max_tokens: 2000,
+        max_tokens: AI_LIMITS.philosophyMatch.max_tokens,
       }),
     };
     const res = await fetchWith429Retry(url, init);
@@ -131,7 +132,7 @@ async function callGemini(answers: Record<string, unknown>): Promise<ApiResult> 
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.4, maxOutputTokens: 2000 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: AI_LIMITS.philosophyMatch.max_tokens },
       }),
     };
     const res = await fetchWith429Retry(url, init);

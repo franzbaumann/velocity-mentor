@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { AI_LIMITS } from "../_shared/ai-models.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -746,6 +747,10 @@ ${philosophyDetail}
 
 HOW YOU COMMUNICATE
 
+RESPONSE LENGTH
+- Keep responses short: 2-4 sentences for routine questions (e.g. "should I run today?", post-workout feedback, quick advice). Longer only when building plans, adjusting plans, or conducting intake.
+- This keeps the conversation focused and reduces token usage. Never pad with filler.
+
 ALWAYS:
 - Reference specific data points in your response ("your CTL is 42 and rising well")
 - Be concrete ("run 12km easy, keep HR under 145") not vague ("go for an easy run")
@@ -978,7 +983,7 @@ serve(async (req) => {
       });
     }
 
-    // Memory extraction action — runs after conversation ends
+    // USAGE: exempt — not counted against daily limit (background memory extraction)
     if (action === "extract_memories" && user) {
       const userMsgCount = messages.filter((m) => m.role === "user").length;
       if (userMsgCount < 3) {
@@ -1018,26 +1023,55 @@ ${conversationText}`;
 
       let extracted: { category: string; content: string; importance: number }[] = [];
 
-      for (const key of groqKeys) {
+      // Claude Haiku primary (structured JSON extraction)
+      for (const key of anthropicKeys) {
         try {
-          const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          const res = await fetch("https://api.anthropic.com/v1/messages", {
             method: "POST",
-            headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+            headers: {
+              "x-api-key": key,
+              "anthropic-version": "2023-06-01",
+              "Content-Type": "application/json",
+            },
             body: JSON.stringify({
-              model: "llama-3.3-70b-versatile",
+              model: AI_LIMITS.memoryExtraction.model,
+              max_tokens: AI_LIMITS.memoryExtraction.max_tokens,
               messages: [{ role: "user", content: extractionPrompt }],
-              temperature: 0.2,
-              max_tokens: 400,
             }),
           });
           if (res.ok) {
             const json = await res.json();
-            const text = json.choices?.[0]?.message?.content?.trim() ?? "";
+            const block = (json.content ?? []).find((b: { type: string }) => b.type === "text");
+            const text = block?.text?.trim() ?? "";
             const match = text.match(/\[[\s\S]*\]/);
             if (match) extracted = JSON.parse(match[0]);
             break;
           }
         } catch { /* try next key */ }
+      }
+
+      if (extracted.length === 0) {
+        for (const key of groqKeys) {
+          try {
+            const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+              method: "POST",
+              headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
+              body: JSON.stringify({
+                model: "llama-3.3-70b-versatile",
+                messages: [{ role: "user", content: extractionPrompt }],
+                temperature: 0.2,
+                max_tokens: AI_LIMITS.memoryExtraction.max_tokens,
+              }),
+            });
+            if (res.ok) {
+              const json = await res.json();
+              const text = json.choices?.[0]?.message?.content?.trim() ?? "";
+              const match = text.match(/\[[\s\S]*\]/);
+              if (match) extracted = JSON.parse(match[0]);
+              break;
+            }
+          } catch { /* try next key */ }
+        }
       }
 
       if (extracted.length === 0) {
@@ -1050,7 +1084,7 @@ ${conversationText}`;
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
                   contents: [{ parts: [{ text: extractionPrompt }] }],
-                  generationConfig: { temperature: 0.2, maxOutputTokens: 400 },
+                  generationConfig: { temperature: 0.2, maxOutputTokens: AI_LIMITS.memoryExtraction.max_tokens },
                 }),
               },
             );
@@ -1098,6 +1132,29 @@ ${conversationText}`;
       });
     }
 
+    // Beta usage limit: check daily coaching messages (only for main chat, not extract_memories)
+    const COACHING_DAILY_LIMIT = 10;
+    const LIMIT_MSG =
+      "You've used your 10 daily messages with Cade. Your limit resets tomorrow. During beta, usage is capped — this changes at launch.";
+
+    if (user) {
+      const today = new Date().toISOString().slice(0, 10);
+      const { data: usageRow } = await supabaseAdmin
+        .from("ai_usage")
+        .select("messages_used")
+        .eq("user_id", user.id)
+        .eq("date", today)
+        .maybeSingle();
+
+      const used = (usageRow as { messages_used?: number } | null)?.messages_used ?? 0;
+      if (used >= COACHING_DAILY_LIMIT) {
+        return new Response(
+          JSON.stringify({ message: LIMIT_MSG, isLimitMessage: true }),
+          { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+    }
+
     // Build full athlete context and system prompt
     const athleteContext = user
       ? await buildAthleteContext(supabaseAdmin, user.id, intakeAnswers, intervalsContext)
@@ -1143,8 +1200,8 @@ ${conversationText}`;
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            model: "claude-sonnet-4-5",
-            max_tokens: 4096,
+            model: AI_LIMITS.coachingChat.model,
+            max_tokens: AI_LIMITS.coachingChat.max_tokens,
             system: systemPrompt,
             messages: claudeMessages,
           }),
@@ -1164,7 +1221,7 @@ ${conversationText}`;
           const groqInit: RequestInit = {
             method: "POST",
             headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
-            body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: chatMessages, temperature: 0.6, max_tokens: 4096 }),
+            body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: chatMessages, temperature: 0.6, max_tokens: AI_LIMITS.coachingChat.max_tokens }),
           };
           const groqRes = await fetchWith429Retry(groqUrl, groqInit);
           if (groqRes.status === 429) any429 = true;
@@ -1187,7 +1244,7 @@ ${conversationText}`;
             body: JSON.stringify({
               contents,
               systemInstruction: { parts: [{ text: systemPrompt }] },
-              generationConfig: { temperature: 0.6, maxOutputTokens: 4096 },
+              generationConfig: { temperature: 0.6, maxOutputTokens: AI_LIMITS.coachingChat.max_tokens },
             }),
           };
           const gemRes = await fetchWith429Retry(gemUrl, gemInit);
@@ -1209,7 +1266,7 @@ ${conversationText}`;
           headers: { ...corsHeaders, "Content-Type": "application/json" },
         });
       }
-      // Store assistant message
+      // Store assistant message and increment usage
       if (user && text) {
         supabaseAdmin.from("coach_message").insert({
           user_id: user.id,
@@ -1217,6 +1274,12 @@ ${conversationText}`;
           content: text,
           triggered_by: "chat",
         }).then(() => {});
+
+        const today = new Date().toISOString().slice(0, 10);
+        await supabaseAdmin.rpc("increment_ai_usage", {
+          p_user_id: user.id,
+          p_date: today,
+        });
       }
 
       return new Response(JSON.stringify({ message: text }), {
@@ -1239,8 +1302,8 @@ ${conversationText}`;
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          model: "claude-sonnet-4-5",
-          max_tokens: 4096,
+          model: AI_LIMITS.coachingChat.model,
+          max_tokens: AI_LIMITS.coachingChat.max_tokens,
           system: systemPrompt,
           messages: claudeMessages,
           stream: true,
@@ -1300,7 +1363,7 @@ ${conversationText}`;
             body: JSON.stringify({
               systemInstruction: { parts: [{ text: systemInstruction }] },
               contents,
-              generationConfig: { temperature: 0.6, maxOutputTokens: 8192 },
+              generationConfig: { temperature: 0.6, maxOutputTokens: AI_LIMITS.coachingChat.max_tokens },
             }),
           },
         );
@@ -1426,6 +1489,13 @@ ${conversationText}`;
           triggered_by: "user",
         }).then(() => {});
       }
+
+      // Increment usage for streaming response (we're about to stream successfully)
+      const today = new Date().toISOString().slice(0, 10);
+      supabaseAdmin.rpc("increment_ai_usage", {
+        p_user_id: user.id,
+        p_date: today,
+      }).then(() => {});
     }
 
     return new Response(streamBody, {

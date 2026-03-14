@@ -10,6 +10,12 @@ import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { DateWheelPicker } from "@/components/ui/date-wheel-picker";
 
 // ── Workout Steps ──────────────────────────────────────────────────────────────
 type WorkoutStep = {
@@ -149,13 +155,21 @@ function SessionCard({
           {session.pace_target && <span>@{session.pace_target}</span>}
         </div>
         {editing ? (
-          <div className="flex gap-2 mt-3" onClick={(e) => e.stopPropagation()}>
-            <Input
-              type="date"
-              value={newDate}
-              onChange={(e) => setNewDate(e.target.value)}
-              className="h-8 text-xs"
-            />
+          <div className="flex gap-2 mt-3 items-center" onClick={(e) => e.stopPropagation()}>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 text-xs font-normal">
+                  {newDate ? format(parseISO(newDate), "MMM d, yyyy") : "Pick date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <DateWheelPicker
+                  value={newDate ? parseISO(newDate) : new Date()}
+                  onChange={(d) => setNewDate(format(d, "yyyy-MM-dd"))}
+                  size="sm"
+                />
+              </PopoverContent>
+            </Popover>
             <Button size="sm" onClick={() => { onReschedule({ sessionId: session.id, newDate }); setEditing(false); }}>
               Save
             </Button>

@@ -147,6 +147,13 @@ function RacePredictionCard({
   );
 }
 
+const DASHBOARD_SNIPPET_CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutes
+
+function getDashboardSnippetCacheKey(userId: string): string {
+  const today = new Date().toISOString().slice(0, 10);
+  return `dashboard_snippet_${userId}_${today}`;
+}
+
 function CoachCadeWidget() {
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -162,6 +169,22 @@ function CoachCadeWidget() {
     (async () => {
       try {
         await supabase.auth.refreshSession();
+        const { data: { user } } = await supabase.auth.getUser();
+        const userId = user?.id;
+        if (userId) {
+          const cacheKey = getDashboardSnippetCacheKey(userId);
+          const cached = sessionStorage.getItem(cacheKey);
+          if (cached) {
+            try {
+              const { message: cachedMsg, ts } = JSON.parse(cached) as { message: string; ts: number };
+              if (Date.now() - ts < DASHBOARD_SNIPPET_CACHE_TTL_MS && typeof cachedMsg === "string" && cachedMsg.length > 5) {
+                setMessage(cachedMsg);
+                setLoading(false);
+                return;
+              }
+            } catch { /* invalid cache */ }
+          }
+        }
         const { data, error } = await supabase.functions.invoke("coach-opening", {
           body: { short: true },
         });
@@ -172,6 +195,10 @@ function CoachCadeWidget() {
         const msg = data?.message;
         if (typeof msg === "string" && msg.length > 5 && !/invalid jwt|unauthorized|error/i.test(msg)) {
           setMessage(msg);
+          if (userId) {
+            const cacheKey = getDashboardSnippetCacheKey(userId);
+            sessionStorage.setItem(cacheKey, JSON.stringify({ message: msg, ts: Date.now() }));
+          }
         }
         if (data?.rateLimitHit) {
           toast.error("AI rate limit reached. Try again later or upgrade your plan.");

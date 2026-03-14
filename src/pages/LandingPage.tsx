@@ -18,11 +18,27 @@ import {
 } from "lucide-react";
 import { AuroraBackground } from "@/components/ui/aurora-background";
 import { Button } from "@/components/ui/button";
+import { Marquee } from "@/components/ui/marquee";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+} from "@/components/ui/carousel";
 import { supabase } from "@/integrations/supabase/client";
 
 const navLinks = [
   { label: "Features", href: "#features" },
   { label: "Philosophy", href: "#philosophy" },
+];
+
+const SCREENSHOTS = [
+  { src: "/screenshots/dashboard.png", label: "Dashboard" },
+  { src: "/screenshots/stats-fitness.png", label: "Fitness & Fatigue" },
+  { src: "/screenshots/stats-wellness.png", label: "Wellness & Recovery" },
+  { src: "/screenshots/philosophy.png", label: "Training Philosophies" },
+  { src: "/screenshots/onboarding.png", label: "Get started" },
 ];
 
 export default function LandingPage() {
@@ -124,6 +140,72 @@ export default function LandingPage() {
           </div>
         </motion.div>
       </AuroraBackground>
+
+      {/* ── MARQUEE: devices & philosophies ─────────────────────────────── */}
+      <section className="py-8 border-t border-border overflow-hidden bg-muted/20">
+        <div className="flex flex-col gap-6">
+          <Marquee pauseOnHover direction="left" duration={30} className="py-2">
+            <span className="mx-8 text-lg font-medium text-muted-foreground">Garmin</span>
+            <span className="mx-8 text-muted-foreground">·</span>
+            <span className="mx-8 text-lg font-medium text-muted-foreground">Coros</span>
+            <span className="mx-8 text-muted-foreground">·</span>
+            <span className="mx-8 text-lg font-medium text-muted-foreground">Apple Watch</span>
+            <span className="mx-8 text-muted-foreground">·</span>
+            <span className="mx-8 text-lg font-medium text-muted-foreground">Polar</span>
+            <span className="mx-8 text-muted-foreground">·</span>
+            <span className="mx-8 text-lg font-medium text-muted-foreground">Suunto</span>
+            <span className="mx-8 text-muted-foreground">·</span>
+            <span className="mx-8 text-lg font-medium text-muted-foreground">intervals.icu</span>
+          </Marquee>
+          <Marquee pauseOnHover direction="right" duration={40} className="py-2">
+            <span className="mx-8 text-lg font-medium text-muted-foreground">80/20 Polarized</span>
+            <span className="mx-8 text-muted-foreground">·</span>
+            <span className="mx-8 text-lg font-medium text-muted-foreground">Jack Daniels VDOT</span>
+            <span className="mx-8 text-muted-foreground">·</span>
+            <span className="mx-8 text-lg font-medium text-muted-foreground">Lydiard</span>
+            <span className="mx-8 text-muted-foreground">·</span>
+            <span className="mx-8 text-lg font-medium text-muted-foreground">Hansons</span>
+            <span className="mx-8 text-muted-foreground">·</span>
+            <span className="mx-8 text-lg font-medium text-muted-foreground">Pfitzinger</span>
+            <span className="mx-8 text-muted-foreground">·</span>
+            <span className="mx-8 text-lg font-medium text-muted-foreground">Norwegian Method</span>
+          </Marquee>
+        </div>
+      </section>
+
+      {/* ── SEE THE APP ─────────────────────────────────────────────────── */}
+      <section id="screenshots" className="py-24 px-4 sm:px-6 border-t border-border">
+        <div className="max-w-[900px] mx-auto">
+          <div className="text-center mb-12">
+            <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-3">
+              See the app
+            </h2>
+            <p className="text-lg text-muted-foreground max-w-[560px] mx-auto">
+              Your dashboard, stats, and training philosophy in one place.
+            </p>
+          </div>
+          <Carousel opts={{ loop: true, align: "center" }} className="w-full">
+            <CarouselContent>
+              {SCREENSHOTS.map(({ src, label }) => (
+                <CarouselItem key={src}>
+                  <div className="rounded-xl border border-border overflow-hidden bg-muted/20 shadow-lg">
+                    <img
+                      src={src}
+                      alt={label}
+                      className="w-full max-w-full object-contain"
+                    />
+                    <p className="text-sm text-muted-foreground text-center py-3 border-t border-border">
+                      {label}
+                    </p>
+                  </div>
+                </CarouselItem>
+              ))}
+            </CarouselContent>
+            <CarouselPrevious className="left-0 sm:-left-12" />
+            <CarouselNext className="right-0 sm:-right-12" />
+          </Carousel>
+        </div>
+      </section>
 
       {/* ── THE PROBLEM ─────────────────────────────────────────────────── */}
       <section className="py-24 px-4 sm:px-6 bg-muted/30 border-t border-border">
@@ -281,8 +363,6 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
-
-      {/* TODO: Add app screenshot to public/ folder and replace this comment with an app preview section */}
 
       {/* ── BETA CTA ────────────────────────────────────────────────────── */}
       <section id="beta" className="py-24 px-4 sm:px-6 bg-muted/30 border-t border-border">

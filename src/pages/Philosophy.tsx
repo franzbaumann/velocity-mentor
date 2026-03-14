@@ -1,4 +1,5 @@
 import { AppLayout } from "@/components/AppLayout";
+import { Marquee } from "@/components/ui/marquee";
 import { BookOpen, ChevronDown } from "lucide-react";
 import { useState } from "react";
 
@@ -233,6 +234,24 @@ export default function Philosophy() {
           <p className="text-muted-foreground mt-1">
             Find the approach that fits your physiology
           </p>
+        </div>
+
+        <div className="overflow-hidden -mx-4 py-3 border-y border-border">
+          <Marquee pauseOnHover direction="right" duration={45} className="py-1" fadeAmount={12}>
+            <span className="mx-6 text-sm font-medium text-muted-foreground">80/20 Polarized</span>
+            <span className="mx-6 text-muted-foreground/50">·</span>
+            <span className="mx-6 text-sm font-medium text-muted-foreground">Jack Daniels VDOT</span>
+            <span className="mx-6 text-muted-foreground/50">·</span>
+            <span className="mx-6 text-sm font-medium text-muted-foreground">Lydiard</span>
+            <span className="mx-6 text-muted-foreground/50">·</span>
+            <span className="mx-6 text-sm font-medium text-muted-foreground">Hansons</span>
+            <span className="mx-6 text-muted-foreground/50">·</span>
+            <span className="mx-6 text-sm font-medium text-muted-foreground">Pfitzinger</span>
+            <span className="mx-6 text-muted-foreground/50">·</span>
+            <span className="mx-6 text-sm font-medium text-muted-foreground">Norwegian Method</span>
+            <span className="mx-6 text-muted-foreground/50">·</span>
+            <span className="mx-6 text-sm font-medium text-muted-foreground">Kenyan/Ethiopian</span>
+          </Marquee>
         </div>
 
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { Link, Navigate } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Zap } from "lucide-react";
+import { Marquee } from "@/components/ui/marquee";
 import { useAuth } from "@/hooks/use-auth";
 
 type Mode = "login" | "signup";
@@ -161,6 +162,22 @@ export default function AuthPage() {
                   : "Already have an account? Sign in"}
               </button>
             </div>
+          </div>
+
+          <div className="mt-8 -mx-4 overflow-hidden border-t border-border pt-6">
+            <Marquee pauseOnHover direction="left" duration={35} className="py-1" fadeAmount={15}>
+              <span className="mx-6 text-sm text-muted-foreground">Garmin</span>
+              <span className="mx-6 text-muted-foreground/50">·</span>
+              <span className="mx-6 text-sm text-muted-foreground">Coros</span>
+              <span className="mx-6 text-muted-foreground/50">·</span>
+              <span className="mx-6 text-sm text-muted-foreground">Apple Watch</span>
+              <span className="mx-6 text-muted-foreground/50">·</span>
+              <span className="mx-6 text-sm text-muted-foreground">intervals.icu</span>
+              <span className="mx-6 text-muted-foreground/50">·</span>
+              <span className="mx-6 text-sm text-muted-foreground">80/20 Polarized</span>
+              <span className="mx-6 text-muted-foreground/50">·</span>
+              <span className="mx-6 text-sm text-muted-foreground">Jack Daniels · Lydiard · Pfitzinger</span>
+            </Marquee>
           </div>
         </div>
       </div>

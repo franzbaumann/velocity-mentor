@@ -20,9 +20,10 @@ import { useTrainingPlan } from "@/hooks/use-training-plan";
 import { format, addDays, isToday, startOfWeek } from "date-fns";
 import { isRunningActivity } from "@/lib/analytics";
 import { formatDistance } from "@/lib/format";
+import { checkDailyLimit } from "@/lib/ai/usageGuard";
 import { ChatStatCharts } from "@/components/ChatStatChart";
 
-type Msg = { role: "user" | "assistant"; content: string };
+type Msg = { role: "user" | "assistant"; content: string; isLimitMessage?: boolean };
 type StoredMsg = {
   id: string;
   role: "user" | "assistant";
@@ -248,7 +249,7 @@ async function streamChat({
   intakeAnswers: Record<string, string | string[]> | null;
   intervalsContext: { wellness?: unknown[]; activities?: unknown[] } | null;
   token: string | null;
-  onDelta: (text: string) => void;
+  onDelta: (text: string, meta?: { isLimitMessage?: boolean }) => void;
   onDone: () => void;
   onRateLimit?: () => void;
 }) {
@@ -296,7 +297,8 @@ async function streamChat({
   if (contentType.includes("application/json")) {
     const data = await resp.json().catch(() => ({}));
     const msg = data?.message;
-    if (typeof msg === "string" && msg) onDelta(msg);
+    const isLimitMessage = !!data?.isLimitMessage;
+    if (typeof msg === "string" && msg) onDelta(msg, { isLimitMessage });
     onDone();
     return;
   }
@@ -741,6 +743,17 @@ export default function Coach() {
     },
   });
 
+  // Daily usage for beta limit indicator (only shown when used >= 7)
+  const { data: usageStatus } = useQuery({
+    queryKey: ["coach_usage"],
+    queryFn: async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      const u = session?.user;
+      if (!u) return null;
+      return checkDailyLimit(u.id);
+    },
+  });
+
   const analyses = useMemo(
     () => chatHistory.filter((m) => m.message_type === "post_workout_analysis"),
     [chatHistory],
@@ -1087,14 +1100,17 @@ export default function Coach() {
     setIsLoading(true);
 
     let assistantSoFar = "";
-    const upsert = (chunk: string) => {
+    let limitMessageMeta: { isLimitMessage?: boolean } | undefined;
+    const upsert = (chunk: string, meta?: { isLimitMessage?: boolean }) => {
+      if (meta?.isLimitMessage) limitMessageMeta = meta;
       assistantSoFar += chunk;
       setMessages((prev) => {
         const last = prev[prev.length - 1];
+        const msgData: Msg = { role: "assistant", content: assistantSoFar, ...limitMessageMeta };
         if (last?.role === "assistant") {
-          return prev.map((m, i) => (i === prev.length - 1 ? { ...m, content: assistantSoFar } : m));
+          return prev.map((m, i) => (i === prev.length - 1 ? { ...m, ...msgData } : m));
         }
-        return [...prev, { role: "assistant", content: assistantSoFar }];
+        return [...prev, msgData];
       });
     };
 
@@ -1105,7 +1121,10 @@ export default function Coach() {
         intervalsContext,
         token,
         onDelta: upsert,
-        onDone: () => setIsLoading(false),
+        onDone: () => {
+          setIsLoading(false);
+          queryClient.invalidateQueries({ queryKey: ["coach_usage"] });
+        },
         onRateLimit: () => {
           if (import.meta.env.DEV) {
             // In dev, never block retries — just warn so the developer can try again immediately
@@ -1485,7 +1504,9 @@ export default function Coach() {
                     <div className={`p-4 text-sm leading-relaxed rounded-2xl flex-1 ${
                       msg.role === "user"
                         ? "bg-primary text-primary-foreground"
-                        : "glass-card text-foreground"
+                        : msg.isLimitMessage
+                          ? "bg-muted/50 text-muted-foreground border border-border"
+                          : "glass-card text-foreground"
                     }`}>
                       {msg.role === "assistant" ? (
                         <div className="coach-message text-sm text-foreground [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
@@ -1578,6 +1599,17 @@ export default function Coach() {
 
           {/* Input */}
           <div className="p-4 border-t border-border">
+            {usageStatus && usageStatus.used >= 7 && (
+              <div className="text-xs text-muted-foreground flex items-center gap-1 mb-2">
+                <span>Cade</span>
+                <span>•</span>
+                {usageStatus.used < usageStatus.limit ? (
+                  <span>{usageStatus.used} / {usageStatus.limit} messages today</span>
+                ) : (
+                  <span className="text-yellow-600 dark:text-yellow-500">{usageStatus.used} / {usageStatus.limit} — resets tomorrow</span>
+                )}
+              </div>
+            )}
             <div className="flex items-center gap-3">
               <input
                 ref={inputRef}

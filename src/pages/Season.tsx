@@ -26,11 +26,20 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import {
   Sheet,
   SheetContent,
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
+import { DateWheelPicker } from "@/components/ui/date-wheel-picker";
+import { TimeWheelPicker } from "@/components/ui/time-wheel-picker";
+import { parseGoalTimeToSeconds, formatSecondsToGoalTime } from "@/lib/format";
+import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
 
 const SEASON_TYPES: { type: SeasonType; label: string; emoji: string }[] = [
@@ -245,11 +254,37 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Start date</label>
-                <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} className="mt-1" />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="mt-1 w-full justify-start text-left font-normal">
+                      {startDate ? formatDate(startDate) : "Pick date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <DateWheelPicker
+                      value={startDate ? parseISO(startDate) : new Date()}
+                      onChange={(d) => setStartDate(format(d, "yyyy-MM-dd"))}
+                      size="sm"
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
               <div>
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">End date</label>
-                <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} className="mt-1" />
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="mt-1 w-full justify-start text-left font-normal">
+                      {endDate ? formatDate(endDate) : "Pick date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <DateWheelPicker
+                      value={endDate ? parseISO(endDate) : new Date()}
+                      onChange={(d) => setEndDate(format(d, "yyyy-MM-dd"))}
+                      size="sm"
+                    />
+                  </PopoverContent>
+                </Popover>
               </div>
             </div>
             <div>
@@ -282,7 +317,22 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
           <div className="p-4 rounded-xl border border-border bg-card space-y-3 mb-4">
             <div className="grid grid-cols-2 gap-3">
               <Input placeholder="Race name" value={rName} onChange={(e) => setRName(e.target.value)} />
-              <Input type="date" value={rDate} onChange={(e) => setRDate(e.target.value)} />
+              <div>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button variant="outline" className="w-full justify-start text-left font-normal">
+                      {rDate ? formatDateShort(rDate) : "Race date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <DateWheelPicker
+                      value={rDate ? parseISO(rDate) : new Date()}
+                      onChange={(d) => setRDate(format(d, "yyyy-MM-dd"))}
+                      size="sm"
+                    />
+                  </PopoverContent>
+                </Popover>
+              </div>
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Input placeholder="Distance (e.g. 1500m)" value={rDistance} onChange={(e) => setRDistance(e.target.value)} />
@@ -302,7 +352,20 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
                   </button>
                 ))}
               </div>
-              <Input placeholder="Goal time" value={rGoal} onChange={(e) => setRGoal(e.target.value)} className="flex-1" />
+              <Popover>
+                <PopoverTrigger asChild>
+                  <Button variant="outline" className="flex-1 justify-start font-normal tabular-nums">
+                    {rGoal || "Goal time"}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-auto p-0" align="start">
+                  <TimeWheelPicker
+                    value={parseGoalTimeToSeconds(rGoal)}
+                    onChange={(sec) => setRGoal(formatSecondsToGoalTime(sec))}
+                    size="sm"
+                  />
+                </PopoverContent>
+              </Popover>
               <Button size="sm" onClick={addRace} disabled={!rName || !rDate || !rDistance}>
                 <Plus className="w-4 h-4" />
               </Button>

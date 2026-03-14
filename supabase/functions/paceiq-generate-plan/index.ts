@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
+import { AI_LIMITS } from "../_shared/ai-models.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -96,8 +97,8 @@ async function callClaude(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-sonnet-4-5",
-        max_tokens: 8000,
+        model: AI_LIMITS.planGeneration.model,
+        max_tokens: AI_LIMITS.planGeneration.max_tokens,
         system: PLAN_PROMPT,
         messages: [{ role: "user", content: userContent }],
       }),
@@ -134,7 +135,7 @@ async function callGroq(
         model: "llama-3.3-70b-versatile",
         messages: [{ role: "system", content: PLAN_PROMPT }, { role: "user", content: userContent }],
         temperature: 0.4,
-        max_tokens: 4000,
+        max_tokens: AI_LIMITS.planGeneration.max_tokens,
         response_format: { type: "json_object" },
       }),
     };
@@ -167,7 +168,7 @@ async function callGemini(
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         contents: [{ parts: [{ text: prompt }] }],
-        generationConfig: { temperature: 0.4, maxOutputTokens: 4000 },
+        generationConfig: { temperature: 0.4, maxOutputTokens: AI_LIMITS.planGeneration.max_tokens },
       }),
     };
     const res = await fetchWith429Retry(url, init);
