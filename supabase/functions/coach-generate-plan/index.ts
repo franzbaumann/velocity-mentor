@@ -113,7 +113,13 @@ PLAN GENERATION RULES:
 9. start_date: Monday of each week. If race_date exists, work backward.
 10. Plan length: weeks until race, else 8 weeks.
 11. Sessions per week: match weekly_frequency. Include rest days.
-12. Progress: base → build → peak → taper. Use metric (km, /km pace).`;
+12. Progress: base → build → peak → taper. Use metric (km, /km pace).
+
+CRITICAL — QUALITY SESSIONS (NEVER ALL EASY):
+- NEVER generate a plan where weeks are only easy runs. Every week (except taper) MUST include at least 1–2 quality sessions: tempo, intervals, or long run.
+- Marathon plans: Each base/build/peak week needs tempo OR MP run, plus a long run.
+- Hansons: Tuesday = tempo/SOS, Thursday = speed or MP, Sunday = long run (max 26km). Easy runs fill other days.
+- Plan length: If race_date exists, generate ALL weeks from start to race day. Do NOT truncate.`;
 
 async function fetchWith429Retry(url: string, init: RequestInit, maxRetries = 2): Promise<Response> {
   let res = await fetch(url, init);

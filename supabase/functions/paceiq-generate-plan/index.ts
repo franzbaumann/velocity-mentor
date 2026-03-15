@@ -56,18 +56,28 @@ PLAN GENERATION RULES:
 7. Recovery weeks: every 3rd week reduce volume 25%. Max 7% weekly volume increase.
 8. day_of_week: 1=Mon, 2=Tue, ..., 7=Sun
 9. Match athlete's days_per_week and session_length from intake.
-10. Use metric (km, /km pace). Include rest days. Progress: base → build → peak → taper.`;
+10. Use metric (km, /km pace). Include rest days. Progress: base → build → peak → taper.
+
+CRITICAL — QUALITY SESSIONS (NEVER ALL EASY):
+- NEVER generate a plan where weeks are only easy runs. Every week (except taper) MUST include at least 1–2 quality sessions: tempo, intervals, or long run.
+- Marathon plans: Each base/build/peak week needs tempo OR MP run, plus a long run. Use t-02, t-01, m-07, m-08, l-03, l-01.
+- Hansons specifically: Tuesday = tempo/SOS (t-02 or m-04), Thursday = speed or MP (t-01, m-07), Sunday = long run (l-03 max 26km). Easy runs fill other days.
+- 80/20: 80% easy, 20% hard — include tempo or intervals weekly.`;
 
 function buildPlanUserPrompt(
   answers: Record<string, unknown>,
   philosophy: string,
   raceDate: string | null,
-  requiredWeeks: number | null
+  requiredWeeks: number | null,
+  retryReason?: string
 ): string {
   let prompt = `Athlete onboarding: ${JSON.stringify(answers)}.\n\n`;
   prompt += `CRITICAL: The athlete chose philosophy "${philosophy}". Build the plan STRICTLY using this philosophy — every workout type, volume, and progression must align with it.\n\n`;
+  if (retryReason) {
+    prompt += `RETRY: ${retryReason}\n\n`;
+  }
   if (raceDate && requiredWeeks != null && requiredWeeks > 0) {
-    prompt += `RACE DATE: ${raceDate}. You MUST generate exactly ${requiredWeeks} weeks of training. The last week must be taper ending on race day. Do not stop early — the plan must cover every week from start to race day.`;
+    prompt += `RACE DATE: ${raceDate}. You MUST generate exactly ${requiredWeeks} weeks of training — output a "weeks" array with ${requiredWeeks} week objects. The last week must be taper ending on race day. Do NOT truncate. Do NOT return fewer weeks. The plan must cover every single week from start to race day.`;
   } else {
     prompt += `Use philosophy: ${philosophy}.`;
   }
@@ -100,9 +110,10 @@ async function callClaude(
   answers: Record<string, unknown>,
   philosophy: string,
   raceDate: string | null,
-  requiredWeeks: number | null
+  requiredWeeks: number | null,
+  retryReason?: string
 ): Promise<unknown> {
-  const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks);
+  const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks, retryReason);
   const prompt = `${PLAN_PROMPT}\n\n${userContent}`;
   for (const key of anthropicKeys()) {
     const url = "https://api.anthropic.com/v1/messages";
@@ -139,9 +150,10 @@ async function callGroq(
   answers: Record<string, unknown>,
   philosophy: string,
   raceDate: string | null,
-  requiredWeeks: number | null
+  requiredWeeks: number | null,
+  retryReason?: string
 ): Promise<unknown> {
-  const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks);
+  const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks, retryReason);
   for (const key of groqKeys()) {
     console.log("paceiq-generate-plan: trying Groq...");
     const url = "https://api.groq.com/openai/v1/chat/completions";
@@ -174,9 +186,10 @@ async function callGemini(
   answers: Record<string, unknown>,
   philosophy: string,
   raceDate: string | null,
-  requiredWeeks: number | null
+  requiredWeeks: number | null,
+  retryReason?: string
 ): Promise<unknown> {
-  const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks);
+  const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks, retryReason);
   const prompt = `${PLAN_PROMPT}\n\n${userContent}`;
   for (const key of geminiKeys()) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`;
@@ -262,11 +275,22 @@ serve(async (req) => {
       ? Math.max(8, Math.ceil((new Date(raceDate).getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000)))
       : null;
 
-    // Priority: Claude (primary) → Groq → Gemini
-    const planRaw =
-      (await callClaude(answers, philosophy, raceDate, requiredWeeks)) ??
-      (await callGroq(answers, philosophy, raceDate, requiredWeeks)) ??
-      (await callGemini(answers, philosophy, raceDate, requiredWeeks));
+    // Priority: Claude (primary) → Groq → Gemini. Retry once if plan too short.
+    const tryGenerate = async (retryReason?: string) =>
+      (await callClaude(answers, philosophy, raceDate, requiredWeeks, retryReason)) ??
+      (await callGroq(answers, philosophy, raceDate, requiredWeeks, retryReason)) ??
+      (await callGemini(answers, philosophy, raceDate, requiredWeeks, retryReason));
+
+    let planRaw = await tryGenerate();
+    if (planRaw && requiredWeeks != null && requiredWeeks > 0) {
+      const weeks = (planRaw as { weeks?: unknown[] }).weeks ?? [];
+      if (weeks.length < requiredWeeks) {
+        console.log(`paceiq-generate-plan: got ${weeks.length} weeks, need ${requiredWeeks}, retrying...`);
+        planRaw = await tryGenerate(
+          `You returned only ${weeks.length} weeks but the plan MUST have exactly ${requiredWeeks} weeks (race ${raceDate}). Generate the COMPLETE plan with all ${requiredWeeks} weeks.`
+        );
+      }
+    }
     if (!planRaw || typeof planRaw !== "object") {
       console.error("paceiq-generate-plan: all AI providers failed");
       return new Response(
@@ -376,6 +400,22 @@ serve(async (req) => {
         });
       }
     }
+
+    // Sync coaching memory: replace any existing goal with this plan's goal
+    await supabase.from("coaching_memory").delete().eq("user_id", user.id).eq("category", "goal");
+    const raceLabel = (goalDistance ?? "marathon").replace(/\b\w/g, (c) => c.toUpperCase());
+    const goalContent = goalTime
+      ? `Targeting a ${raceLabel.toLowerCase()} finish time of ${goalTime}`
+      : raceDate
+        ? `Aims to run the ${raceLabel} in ${totalWeeks} weeks`
+        : `Aims to run the ${raceLabel} in ${totalWeeks} weeks`;
+    await supabase.from("coaching_memory").insert({
+      user_id: user.id,
+      category: "goal",
+      content: goalContent,
+      importance: 8,
+      source: "plan",
+    });
 
     return new Response(
       JSON.stringify({

@@ -4,6 +4,8 @@ import { AppLayout } from "@/components/AppLayout";
 import { useTheme } from "@/hooks/useTheme";
 import { useActivityDetail, type ActivityStreams } from "@/hooks/useActivityDetail";
 import { useZoneSource } from "@/hooks/useZoneSource";
+import { useAthleteProfile } from "@/hooks/useAthleteProfile";
+import { getZoneFromBpm, getZoneBounds, computeHrZoneTimesFromStream } from "@/lib/hr-zones";
 import { useParams, useNavigate } from "react-router-dom";
 import { format } from "date-fns";
 import { isNonDistanceActivity } from "@/lib/analytics";
@@ -244,6 +246,7 @@ export default function ActivityDetail() {
   const queryClient = useQueryClient();
   const { resolved: themeMode } = useTheme();
   const { data: activity, isLoading, error } = useActivityDetail(id);
+  const { profile: athleteProfile } = useAthleteProfile();
   const [tab, setTab] = useState<ActivityTab>("charts");
 
   const actIdForPb = id?.startsWith("icu_") ? id.replace(/^icu_/, "") : id;
@@ -280,6 +283,30 @@ export default function ActivityDetail() {
     const raw = buildChartData(activity.streams);
     return downsample(raw, 350);
   }, [activity]);
+
+  /** HR zone times for table: from stream with athlete zones when available, else normalized source data */
+  const { hrZoneTimesForTable, hrZonesFromStream } = useMemo(() => {
+    const effectiveMaxHr = athleteProfile?.max_hr ?? activity?.max_hr ?? null;
+    const restingHr = athleteProfile?.resting_hr ?? null;
+    const hasHrInChart = chartData.length > 0 && chartData.some((d) => d.hr > 0);
+    if (hasHrInChart && effectiveMaxHr != null && effectiveMaxHr > 0) {
+      const computed = computeHrZoneTimesFromStream(
+        chartData.map((d) => ({ t: d.t, hr: d.hr })),
+        effectiveMaxHr,
+        restingHr
+      );
+      if (computed.some((t) => t > 0)) {
+        return { hrZoneTimesForTable: computed, hrZonesFromStream: true };
+      }
+    }
+    const raw = activity?.hr_zone_times;
+    if (raw && raw.length > 0) {
+      const normalized = [...raw];
+      while (normalized.length < 6) normalized.push(0);
+      return { hrZoneTimesForTable: normalized.slice(0, 6), hrZonesFromStream: false };
+    }
+    return { hrZoneTimesForTable: null, hrZonesFromStream: false };
+  }, [activity, athleteProfile, chartData]);
 
   const hasPace = chartData.some((d) => d.pace > 0);
   const hasHr = chartData.some((d) => d.hr > 0);
@@ -465,7 +492,7 @@ export default function ActivityDetail() {
                           <XAxis dataKey="timeLabel" tick={false} tickLine={false} axisLine={false} height={0} />
                           <YAxis yAxisId="pace" orientation="left" domain={[(d: number) => Math.floor(d) - 1, (d: number) => Math.ceil(d) + 1]} tick={{ fontSize: 9, fill: PACE_COLOR }} tickFormatter={(v: number) => formatPace(v)} reversed allowDecimals={false} tickLine={false} axisLine={false} width={42} />
                           <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} labelFormatter={(l) => String(l)} formatter={(val: number) => [`${formatPace(val)}/km`, "Pace"]} />
-                          <Area yAxisId="pace" type="natural" dataKey="pace" fill="url(#paceGrad)" stroke={PACE_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} />
+                          <Area yAxisId="pace" type="natural" dataKey="pace" fill="url(#paceGrad)" stroke={PACE_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} baseValue="dataMax" />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
@@ -480,11 +507,17 @@ export default function ActivityDetail() {
                     <div className="h-[120px]">
                       <ResponsiveContainer width="100%" height="100%">
                         <ComposedChart data={chartData} margin={{ top: 4, right: 44, left: -4, bottom: 0 }}>
+                          <defs>
+                            <linearGradient id="hrGrad" x1="0" y1="0" x2="0" y2="1">
+                              <stop offset="0%" stopColor={HR_COLOR} stopOpacity={0.2} />
+                              <stop offset="100%" stopColor={HR_COLOR} stopOpacity={0.02} />
+                            </linearGradient>
+                          </defs>
                           <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
                           <XAxis dataKey="timeLabel" tick={false} tickLine={false} axisLine={false} height={0} />
                           <YAxis domain={[(d: number) => Math.floor(d / 5) * 5 - 10, (d: number) => Math.ceil(d / 5) * 5 + 10]} tick={{ fontSize: 9, fill: HR_COLOR }} tickFormatter={(v: number) => String(Math.round(v))} allowDecimals={false} tickLine={false} axisLine={false} width={42} />
                           <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} labelFormatter={(l) => String(l)} formatter={(val: number) => [`${Math.round(val)} bpm`, "HR"]} />
-                          <Line type="natural" dataKey="hr" stroke={HR_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} />
+                          <Area type="natural" dataKey="hr" fill="url(#hrGrad)" stroke={HR_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
@@ -608,8 +641,16 @@ export default function ActivityDetail() {
             {/* HR Distribution + Cumulative Time charts */}
             {hasHr && (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <HrDistributionChart chartData={chartData} maxHr={activity.max_hr} />
-                <CumulativeHrChart chartData={chartData} maxHr={activity.max_hr} />
+                <HrDistributionChart
+                  chartData={chartData}
+                  maxHr={athleteProfile?.max_hr ?? activity.max_hr}
+                  restingHr={athleteProfile?.resting_hr ?? null}
+                />
+                <CumulativeHrChart
+                  chartData={chartData}
+                  maxHr={athleteProfile?.max_hr ?? activity.max_hr}
+                  restingHr={athleteProfile?.resting_hr ?? null}
+                />
               </div>
             )}
 
@@ -627,17 +668,23 @@ export default function ActivityDetail() {
         {/* ── TAB: Data ── */}
         {tab === "data" && (
           <div className="space-y-4">
-            {/* HR Zone Detail Table (intervals.icu style) */}
-            {activity.hr_zone_times && activity.hr_zone_times.some(t => t > 0) && (
+            {/* HR Zone Detail Table — use stream + athlete zones when available, else source data */}
+            {hrZoneTimesForTable != null && hrZoneTimesForTable.some((t) => t > 0) && (
               <div className="card-standard card-standard--no-padding overflow-hidden">
                 <div className="px-4 py-2.5 border-b border-border flex items-center justify-between gap-2 bg-muted/30">
                   <div className="flex items-center gap-2">
                     <Heart className="w-3.5 h-3.5 text-primary" />
                     <span className="text-xs font-semibold text-foreground">Heart Rate Zones</span>
                   </div>
-                  <ZoneSourceBadge />
+                  {hrZonesFromStream ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+                      Your zones (from stream)
+                    </span>
+                  ) : (
+                    <ZoneSourceBadge />
+                  )}
                 </div>
-                <ZoneDetailTable times={activity.hr_zone_times} names={HR_ZONE_NAMES} colors={HR_ZONE_COLORS} maxHr={activity.max_hr} />
+                <ZoneDetailTable times={hrZoneTimesForTable} names={HR_ZONE_NAMES} colors={HR_ZONE_COLORS} maxHr={athleteProfile?.max_hr ?? activity.max_hr} restingHr={athleteProfile?.resting_hr ?? null} />
               </div>
             )}
 
@@ -955,19 +1002,8 @@ function CoachNote({ activityId, cachedNote }: { activityId: string | undefined;
   );
 }
 
-function getHrZone(bpm: number, maxHr: number): number {
-  const pct = bpm / maxHr;
-  if (pct < 0.6) return 0;
-  if (pct < 0.7) return 0;
-  if (pct < 0.8) return 1;
-  if (pct < 0.9) return 2;
-  if (pct < 0.95) return 3;
-  if (pct < 1.0) return 4;
-  return 5;
-}
-
-/** HR Distribution Histogram — time spent at each BPM, colored by zone */
-function HrDistributionChart({ chartData, maxHr }: { chartData: ChartPoint[]; maxHr?: number | null }) {
+/** HR Distribution Histogram — time spent at each BPM, colored by athlete zone */
+function HrDistributionChart({ chartData, maxHr, restingHr }: { chartData: ChartPoint[]; maxHr?: number | null; restingHr?: number | null }) {
   const effectiveMax = maxHr ?? Math.max(...chartData.map((d) => d.hr).filter(Boolean));
   if (!effectiveMax || effectiveMax <= 0) return null;
 
@@ -982,7 +1018,8 @@ function HrDistributionChart({ chartData, maxHr }: { chartData: ChartPoint[]; ma
 
   for (let b = Math.floor(minHr / bucketSize) * bucketSize; b <= maxHrVal; b += bucketSize) {
     const count = hrVals.filter((h) => h >= b && h < b + bucketSize).length;
-    buckets.push({ bpm: b, seconds: count * intervalSec, zone: getHrZone(b + bucketSize / 2, effectiveMax) });
+    const zone1Based = getZoneFromBpm(b + bucketSize / 2, effectiveMax, restingHr);
+    buckets.push({ bpm: b, seconds: count * intervalSec, zone: zone1Based - 1 });
   }
 
   return (
@@ -1011,7 +1048,7 @@ function HrDistributionChart({ chartData, maxHr }: { chartData: ChartPoint[]; ma
 }
 
 /** Cumulative Time at HR — total time accumulated at or above each HR */
-function CumulativeHrChart({ chartData, maxHr }: { chartData: ChartPoint[]; maxHr?: number | null }) {
+function CumulativeHrChart({ chartData, maxHr, restingHr }: { chartData: ChartPoint[]; maxHr?: number | null; restingHr?: number | null }) {
   const effectiveMax = maxHr ?? Math.max(...chartData.map((d) => d.hr).filter(Boolean));
   if (!effectiveMax || effectiveMax <= 0) return null;
 
@@ -1026,11 +1063,13 @@ function CumulativeHrChart({ chartData, maxHr }: { chartData: ChartPoint[]; maxH
 
   for (let bpm = maxHrVal; bpm >= minHr; bpm -= step) {
     const count = hrVals.filter((h) => h >= bpm).length;
-    data.push({ bpm, cumSeconds: count * intervalSec, zone: getHrZone(bpm, effectiveMax) });
+    const zone1Based = getZoneFromBpm(bpm, effectiveMax, restingHr);
+    data.push({ bpm, cumSeconds: count * intervalSec, zone: zone1Based - 1 });
   }
   data.reverse();
 
-  const zoneBreaks = [0.6, 0.7, 0.8, 0.9, 0.95, 1.0].map((pct) => Math.round(effectiveMax * pct));
+  const bounds = getZoneBounds(effectiveMax, restingHr);
+  const zoneBreaks = [bounds.z1[1], bounds.z2[1], bounds.z3[1], bounds.z4[1], bounds.z5[1], effectiveMax];
 
   return (
     <div className="card-standard">
@@ -1127,19 +1166,23 @@ function MeanMaxHrChart({ chartData }: { chartData: ChartPoint[] }) {
 }
 
 /** intervals.icu-style zone detail table with % range, HR range, colored bar, time, % */
-function ZoneDetailTable({ times, names, colors, maxHr }: { times: number[]; names: string[]; colors: string[]; maxHr?: number | null }) {
+function ZoneDetailTable({ times, names, colors, maxHr, restingHr }: { times: number[]; names: string[]; colors: string[]; maxHr?: number | null; restingHr?: number | null }) {
   const total = times.reduce((a, b) => a + b, 0);
   if (total === 0) return null;
   const maxTime = Math.max(...times);
-  const hrRanges = maxHr ? [
-    `0 - ${Math.round(maxHr * 0.6)}`,
-    `${Math.round(maxHr * 0.6)} - ${Math.round(maxHr * 0.7)}`,
-    `${Math.round(maxHr * 0.7)} - ${Math.round(maxHr * 0.8)}`,
-    `${Math.round(maxHr * 0.8)} - ${Math.round(maxHr * 0.9)}`,
-    `${Math.round(maxHr * 0.9)} - ${Math.round(maxHr * 0.95)}`,
-    `${Math.round(maxHr * 0.95)} - ${maxHr}`,
-    `${maxHr}+`,
-  ] : null;
+  const hrRanges = maxHr && maxHr > 0
+    ? (() => {
+        const bounds = getZoneBounds(maxHr, restingHr);
+        return [
+          `${bounds.z1[0]} - ${bounds.z1[1]}`,
+          `${bounds.z2[0]} - ${bounds.z2[1]}`,
+          `${bounds.z3[0]} - ${bounds.z3[1]}`,
+          `${bounds.z4[0]} - ${bounds.z4[1]}`,
+          `${bounds.z5[0]} - ${bounds.z5[1]}`,
+          `${maxHr}+`,
+        ];
+      })()
+    : null;
 
   return (
     <div className="overflow-x-auto">

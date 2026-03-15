@@ -305,7 +305,7 @@ function SeasonWidget() {
 export default function Dashboard() {
   const greeting = useGreeting();
   const zoneSource = useZoneSource();
-  const { weekStats, lastActivity, recoveryMetrics, readiness, weekPlan, todaysWorkout, athlete, isSampleData, activities } = useDashboardData();
+  const { weekStats, lastActivity, recoveryMetrics, readiness, weekPlan, todaysWorkout, athlete, planProgress, isSampleData, activities } = useDashboardData();
   const { isConnected: intervalsConnected } = useIntervalsIntegration();
   const { todayLoad, hasCheckedInToday } = useDailyLoad();
   const { openCheckIn } = useDailyCheckIn();
@@ -330,8 +330,11 @@ export default function Dashboard() {
         <div>
           <h1 className="page-title text-foreground">{greeting}</h1>
           <p className="text-sm text-[#6B7280] mt-1">
-            Week 6 of 14 · {athlete.currentPhase} Phase · {athlete.goalRace.type} in{" "}
-            {athlete.goalRace.weeksRemaining} weeks
+            {planProgress
+              ? `Week ${planProgress.currentWeek} of ${planProgress.totalWeeks} · ${planProgress.phase} Phase · ${athlete.goalRace.type} in ${planProgress.totalWeeks - planProgress.currentWeek + 1} weeks`
+              : athlete.goalRace.weeksRemaining != null
+                ? `${athlete.goalRace.type} in ${athlete.goalRace.weeksRemaining} weeks`
+                : athlete.goalRace.type}
           </p>
         </div>
 
@@ -502,7 +505,9 @@ export default function Dashboard() {
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-1.5">
                     <p className="text-xs text-muted-foreground">HR Zones</p>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">{zoneSource}</span>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+                      {lastActivity.hrZonesEstimated ? "Estimated from avg HR" : zoneSource}
+                    </span>
                   </div>
                   <div className="flex h-3 rounded-full overflow-hidden">
                     <div className={`${HR_ZONE_LIGHT[0]} dark:bg-[#94a3b8]`} style={{ width: `${lastActivity.hrZones.z1}%` }} />
@@ -555,7 +560,9 @@ export default function Dashboard() {
               <div>
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <p className="text-xs text-muted-foreground">HR Zones</p>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">{zoneSource}</span>
+                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+                    {lastActivity.hrZonesEstimated ? "Estimated from avg HR" : zoneSource}
+                  </span>
                 </div>
                 <div className="flex h-3 rounded-full overflow-hidden">
                   <div className={`${HR_ZONE_LIGHT[0]} dark:bg-[#94a3b8]`} style={{ width: `${lastActivity.hrZones.z1}%` }} />

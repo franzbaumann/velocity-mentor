@@ -75,6 +75,30 @@ const philosophies: Philosophy[] = [
       "Mon: Rest/Easy, Tue: LT 14km w/ 8km @ LT, Wed: MLR 18km, Thu: Easy 10km, Fri: VO2max 5x1200m, Sat: Long 28km, Sun: Recovery 10km",
   },
   {
+    name: "Norwegian Method",
+    founder: "Gjert Ingebrigtsen / Norwegian school",
+    principle:
+      "Threshold-dominant training built around double threshold sessions — two threshold workouts in one day separated by 4–6 hours. Minimal VO2max work. Lactate-controlled intensity at LT1–LT2. For most athletes adapted as AM easy + PM threshold.",
+    distribution: { easy: 70, moderate: 20, hard: 10 },
+    bestFor:
+      "Athletes with a solid aerobic base (CTL 55+) who want lactate-controlled threshold focus",
+    athletes: "Jakob Ingebrigtsen, Norwegian middle-distance tradition",
+    weekly:
+      "Mon: Easy 45min, Tue: AM Easy 40min + PM Threshold 4x8min, Wed: Easy 50min, Thu: AM Easy 35min + PM Threshold 25min, Fri: Easy 45min, Sat: Long 90min easy, Sun: Easy 40min",
+  },
+  {
+    name: "Japanese / Ekiden-style",
+    founder: "Japanese distance running tradition",
+    principle:
+      "Extremely high aerobic volume with group-oriented training. Long steady jogs (jogingu) at moderate effort build a massive aerobic base. Quality sessions are shorter but very intense — track repetitions at race pace. Morning runs are a non-negotiable daily habit. Volume before intensity; base periods are long and patient.",
+    distribution: { easy: 85, moderate: 10, hard: 5 },
+    bestFor:
+      "Athletes who can run high volume and prefer group-based, consistent structure",
+    athletes: "Japanese university and corporate league runners, ekiden athletes",
+    weekly:
+      "Mon: AM Jog 60min, Tue: AM Jog 50min + PM Track 8x1km, Wed: AM Jog 70min, Thu: AM Jog 50min, Fri: AM Jog 60min, Sat: Long Jog 2h, Sun: AM Jog 45min",
+  },
+  {
     name: "Kenyan/Ethiopian Model",
     founder: "East African tradition",
     principle:
@@ -249,6 +273,8 @@ export default function Philosophy() {
             <span className="mx-6 text-sm font-medium text-muted-foreground">Pfitzinger</span>
             <span className="mx-6 text-muted-foreground/50">·</span>
             <span className="mx-6 text-sm font-medium text-muted-foreground">Norwegian Method</span>
+            <span className="mx-6 text-muted-foreground/50">·</span>
+            <span className="mx-6 text-sm font-medium text-muted-foreground">Japanese / Ekiden</span>
             <span className="mx-6 text-muted-foreground/50">·</span>
             <span className="mx-6 text-sm font-medium text-muted-foreground">Kenyan/Ethiopian</span>
           </Marquee>

@@ -1,6 +1,6 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import { Send, Loader2, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ReactMarkdown from "react-markdown";
@@ -689,6 +689,7 @@ async function extractMemories(msgs: Msg[]) {
 }
 
 export default function Coach() {
+  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -1179,7 +1180,7 @@ export default function Coach() {
         if (ok) {
           queryClient.invalidateQueries({ queryKey: ["training-plan"] });
           toast.success("Plan updated! View it on the Training Plan page.", {
-            action: { label: "View Plan", onClick: () => window.location.href = "/plan" },
+            action: { label: "View Plan", onClick: () => navigate("/plan") },
           });
         } else {
           toast.error("Failed to save plan");
@@ -1190,7 +1191,7 @@ export default function Coach() {
         setApplyingPlan(false);
       }
     },
-    [queryClient]
+    [queryClient, navigate]
   );
 
   const handleAcceptTls = useCallback(
@@ -1268,12 +1269,12 @@ export default function Coach() {
 
       if (action === "view_plan" && planResult?.plan_id) {
         toast.success("Your plan is ready!");
-        window.location.href = "/plan";
+        navigate("/plan");
       } else {
         toast.success("Welcome! Chat with Coach Cade whenever you're ready.");
       }
     },
-    [updateProfile, queryClient]
+    [updateProfile, queryClient, navigate]
   );
 
   const handleGeneratePlan = useCallback(async () => {
@@ -1294,13 +1295,13 @@ export default function Coach() {
         return;
       }
       toast.success("Plan generated! Check Training Plan.");
-      window.location.href = "/plan";
+      navigate("/plan");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to generate plan");
     } finally {
       setGeneratingPlan(false);
     }
-  }, [intakeAnswers, messages]);
+  }, [intakeAnswers, messages, navigate]);
 
   const hasPlan = !!planData?.plan;
   const fromPlan = searchParams.get("from") === "plan";

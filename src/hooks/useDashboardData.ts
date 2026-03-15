@@ -17,6 +17,7 @@ import {
 import { getWeekStats as getRealWeekStats } from "@/integrations/strava";
 import { isRunningActivity, dailyTSSFromActivities } from "@/lib/analytics";
 import { formatDistance } from "@/lib/format";
+import { estimateHrZoneDistributionFromAvgHr } from "@/lib/hr-zones";
 
 /** Format duration seconds to "HH:MM" or "M:SS" */
 function formatDuration(sec: number | null): string {
@@ -89,8 +90,19 @@ export function useDashboardData() {
       (a) => isRunningActivity(a.type) && (a.distance_km ?? 0) >= 0.01 && (a.distance_km ?? 0) <= 150
     );
     const last = runs[runs.length - 1];
-    if (!last) return { ...mockLastActivity, detailId: null as string | null };
-    const z = normalizeHrZones(last) ?? { z1: 5, z2: 18, z3: 32, z4: 40, z5: 5 };
+    if (!last) return { ...mockLastActivity, detailId: null as string | null, hrZonesEstimated: false };
+    const maxHr = athleteProfile?.max_hr ?? last.max_hr ?? null;
+    const avgHr = last.avg_hr ?? null;
+    const canUseAthleteZones = maxHr != null && avgHr != null && maxHr > 0 && avgHr > 0;
+    let z: { z1: number; z2: number; z3: number; z4: number; z5: number } | null;
+    let hrZonesEstimated = false;
+    if (canUseAthleteZones) {
+      z = estimateHrZoneDistributionFromAvgHr(avgHr, maxHr, athleteProfile?.resting_hr ?? null);
+      hrZonesEstimated = true;
+    } else {
+      z = normalizeHrZones(last);
+      if (z == null) z = { z1: 5, z2: 18, z3: 32, z4: 40, z5: 5 };
+    }
     const detailId = last.external_id && last.source === "intervals_icu"
       ? `icu_${last.external_id}`
       : last.id;
@@ -109,9 +121,10 @@ export function useDashboardData() {
         z4: z.z4 ?? 0,
         z5: z.z5 ?? 0,
       },
+      hrZonesEstimated,
       detailId,
     };
-  }, [activities]);
+  }, [activities, athleteProfile]);
 
   const weekStats = useMemo(() => {
     const runningActivities = activities.filter((a) => isRunningActivity(a.type) && (a.distance_km ?? 0) > 0 && (a.distance_km ?? 0) <= 150);
@@ -334,6 +347,21 @@ export function useDashboardData() {
   const hasRealActivities = activities.length > 0;
   const isSampleData = !hasRealReadiness && !hasRealActivities;
 
+  const planProgress = useMemo(() => {
+    if (!planData?.weeks?.length) return null;
+    const weeks = planData.weeks as { start_date?: string; week_number?: number; phase?: string }[];
+    const planStartStr = planData.plan?.start_date ?? weeks[0]?.start_date;
+    if (!planStartStr) return null;
+    const planStart = parseISO(planStartStr);
+    const weekStart = startOfWeek(planStart, { weekStartsOn: 1 });
+    const today = new Date();
+    const currentWeek = Math.max(1, Math.floor((today.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1);
+    const totalWeeks = planData.plan?.total_weeks ?? weeks.length;
+    const thisWeekData = weeks.find((w) => w.week_number === currentWeek) ?? weeks[weeks.length - 1];
+    const phase = (thisWeekData?.phase ?? (athleteProfile?.goal_race as { phase?: string } | undefined)?.phase ?? "Build").trim() || "Build";
+    return { currentWeek: Math.min(currentWeek, totalWeeks), totalWeeks, phase };
+  }, [planData, athleteProfile?.goal_race]);
+
   return {
     lastActivity,
     weekStats,
@@ -345,6 +373,7 @@ export function useDashboardData() {
     hasRealReadiness,
     hasRealActivities,
     activities,
+    planProgress,
     athlete: athleteProfile
       ? {
           name: athleteProfile.name || "Athlete",

@@ -948,6 +948,12 @@ You have access to a complete session library (sessionLibrary.ts). When generati
 10. Recovery weeks:
    Every 3rd week reduce volume 25%. Never increase both volume AND intensity same week. Max 7% weekly volume increase.
 
+CRITICAL — QUALITY SESSIONS (NEVER ALL EASY):
+- NEVER generate a plan where weeks are only easy runs. Every week (except taper) MUST include at least 1–2 quality sessions: tempo, intervals, or long run.
+- Marathon plans: Each base/build/peak week needs tempo OR MP run, plus a long run. Use t-02, t-01, m-07, m-08, l-03, l-01.
+- Hansons specifically: Tuesday = tempo/SOS (t-02 or m-04), Thursday = speed or MP (t-01, m-07), Sunday = long run (l-03 max 26km). Easy runs fill other days.
+- 80/20: 80% easy, 20% hard — include tempo or intervals weekly.
+
 HOW TO USE THIS KNOWLEDGE
 When recommending a session: name it from the library by ID, give exact structure (reps × distance × pace × rest), explain the purpose in one sentence, state actual pace in athlete's zones.
 When an athlete asks about training: reference elite methods if applicable ("This is the same threshold structure Ingebrigtsen's athletes use"), explain WHY not just WHAT.

@@ -299,6 +299,8 @@ function TrainingPlanSection({ queryClient }: { queryClient: ReturnType<typeof u
       for (const p of plans ?? []) {
         await supabase.from("training_plan").delete().eq("id", p.id);
       }
+      await supabase.from("coaching_memory").delete().eq("user_id", user.id).eq("category", "goal");
+      queryClient.invalidateQueries({ queryKey: ["coaching_memory"] });
       await supabase.from("athlete_profile").upsert(
         { user_id: user.id, onboarding_complete: false, onboarding_answers: null, updated_at: new Date().toISOString() },
         { onConflict: "user_id" }

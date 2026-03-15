@@ -16,6 +16,6 @@ export const AI_LIMITS = {
 
   coachingChat: { model: AI_MODELS.SONNET, max_tokens: 300 },
   postWorkoutAnalysis: { model: AI_MODELS.SONNET, max_tokens: 250 },
-  planGeneration: { model: AI_MODELS.SONNET, max_tokens: 4000 },
+  planGeneration: { model: AI_MODELS.SONNET, max_tokens: 8000 },
   philosophyMatch: { model: AI_MODELS.SONNET, max_tokens: 500 },
 } as const;
