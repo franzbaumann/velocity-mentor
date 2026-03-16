@@ -86,6 +86,7 @@ export function useFriendsList() {
       })) as FriendProfile[];
     },
     staleTime: 30_000,
+    refetchOnWindowFocus: true,
   });
 }
 
@@ -195,6 +196,8 @@ export function useRespondToRequest() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["friends"] });
       qc.invalidateQueries({ queryKey: ["friend-requests"] });
+      qc.invalidateQueries({ queryKey: ["sent-requests"] });
+      qc.refetchQueries({ queryKey: ["friends"] });
     },
   });
 }
