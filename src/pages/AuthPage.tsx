@@ -7,12 +7,18 @@ import { useAuth } from "@/hooks/use-auth";
 
 type Mode = "login" | "signup";
 
+const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,30}$/;
+function normalizeUsername(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\s+/g, "");
+}
+
 export default function AuthPage() {
   const { user, loading } = useAuth();
   const [mode, setMode] = useState<Mode>("login");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
+  const [username, setUsername] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
@@ -33,22 +39,41 @@ export default function AuthPage() {
     setSubmitting(true);
 
     if (mode === "signup") {
-      const { error } = await supabase.auth.signUp({
+      const normalized = normalizeUsername(username);
+      if (!USERNAME_REGEX.test(normalized)) {
+        setError("Username must be 3–30 characters, letters, numbers, and underscores only.");
+        setSubmitting(false);
+        return;
+      }
+      const baseUrl = import.meta.env.VITE_SUPABASE_URL ?? "";
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? "";
+      const checkRes = await fetch(`${baseUrl}/functions/v1/community-proxy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: anonKey },
+        body: JSON.stringify({ __path: "username/check", username: normalized }),
+      });
+      const checkData = await checkRes.json().catch(() => ({}));
+      if (!checkData.available) {
+        setError(checkData.error ?? "Username is already taken.");
+        setSubmitting(false);
+        return;
+      }
+      const { error: signUpError } = await supabase.auth.signUp({
         email,
         password,
         options: {
-          data: { full_name: name },
+          data: { full_name: name, username: normalized },
           emailRedirectTo: `${window.location.origin}/auth`,
         },
       });
-      if (error) {
-        setError(error.message);
+      if (signUpError) {
+        setError(signUpError.message);
       } else {
         setSuccessMsg("Check your email to confirm your account, then sign in.");
       }
     } else {
-      const { error } = await supabase.auth.signInWithPassword({ email, password });
-      if (error) setError(error.message);
+      const { error: signInError } = await supabase.auth.signInWithPassword({ email, password });
+      if (signInError) setError(signInError.message);
     }
 
     setSubmitting(false);
@@ -83,19 +108,38 @@ export default function AuthPage() {
 
             <form onSubmit={handleSubmit} className="space-y-3">
               {mode === "signup" && (
-                <div className="space-y-1.5">
-                  <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                    Full name
-                  </label>
-                  <input
-                    type="text"
-                    value={name}
-                    onChange={(e) => setName(e.target.value)}
-                    placeholder="Your name"
-                    required
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
-                  />
-                </div>
+                <>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      Full name
+                    </label>
+                    <input
+                      type="text"
+                      value={name}
+                      onChange={(e) => setName(e.target.value)}
+                      placeholder="Your name"
+                      required
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                      Username (for finding you in Community)
+                    </label>
+                    <input
+                      type="text"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="e.g. franz_run"
+                      required={mode === "signup"}
+                      minLength={3}
+                      maxLength={30}
+                      pattern="[a-zA-Z0-9_]+"
+                      title="Letters, numbers, and underscores only"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-muted border border-border text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/30 focus:border-primary transition-all"
+                    />
+                  </div>
+                </>
               )}
 
               <div className="space-y-1.5">
@@ -154,7 +198,7 @@ export default function AuthPage() {
 
             <div className="text-center">
               <button
-                onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(null); setSuccessMsg(null); }}
+                onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(null); setSuccessMsg(null); setUsername(""); }}
                 className="text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
                 {mode === "login"

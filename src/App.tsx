@@ -10,8 +10,10 @@ import { SidebarProvider } from "@/components/SidebarContext";
 import { DailyCheckInProvider } from "@/components/DailyCheckInContext";
 import { IntervalsAutoSync } from "@/components/IntervalsAutoSync";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
+import { useAthleteProfile } from "@/hooks/useAthleteProfile";
 import { IntervalsSetupGuide } from "@/components/onboarding/IntervalsSetupGuide";
 import Index from "./pages/Index";
+import SetUsername from "./pages/SetUsername";
 import LandingPage from "./pages/LandingPage";
 import TrainingPlan from "./pages/TrainingPlan";
 import Activities from "./pages/Activities";
@@ -38,7 +40,10 @@ function ThemeInit() {
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const { integration, isLoading: integrationLoading } = useIntervalsIntegration();
+  const { data: profile, isLoading: profileLoading } = useAthleteProfile();
   const location = useLocation();
+  const onSetUsername = location.pathname === "/set-username";
+  const onSetup = location.pathname === "/setup";
 
   if (loading || integrationLoading) {
     return (
@@ -49,10 +54,12 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }
   if (!user) return <Navigate to="/auth" replace />;
 
-  // Redirect to setup if intervals.icu is not connected, unless already there
-  const onSetup = location.pathname === "/setup";
   if (!integration && !onSetup) {
     return <Navigate to="/setup" replace />;
+  }
+
+  if (!onSetUsername && !profileLoading && profile && (profile.username == null || profile.username === "")) {
+    return <Navigate to="/set-username" replace />;
   }
 
   return (
@@ -66,6 +73,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 function LandingOrDashboard() {
   const { user, loading } = useAuth();
   const { integration, isLoading: integrationLoading } = useIntervalsIntegration();
+  const { data: profile, isLoading: profileLoading } = useAthleteProfile();
   if (loading || (user && integrationLoading)) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
@@ -75,6 +83,9 @@ function LandingOrDashboard() {
   }
   if (user) {
     if (!integration) return <Navigate to="/setup" replace />;
+    if (!profileLoading && profile && (profile.username == null || profile.username === "")) {
+      return <Navigate to="/set-username" replace />;
+    }
     return (
       <>
         <IntervalsAutoSync />
@@ -102,6 +113,7 @@ const App = () => (
           <Routes>
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/auth/strava/callback" element={<StravaCallback />} />
+          <Route path="/set-username" element={<AuthGuard><SetUsername /></AuthGuard>} />
           <Route path="/setup" element={<AuthGuard><IntervalsSetupGuide /></AuthGuard>} />
           <Route path="/" element={<LandingOrDashboard />} />
           <Route

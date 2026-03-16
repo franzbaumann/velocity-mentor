@@ -47,6 +47,7 @@ CREATE TABLE IF NOT EXISTS public.activity_intervals (
   created_at timestamptz DEFAULT now()
 );
 ALTER TABLE public.activity_intervals ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users manage own intervals" ON public.activity_intervals;
 CREATE POLICY "Users manage own intervals" ON public.activity_intervals
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 CREATE INDEX IF NOT EXISTS idx_activity_intervals_user_activity ON public.activity_intervals(user_id, activity_id);
@@ -64,6 +65,7 @@ CREATE TABLE IF NOT EXISTS public.personal_records (
   created_at timestamptz DEFAULT now()
 );
 ALTER TABLE public.personal_records ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users manage own PBs" ON public.personal_records;
 CREATE POLICY "Users manage own PBs" ON public.personal_records
   FOR ALL USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);
 CREATE INDEX IF NOT EXISTS idx_personal_records_user ON public.personal_records(user_id);

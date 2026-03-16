@@ -14,11 +14,39 @@ function json(data: unknown, status = 200) {
   });
 }
 
+function normalizeUsername(raw: string): string {
+  return raw.trim().toLowerCase().replace(/\s+/g, "");
+}
+
+const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,30}$/;
+
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+
+  const url = new URL(req.url);
+  const body = req.method === "POST" ? await req.json().catch(() => ({})) : {} as Record<string, unknown>;
+  // Path can be in body (client POSTs to /functions/v1/community-proxy only) or in URL subpath
+  const pathFromUrl = url.pathname.replace(/^\/functions\/v1\/community-proxy\/?/, "").replace(/^\/community-proxy\/?/, "").replace(/^\/?/, "");
+  const path = (body.__path as string) ?? pathFromUrl;
+
+  // POST /username/check — no auth required (used on signup). Returns { available: boolean }
+  if (path === "username/check" && req.method === "POST") {
+    const raw = (body.username ?? "").toString().trim();
+    const username = normalizeUsername(raw);
+    if (!username || !USERNAME_REGEX.test(username)) {
+      return json({ available: false, error: "Username must be 3–30 characters, letters, numbers, and underscores only" });
+    }
+    const { data: existing } = await admin
+      .from("athlete_profile")
+      .select("user_id")
+      .ilike("username", username)
+      .maybeSingle();
+    return json({ available: !existing });
+  }
 
   const authHeader = req.headers.get("Authorization");
   if (!authHeader) return json({ error: "Unauthorized" }, 401);
@@ -29,13 +57,30 @@ serve(async (req) => {
   const { data: { user } } = await supabaseUser.auth.getUser();
   if (!user) return json({ error: "Unauthorized" }, 401);
 
-  const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+  // POST /username/set — require auth. Set current user's username.
+  if (path === "username/set" && req.method === "POST") {
+    const raw = (body.username ?? "").toString().trim();
+    const username = normalizeUsername(raw);
+    if (!username || !USERNAME_REGEX.test(username)) {
+      return json({ error: "Username must be 3–30 characters, letters, numbers, and underscores only" }, 400);
+    }
+    const { data: taken } = await admin
+      .from("athlete_profile")
+      .select("user_id")
+      .ilike("username", username)
+      .maybeSingle();
+    if (taken && taken.user_id !== user.id) {
+      return json({ error: "Username is already taken" }, 409);
+    }
+    const { error: updateErr } = await admin
+      .from("athlete_profile")
+      .update({ username })
+      .eq("user_id", user.id);
+    if (updateErr) return json({ error: updateErr.message }, 500);
+    return json({ ok: true, username });
+  }
 
-  const url = new URL(req.url);
-  const path = url.pathname.replace(/^\/community-proxy\/?/, "");
-  const body = req.method === "POST" ? await req.json() : {};
-
-  // POST /search — search athletes by name
+  // POST /search — search athletes by username (prefix) or name
   if (path === "search" && req.method === "POST") {
     const query = (body.query ?? "").trim();
     if (!query || query.length < 2) return json({ results: [] });
@@ -64,15 +109,21 @@ serve(async (req) => {
     }
 
     const excludeIds = Array.from(friendIds);
-
+    const q = query.replace(/%/g, "\\%").replace(/_/g, "\\_");
     const { data: profiles } = await admin
       .from("athlete_profile")
-      .select("user_id, name")
-      .ilike("name", `%${query}%`)
+      .select("user_id, name, username")
+      .or(`username.ilike.${q}%,name.ilike.%${q}%`)
       .not("user_id", "in", `(${excludeIds.join(",")})`)
       .limit(10);
 
-    return json({ results: (profiles ?? []).map((p: { user_id: string; name: string }) => ({ id: p.user_id, name: p.name })) });
+    return json({
+      results: (profiles ?? []).map((p: { user_id: string; name: string; username?: string | null }) => ({
+        id: p.user_id,
+        name: p.name,
+        username: p.username ?? undefined,
+      })),
+    });
   }
 
   // POST /friend-request — send a request

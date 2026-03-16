@@ -31,8 +31,9 @@ verify_jwt = true
 [functions.garmin-import-zip]
 verify_jwt = true
 
+# Allow unauthenticated username/check for signup; auth enforced in code for other paths
 [functions.community-proxy]
-verify_jwt = true
+verify_jwt = false
 
 [functions.combined-workout]
 verify_jwt = true

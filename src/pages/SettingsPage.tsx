@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2, User, Brain, X, Trophy, ChevronRight } from "lucide-react";
+import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2, User, Brain, X, Trophy, ChevronRight, Users } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useSeason } from "@/hooks/useSeason";
 import { supabase } from "@/integrations/supabase/client";
@@ -645,7 +645,7 @@ export default function SettingsPage() {
       if (!user) return null;
       const { data } = await supabase
         .from("athlete_profile")
-        .select("max_hr, resting_hr, weight_kg, height_cm, training_philosophy, preferred_longrun_day, preferred_units")
+        .select("max_hr, resting_hr, weight_kg, height_cm, training_philosophy, preferred_longrun_day, preferred_units, username")
         .eq("user_id", user.id)
         .maybeSingle();
       return data;
@@ -712,6 +712,8 @@ export default function SettingsPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [streamsSyncing, setStreamsSyncing] = useState(false);
   const [pbsSyncing, setPbsSyncing] = useState(false);
+  const [usernameEdit, setUsernameEdit] = useState("");
+  const [usernameSaving, setUsernameSaving] = useState(false);
 
   const { data: syncStatus } = useQuery({
     queryKey: ["sync_progress", user?.id],
@@ -791,6 +793,7 @@ export default function SettingsPage() {
       setPhilosophy((athleteProfile.training_philosophy as string) ?? "jack_daniels");
       setLongRunDay(athleteProfile.preferred_longrun_day ?? "Saturday");
       setUnits(athleteProfile.preferred_units ?? "km");
+      setUsernameEdit((athleteProfile as { username?: string | null }).username ?? "");
     }
   }, [athleteProfile]);
 
@@ -856,6 +859,59 @@ export default function SettingsPage() {
       toast.error(e instanceof Error ? e.message : "Failed to save");
     } finally {
       setSavingProfile(false);
+    }
+  };
+
+  const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,30}$/;
+  function normalizeUsername(raw: string): string {
+    return raw.trim().toLowerCase().replace(/\s+/g, "");
+  }
+  const handleSaveUsername = async () => {
+    if (!user) return;
+    const normalized = normalizeUsername(usernameEdit);
+    if (!USERNAME_REGEX.test(normalized)) {
+      toast.error("Username must be 3–30 characters, letters, numbers, and underscores only.");
+      return;
+    }
+    setUsernameSaving(true);
+    try {
+      const baseUrl = import.meta.env.VITE_SUPABASE_URL ?? "";
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        toast.error("Session expired. Please sign in again.");
+        return;
+      }
+      const checkRes = await fetch(`${baseUrl}/functions/v1/community-proxy`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "" },
+        body: JSON.stringify({ __path: "username/check", username: normalized }),
+      });
+      const checkData = await checkRes.json().catch(() => ({}));
+      const current = (athleteProfile as { username?: string | null })?.username ?? "";
+      if (!checkData.available && normalizeUsername(current) !== normalized) {
+        toast.error(checkData.error ?? "Username is already taken.");
+        return;
+      }
+      const setRes = await fetch(`${baseUrl}/functions/v1/community-proxy`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${session.access_token}`,
+          apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
+        },
+        body: JSON.stringify({ __path: "username/set", username: normalized }),
+      });
+      const setData = await setRes.json().catch(() => ({}));
+      if (!setRes.ok) {
+        toast.error(setData.error ?? "Failed to save username.");
+        return;
+      }
+      queryClient.invalidateQueries({ queryKey: ["athlete_profile"] });
+      toast.success("Username updated.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to save username");
+    } finally {
+      setUsernameSaving(false);
     }
   };
 
@@ -1135,6 +1191,30 @@ export default function SettingsPage() {
               </div>
               <Button onClick={handleSaveProfile} size="sm" className="rounded-full" disabled={savingProfile}>
                 {savingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <><User className="w-4 h-4 mr-1" /> Save</>}
+              </Button>
+            </div>
+          </div>
+
+          {/* Community username — for finding you in Community / friends */}
+          <div className="glass-card p-5">
+            <p className="section-header">Community</p>
+            <p className="text-sm text-muted-foreground mb-4">
+              Your username is how friends find you in Community. Display name (e.g. in Coach Cade) stays your profile name.
+            </p>
+            <div className="flex flex-wrap items-end gap-4">
+              <div className="space-y-1">
+                <label className="text-xs text-muted-foreground">Username</label>
+                <Input
+                  placeholder="e.g. franz_run"
+                  value={usernameEdit}
+                  onChange={(e) => setUsernameEdit(e.target.value)}
+                  minLength={3}
+                  maxLength={30}
+                  className="w-48 bg-secondary/50"
+                />
+              </div>
+              <Button onClick={handleSaveUsername} size="sm" className="rounded-full" disabled={usernameSaving}>
+                {usernameSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Users className="w-4 h-4 mr-1" /> Save</>}
               </Button>
             </div>
           </div>

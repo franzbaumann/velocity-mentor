@@ -17,6 +17,7 @@ create table if not exists subscription_events (
 
 alter table subscription_events enable row level security;
 
+drop policy if exists "Users can read own subscription events" on subscription_events;
 create policy "Users can read own subscription events"
   on subscription_events for select
   using (auth.uid() = user_id);

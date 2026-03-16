@@ -1,14 +1,5 @@
 -- Community / Social tables for Cade
 
--- Helper: check if two users are friends
-CREATE OR REPLACE FUNCTION public.is_friend(uid1 uuid, uid2 uuid)
-RETURNS boolean AS $$
-  SELECT EXISTS (
-    SELECT 1 FROM public.friendship
-    WHERE user_a = LEAST(uid1, uid2) AND user_b = GREATEST(uid1, uid2)
-  );
-$$ LANGUAGE sql STABLE SECURITY DEFINER;
-
 -- 1. friendship (symmetric pair, one row per pair with user_a < user_b)
 CREATE TABLE IF NOT EXISTS public.friendship (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -21,14 +12,26 @@ CREATE TABLE IF NOT EXISTS public.friendship (
 
 ALTER TABLE public.friendship ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users see own friendships" ON public.friendship;
 CREATE POLICY "Users see own friendships" ON public.friendship
   FOR SELECT USING (auth.uid() IN (user_a, user_b));
 
+DROP POLICY IF EXISTS "Users delete own friendships" ON public.friendship;
 CREATE POLICY "Users delete own friendships" ON public.friendship
   FOR DELETE USING (auth.uid() IN (user_a, user_b));
 
+DROP POLICY IF EXISTS "Service role inserts friendships" ON public.friendship;
 CREATE POLICY "Service role inserts friendships" ON public.friendship
   FOR INSERT WITH CHECK (auth.uid() IN (user_a, user_b));
+
+-- Helper: check if two users are friends (after friendship table exists)
+CREATE OR REPLACE FUNCTION public.is_friend(uid1 uuid, uid2 uuid)
+RETURNS boolean AS $$
+  SELECT EXISTS (
+    SELECT 1 FROM public.friendship
+    WHERE user_a = LEAST(uid1, uid2) AND user_b = GREATEST(uid1, uid2)
+  );
+$$ LANGUAGE sql STABLE SECURITY DEFINER;
 
 -- 2. friend_request
 CREATE TABLE IF NOT EXISTS public.friend_request (
@@ -47,12 +50,15 @@ CREATE UNIQUE INDEX friend_request_pending_unique
 
 ALTER TABLE public.friend_request ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users see own requests" ON public.friend_request;
 CREATE POLICY "Users see own requests" ON public.friend_request
   FOR SELECT USING (auth.uid() IN (from_user, to_user));
 
+DROP POLICY IF EXISTS "Users send requests" ON public.friend_request;
 CREATE POLICY "Users send requests" ON public.friend_request
   FOR INSERT WITH CHECK (auth.uid() = from_user);
 
+DROP POLICY IF EXISTS "Recipients respond to requests" ON public.friend_request;
 CREATE POLICY "Recipients respond to requests" ON public.friend_request
   FOR UPDATE USING (auth.uid() = to_user);
 
@@ -67,12 +73,15 @@ CREATE TABLE IF NOT EXISTS public.activity_like (
 
 ALTER TABLE public.activity_like ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users insert own likes" ON public.activity_like;
 CREATE POLICY "Users insert own likes" ON public.activity_like
   FOR INSERT WITH CHECK (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users delete own likes" ON public.activity_like;
 CREATE POLICY "Users delete own likes" ON public.activity_like
   FOR DELETE USING (auth.uid() = user_id);
 
+DROP POLICY IF EXISTS "Users see likes on own or friend activities" ON public.activity_like;
 CREATE POLICY "Users see likes on own or friend activities" ON public.activity_like
   FOR SELECT USING (
     EXISTS (
@@ -127,12 +136,15 @@ CREATE TABLE IF NOT EXISTS public.workout_invite (
 
 ALTER TABLE public.workout_invite ENABLE ROW LEVEL SECURITY;
 
+DROP POLICY IF EXISTS "Users see own invites" ON public.workout_invite;
 CREATE POLICY "Users see own invites" ON public.workout_invite
   FOR SELECT USING (auth.uid() IN (from_user, to_user));
 
+DROP POLICY IF EXISTS "Users send invites" ON public.workout_invite;
 CREATE POLICY "Users send invites" ON public.workout_invite
   FOR INSERT WITH CHECK (auth.uid() = from_user);
 
+DROP POLICY IF EXISTS "Users update own invites" ON public.workout_invite;
 CREATE POLICY "Users update own invites" ON public.workout_invite
   FOR UPDATE USING (auth.uid() IN (from_user, to_user));
 

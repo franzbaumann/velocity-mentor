@@ -19,9 +19,12 @@ CREATE TABLE IF NOT EXISTS public.sync_progress (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE public.sync_progress ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users read own sync progress" ON public.sync_progress;
 CREATE POLICY "Users read own sync progress" ON public.sync_progress
   FOR SELECT USING (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users insert own sync progress" ON public.sync_progress;
 CREATE POLICY "Users insert own sync progress" ON public.sync_progress
   FOR INSERT WITH CHECK (auth.uid() = user_id);
+DROP POLICY IF EXISTS "Users update own sync progress" ON public.sync_progress;
 CREATE POLICY "Users update own sync progress" ON public.sync_progress
   FOR UPDATE USING (auth.uid() = user_id) WITH CHECK (auth.uid() = user_id);

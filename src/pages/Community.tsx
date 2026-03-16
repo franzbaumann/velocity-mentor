@@ -233,7 +233,7 @@ export default function Community() {
                 <div className="relative flex-1">
                   <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
                   <Input
-                    placeholder="Find athletes by name..."
+                    placeholder="Search by username or name..."
                     value={searchQuery}
                     onChange={(e) => setSearchQuery(e.target.value)}
                     onKeyDown={(e) => e.key === "Enter" && handleSearch()}
@@ -264,7 +264,12 @@ export default function Community() {
                         <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-semibold">
                           {result.name.charAt(0).toUpperCase()}
                         </div>
-                        <span className="text-sm font-medium">{result.name}</span>
+                        <div>
+                          <span className="text-sm font-medium">{result.name}</span>
+                          {"username" in result && result.username && (
+                            <span className="text-xs text-muted-foreground ml-1.5">@{result.username}</span>
+                          )}
+                        </div>
                       </div>
                       <Button
                         size="sm"

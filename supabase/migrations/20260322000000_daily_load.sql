@@ -42,6 +42,7 @@ create table if not exists daily_load (
 
 alter table daily_load enable row level security;
 
+drop policy if exists "Users manage own daily load" on daily_load;
 create policy "Users manage own daily load" on daily_load
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
 

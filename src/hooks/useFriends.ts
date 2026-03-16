@@ -35,16 +35,14 @@ function proxyFetch(path: string, body: Record<string, unknown> = {}) {
     if (!session) throw new Error("Not authenticated");
 
     const baseUrl = import.meta.env.VITE_SUPABASE_URL ?? "";
-    const url = `${baseUrl}/functions/v1/community-proxy/${path}`;
-
-    const resp = await fetch(url, {
+    const resp = await fetch(`${baseUrl}/functions/v1/community-proxy`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.access_token}`,
         apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
       },
-      body: JSON.stringify(body),
+      body: JSON.stringify({ ...body, __path: path }),
     });
 
     if (!resp.ok) {

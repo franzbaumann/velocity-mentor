@@ -339,6 +339,7 @@ export type Database = {
           max_hr_measured: number | null
           name: string
           narrative: string | null
+          username: string | null
           onboarding_answers: Json | null
           onboarding_complete: boolean | null
           preferred_longrun_day: string | null
@@ -386,6 +387,7 @@ export type Database = {
           max_hr_measured?: number | null
           name?: string
           narrative?: string | null
+          username?: string | null
           onboarding_answers?: Json | null
           onboarding_complete?: boolean | null
           preferred_longrun_day?: string | null
@@ -433,6 +435,7 @@ export type Database = {
           max_hr_measured?: number | null
           name?: string
           narrative?: string | null
+          username?: string | null
           onboarding_answers?: Json | null
           onboarding_complete?: boolean | null
           preferred_longrun_day?: string | null

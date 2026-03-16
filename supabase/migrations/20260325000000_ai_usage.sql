@@ -13,6 +13,7 @@ create index if not exists ai_usage_user_date
 -- RLS: users can read their own usage only
 alter table ai_usage enable row level security;
 
+drop policy if exists "Users can read own ai_usage" on ai_usage;
 create policy "Users can read own ai_usage"
   on ai_usage for select
   using (auth.uid() = user_id);

@@ -11,5 +11,6 @@ create table if not exists onboarding_progress (
 
 alter table onboarding_progress enable row level security;
 
+drop policy if exists "Users manage own progress" on onboarding_progress;
 create policy "Users manage own progress" on onboarding_progress
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
