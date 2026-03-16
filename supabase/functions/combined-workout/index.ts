@@ -78,8 +78,8 @@ serve(async (req) => {
   if (!user) return json({ error: "Unauthorized" }, 401);
 
   const admin = createClient(SUPABASE_URL, SERVICE_KEY);
-  const body = await req.json();
-  const { invite_id } = body;
+  const body = (await req.json().catch(() => ({}))) as { invite_id?: string; preview?: boolean };
+  const { invite_id, preview } = body;
 
   if (!invite_id) return json({ error: "invite_id required" }, 400);
 
@@ -224,10 +224,12 @@ Mode: ${invite.invite_type === "parallel" ? "PARALLEL — they do their own reps
     combined = { summary: text, athlete_a: { name: nameA, workout: workoutDescA }, athlete_b: { name: nameB, workout: workoutDescB } };
   }
 
-  await admin
-    .from("workout_invite")
-    .update({ combined_workout: combined })
-    .eq("id", invite_id);
+  if (!preview) {
+    await admin
+      .from("workout_invite")
+      .update({ combined_workout: combined })
+      .eq("id", invite_id);
+  }
 
   return json({ combined_workout: combined });
 });

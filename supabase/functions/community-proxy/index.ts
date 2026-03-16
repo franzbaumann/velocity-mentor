@@ -80,7 +80,7 @@ serve(async (req) => {
     return json({ ok: true, username });
   }
 
-  // POST /search — search athletes by username (prefix) or name
+  // POST /search — search athletes by username (prefix) or name; include friends with is_friend/is_pending
   if (path === "search" && req.method === "POST") {
     const query = (body.query ?? "").trim();
     if (!query || query.length < 2) return json({ results: [] });
@@ -103,18 +103,18 @@ serve(async (req) => {
       .eq("status", "pending")
       .or(`from_user.eq.${user.id},to_user.eq.${user.id}`);
 
+    const pendingUserIds = new Set<string>();
     for (const p of pending ?? []) {
-      friendIds.add(p.from_user);
-      friendIds.add(p.to_user);
+      if (p.from_user !== user.id) pendingUserIds.add(p.from_user);
+      if (p.to_user !== user.id) pendingUserIds.add(p.to_user);
     }
 
-    const excludeIds = Array.from(friendIds);
-    const q = query.replace(/%/g, "\\%").replace(/_/g, "\\_");
+    const q = query.replace(/%/g, "\\%").replace(/_/g, "\\_").replace(/"/g, '\\"');
     const { data: profiles } = await admin
       .from("athlete_profile")
       .select("user_id, name, username")
-      .or(`username.ilike.${q}%,name.ilike.%${q}%`)
-      .not("user_id", "in", `(${excludeIds.join(",")})`)
+      .or(`username.ilike."${q}%",name.ilike."%${q}%"`)
+      .neq("user_id", user.id)
       .limit(10);
 
     return json({
@@ -122,6 +122,8 @@ serve(async (req) => {
         id: p.user_id,
         name: p.name,
         username: p.username ?? undefined,
+        is_friend: friendIds.has(p.user_id),
+        is_pending: pendingUserIds.has(p.user_id),
       })),
     });
   }

@@ -257,9 +257,10 @@ function ActivitySocialBar({ activityId }: { activityId: string }) {
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState("");
 
-  const { data: likes } = useQuery({
+  const { data: likes, error: likesError, refetch: refetchLikes } = useQuery({
     queryKey: ["activity-likes-detail", activityId],
     queryFn: async () => {
+      await supabase.auth.refreshSession();
       const { data } = await supabase
         .from("activity_like")
         .select("id, user_id")
@@ -269,9 +270,10 @@ function ActivitySocialBar({ activityId }: { activityId: string }) {
     staleTime: 30_000,
   });
 
-  const { data: comments } = useQuery({
+  const { data: comments, error: commentsError, refetch: refetchComments } = useQuery({
     queryKey: ["activity-comments-detail", activityId],
     queryFn: async () => {
+      await supabase.auth.refreshSession();
       const { data } = await supabase
         .from("activity_comment")
         .select("id, user_id, content, created_at")
@@ -326,6 +328,26 @@ function ActivitySocialBar({ activityId }: { activityId: string }) {
       qc.invalidateQueries({ queryKey: ["social-names", activityId] });
     },
   });
+
+  const socialError = likesError || commentsError;
+  if (socialError) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 px-1">
+        <span className="text-xs text-muted-foreground">Couldn&apos;t load likes and comments.</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={() => {
+            refetchLikes();
+            refetchComments();
+          }}
+        >
+          Retry
+        </Button>
+      </div>
+    );
+  }
 
   if (likeCount === 0 && commentCount === 0 && !showComments) {
     return (

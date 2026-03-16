@@ -17,6 +17,7 @@ export interface PendingRequest {
 }
 
 async function callProxy(path: string, body: Record<string, unknown> = {}) {
+  await supabase.auth.refreshSession();
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Not authenticated");
 
@@ -31,6 +32,7 @@ async function callProxy(path: string, body: Record<string, unknown> = {}) {
 
 function proxyFetch(path: string, body: Record<string, unknown> = {}) {
   return async () => {
+    await supabase.auth.refreshSession();
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error("Not authenticated");
 
@@ -61,6 +63,7 @@ export function useFriendsList() {
     enabled: !!user,
     queryFn: async () => {
       if (!user) return [];
+      await supabase.auth.refreshSession();
 
       const { data: friendships } = await supabase
         .from("friendship")
@@ -98,6 +101,7 @@ export function usePendingRequests() {
     enabled: !!user,
     queryFn: async () => {
       if (!user) return [];
+      await supabase.auth.refreshSession();
 
       const { data: requests } = await supabase
         .from("friend_request")
@@ -135,6 +139,7 @@ export function useSentRequests() {
     enabled: !!user,
     queryFn: async () => {
       if (!user) return [];
+      await supabase.auth.refreshSession();
 
       const { data: requests } = await supabase
         .from("friend_request")
@@ -164,13 +169,21 @@ export function useSentRequests() {
   });
 }
 
+export interface SearchAthleteResult {
+  id: string;
+  name: string;
+  username?: string;
+  is_friend?: boolean;
+  is_pending?: boolean;
+}
+
 export function useSearchAthletes() {
   const qc = useQueryClient();
 
   return useMutation({
     mutationFn: async (query: string) => {
       const data = await proxyFetch("search", { query })();
-      return (data.results ?? []) as { id: string; name: string }[];
+      return (data.results ?? []) as SearchAthleteResult[];
     },
   });
 }

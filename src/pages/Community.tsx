@@ -271,24 +271,30 @@ export default function Community() {
                           )}
                         </div>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() => {
-                          sendRequest.mutate(result.id, {
-                            onSuccess: () => {
-                              toast.success(`Request sent to ${result.name}`);
-                              search.reset();
-                              setSearchQuery("");
-                            },
-                            onError: (e) => toast.error(e.message),
-                          });
-                        }}
-                        disabled={sendRequest.isPending}
-                      >
-                        <UserPlus className="w-4 h-4 mr-1" />
-                        Add
-                      </Button>
+                      {result.is_friend ? (
+                        <span className="text-xs text-muted-foreground font-medium">Already friends</span>
+                      ) : result.is_pending ? (
+                        <span className="text-xs text-muted-foreground font-medium">Request sent</span>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            sendRequest.mutate(result.id, {
+                              onSuccess: () => {
+                                toast.success(`Request sent to ${result.name}`);
+                                search.reset();
+                                setSearchQuery("");
+                              },
+                              onError: (e) => toast.error(e.message),
+                            });
+                          }}
+                          disabled={sendRequest.isPending}
+                        >
+                          <UserPlus className="w-4 h-4 mr-1" />
+                          Add
+                        </Button>
+                      )}
                     </div>
                   ))}
                 </div>
