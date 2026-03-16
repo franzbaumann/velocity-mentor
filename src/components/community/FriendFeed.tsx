@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { Heart, MessageCircle, Loader2, Send } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -157,31 +158,36 @@ function ActivityCard({
 
   return (
     <div className="card-standard p-4">
-      <div className="flex items-center gap-2.5 mb-3">
-        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold">
-          {friendName.charAt(0).toUpperCase()}
+      <Link
+        to={`/activities/${activity.id}`}
+        className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md -m-1 p-1"
+      >
+        <div className="flex items-center gap-2.5 mb-3">
+          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-xs font-semibold">
+            {friendName.charAt(0).toUpperCase()}
+          </div>
+          <div>
+            <p className="text-sm font-medium">{friendName}</p>
+            <p className="text-xs text-muted-foreground">
+              {formatDistanceToNow(new Date(activity.date), { addSuffix: true })}
+            </p>
+          </div>
         </div>
-        <div>
-          <p className="text-sm font-medium">{friendName}</p>
-          <p className="text-xs text-muted-foreground">
-            {formatDistanceToNow(new Date(activity.date), { addSuffix: true })}
-          </p>
+
+        <p className="text-sm font-semibold mb-1">{activity.name ?? activity.type}</p>
+        <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mb-3">
+          {activity.distance_km != null && activity.distance_km > 0 && (
+            <span className="text-primary font-medium">{formatDistance(activity.distance_km)}</span>
+          )}
+          {pace && <span>{pace.replace(/\/km$/i, "")}/km</span>}
+          {activity.avg_hr != null && <span>{activity.avg_hr} bpm</span>}
+          {activity.duration_seconds != null && (
+            <span>{formatDurationFromSec(activity.duration_seconds)}</span>
+          )}
         </div>
-      </div>
+      </Link>
 
-      <p className="text-sm font-semibold mb-1">{activity.name ?? activity.type}</p>
-      <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mb-3">
-        {activity.distance_km != null && activity.distance_km > 0 && (
-          <span className="text-primary font-medium">{formatDistance(activity.distance_km)}</span>
-        )}
-        {pace && <span>{pace.replace(/\/km$/i, "")}/km</span>}
-        {activity.avg_hr != null && <span>{activity.avg_hr} bpm</span>}
-        {activity.duration_seconds != null && (
-          <span>{formatDurationFromSec(activity.duration_seconds)}</span>
-        )}
-      </div>
-
-      <div className="flex items-center gap-4 pt-2 border-t border-border/50">
+      <div className="flex items-center gap-4 pt-2 border-t border-border/50" onClick={(e) => e.stopPropagation()}>
         <button
           onClick={() => toggleLike.mutate()}
           className={`flex items-center gap-1.5 text-xs transition-colors ${

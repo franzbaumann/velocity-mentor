@@ -349,12 +349,11 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
     setPreviewLoading(true);
     setPreviewInviteId(inviteId);
     setPreviewData(null);
-    try {
-      await supabase.auth.refreshSession();
+    const baseUrl = import.meta.env.VITE_SUPABASE_URL ?? "";
+    const doFetch = async (): Promise<Response> => {
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session) return;
-      const baseUrl = import.meta.env.VITE_SUPABASE_URL ?? "";
-      const res = await fetch(`${baseUrl}/functions/v1/combined-workout`, {
+      if (!session) throw new Error("No session");
+      return fetch(`${baseUrl}/functions/v1/combined-workout`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -363,12 +362,20 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
         },
         body: JSON.stringify({ invite_id: inviteId, preview: true }),
       });
+    };
+    try {
+      await supabase.auth.refreshSession();
+      let res = await doFetch();
+      if (res.status === 401) {
+        await supabase.auth.refreshSession();
+        res = await doFetch();
+      }
       if (res.ok) {
         const json = await res.json();
         setPreviewData((json.combined_workout ?? null) as CombinedPreview | null);
       } else {
         if (res.status === 401) {
-          toast.error("Session expired. Sign out and sign in again to view the workout.");
+          toast.error("Could not load workout preview. Try signing out and back in, then tap See workout again.");
         } else {
           toast.error("Could not load workout preview");
         }

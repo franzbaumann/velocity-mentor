@@ -1,10 +1,12 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 
-const corsHeaders = {
+const corsHeaders: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "POST, OPTIONS, GET",
   "Access-Control-Allow-Headers":
     "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+  "Access-Control-Max-Age": "86400",
 };
 
 function json(data: unknown, status = 200) {
@@ -21,7 +23,7 @@ function normalizeUsername(raw: string): string {
 const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,30}$/;
 
 serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+  if (req.method === "OPTIONS") return new Response(null, { status: 204, headers: corsHeaders });
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
@@ -276,6 +278,75 @@ serve(async (req) => {
       .limit(10);
 
     return json({ plan, workouts: workouts ?? [] });
+  }
+
+  // POST /activity-stream — get stream for a friend's activity (server-side so it works without RLS on activity_streams)
+  if (path === "activity-stream" && req.method === "POST") {
+    const activityId = (body.activity_id ?? "").toString().trim();
+    if (!activityId) return json({ error: "activity_id required" }, 400);
+
+    const { data: activityRow } = await admin
+      .from("activity")
+      .select("user_id, external_id, garmin_id")
+      .eq("id", activityId)
+      .maybeSingle();
+
+    if (!activityRow) return json({ stream: null });
+    const ownerId = activityRow.user_id as string;
+    if (ownerId === user.id) return json({ stream: null }); // owner uses client query
+
+    // Friendship = one user sent a friend request and the other accepted (creates a row in friendship). No separate "accept sharing" step.
+    const sorted = [user.id, ownerId].sort();
+    const { data: fs } = await admin
+      .from("friendship")
+      .select("id")
+      .eq("user_a", sorted[0])
+      .eq("user_b", sorted[1])
+      .maybeSingle();
+    if (!fs) {
+      console.log("[activity-stream] 403 Not friends", { activityId, viewerId: user.id, ownerId });
+      return json({ error: "Not friends" }, 403);
+    }
+
+    const extId = (activityRow.external_id as string) ?? null;
+    const garminId = (activityRow.garmin_id as string) ?? null;
+    const extIdNumeric = extId != null && extId.startsWith("i") && extId.length > 1 ? extId.slice(1) : null;
+    const keys = [extId, extIdNumeric, activityId, garminId != null ? `garmin_${garminId}` : null].filter((k): k is string => k != null && k !== "");
+    const seen = new Set<string>();
+    const keysToTry = keys.filter((k) => {
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+
+    const cols = "time, heartrate, cadence, altitude, pace, distance, latlng, temperature, respiration_rate";
+    let stream: unknown = null;
+    let foundKey: string | null = null;
+    for (const key of keysToTry) {
+      const { data } = await admin
+        .from("activity_streams")
+        .select(cols)
+        .eq("user_id", ownerId)
+        .eq("activity_id", key)
+        .maybeSingle();
+      if (data) {
+        stream = data;
+        foundKey = key;
+        break;
+      }
+    }
+    if (!stream) {
+      const { data: existing } = await admin
+        .from("activity_streams")
+        .select("activity_id")
+        .eq("user_id", ownerId)
+        .limit(20);
+      const existingIds = (existing ?? []).map((r: { activity_id: string }) => r.activity_id);
+      console.log("[activity-stream]", { activityId, ownerId, keysToTry, foundKey, hasStream: false, existingActivityIdsForOwner: existingIds });
+    } else {
+      console.log("[activity-stream]", { activityId, ownerId, keysToTry, foundKey, hasStream: true });
+    }
+    return json({ stream });
   }
 
   return json({ error: "Not found" }, 404);

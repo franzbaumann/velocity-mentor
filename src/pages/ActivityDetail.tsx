@@ -440,10 +440,17 @@ export default function ActivityDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const { user } = useAuth();
   const { resolved: themeMode } = useTheme();
   const { data: activity, isLoading, error } = useActivityDetail(id);
   const { profile: athleteProfile } = useAthleteProfile();
   const [tab, setTab] = useState<ActivityTab>("charts");
+  const isOwner = activity != null && (activity.user_id == null || activity.user_id === user?.id);
+  const detailTabs = isOwner ? (["charts", "data", "notes"] as const) : (["charts", "data"] as const);
+
+  useEffect(() => {
+    if (activity && !isOwner && tab === "notes") setTab("charts");
+  }, [activity, isOwner, tab]);
 
   const actIdForPb = id?.startsWith("icu_") ? id.replace(/^icu_/, "") : id;
   const { data: pbRecords = [] } = useQuery({
@@ -637,7 +644,7 @@ export default function ActivityDetail() {
 
         {/* ── Tab navigation ── */}
         <div className="flex rounded-lg bg-muted/60 p-1">
-          {(["charts", "data", "notes"] as const).map((t) => (
+          {detailTabs.map((t) => (
             <button
               key={t}
               onClick={() => setTab(t)}
@@ -861,7 +868,11 @@ export default function ActivityDetail() {
 
             {!hasGraphs && (
               <div className="rounded-xl border border-border bg-card p-12 text-center">
-                <p className="text-sm text-muted-foreground">No chart data available for this activity.</p>
+                <p className="text-sm text-muted-foreground">
+                  {activity.streamFetchError
+                    ? "Could not load charts (check console)."
+                    : "No chart data available for this activity."}
+                </p>
               </div>
             )}
           </div>
@@ -979,8 +990,8 @@ export default function ActivityDetail() {
           </div>
         )}
 
-        {/* ── TAB: Notes ── */}
-        {tab === "notes" && (
+        {/* ── TAB: Notes (owner only; notes are private) ── */}
+        {tab === "notes" && isOwner && (
           <div className="space-y-4">
             <CoachNote activityId={id} cachedNote={activity.coach_note} />
             <ActivityNotes
