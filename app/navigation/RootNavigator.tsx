@@ -16,6 +16,9 @@ import { StatsScreen } from "../screens/StatsScreen";
 import { SettingsScreen } from "../screens/SettingsScreen";
 import { PhilosophyScreen } from "../screens/PhilosophyScreen";
 import { StravaCallbackScreen } from "../screens/StravaCallbackScreen";
+import { SeasonScreen } from "../screens/SeasonScreen";
+import { SeasonWizardScreen } from "../screens/SeasonWizardScreen";
+import { SeasonViewScreen } from "../screens/SeasonViewScreen";
 import { useSupabaseAuth } from "../SupabaseProvider";
 
 export type AuthStackParamList = {
@@ -33,6 +36,9 @@ export type PlanStackParamList = {
   PlanOnboarding: undefined;
   PlanReady: undefined;
   PlanMain: undefined;
+  Season: undefined;
+  SeasonWizard: undefined;
+  SeasonView: { seasonId: string };
 };
 
 export type AppTabsParamList = {
@@ -114,6 +120,9 @@ function PlanStackNavigator() {
       <PlanStack.Screen name="PlanOnboarding" component={PlanOnboardingScreen} />
       <PlanStack.Screen name="PlanReady" component={PlanReadyScreen} />
       <PlanStack.Screen name="PlanMain" component={TrainingPlanScreen} />
+      <PlanStack.Screen name="Season" component={SeasonScreen} />
+      <PlanStack.Screen name="SeasonWizard" component={SeasonWizardScreen} />
+      <PlanStack.Screen name="SeasonView" component={SeasonViewScreen} />
     </PlanStack.Navigator>
   );
 }

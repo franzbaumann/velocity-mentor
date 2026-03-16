@@ -1,5 +1,6 @@
 import { FC, useCallback, useEffect, useMemo, useState } from "react";
 import { RouteProp, useRoute, useNavigation } from "@react-navigation/native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ActivityIndicator,
   ScrollView,
@@ -25,7 +26,7 @@ import { StreamChart } from "../components/activity/StreamChart";
 import { HRAnalysisCharts } from "../components/activity/HRAnalysisCharts";
 import { HeartRateZones } from "../components/activity/HeartRateZones";
 import { formatDistance, formatDuration } from "../lib/format";
-import { isNonDistanceActivity } from "../lib/analytics";
+import { isNonDistanceActivity, isRunningActivity, getRunTypeLabelForDisplay } from "../lib/analytics";
 import type { TooltipLine } from "../components/activity/StreamChart";
 import { supabase, callEdgeFunctionWithRetry } from "../shared/supabase";
 import Svg, { Path, Rect } from "react-native-svg";
@@ -141,7 +142,7 @@ export const ActivityDetailScreen: FC = () => {
   const queryClient = useQueryClient();
   const { id } = route.params;
   const { activity: listActivity } = useActivityById(id);
-  const { data: activity, isLoading } = useActivityDetailMobile(id, {
+  const { data: activity, isLoading, refetch: refetchDetail, isRefetching } = useActivityDetailMobile(id, {
     rawId: listActivity?.rawId,
     externalId: listActivity?.externalId ?? null,
   });
@@ -167,7 +168,7 @@ export const ActivityDetailScreen: FC = () => {
   const [coachNote, setCoachNote] = useState<string | null>(null);
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState(false);
-  const { themeName, theme } = useTheme();
+  const { themeName, theme, colors } = useTheme();
   const isDarkPro = themeName === "darkPro";
 
   useEffect(() => {
@@ -239,12 +240,37 @@ export const ActivityDetailScreen: FC = () => {
     return () => clearTimeout(t);
   }, [notes, nomio, lactate, activity?.id, saveNotes]);
 
+  const COACH_NOTE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+  const activityNoteCacheKey = `coach_note_activity_${activityIdForApi}`;
+
   const generateCoachNote = useCallback(
     async (forceRegenerate = false) => {
       if (!activityIdForApi || coachLoading) return;
       setCoachLoading(true);
       setCoachError(false);
       try {
+        if (forceRegenerate) {
+          await AsyncStorage.removeItem(activityNoteCacheKey).catch(() => {});
+        } else {
+          const raw = await AsyncStorage.getItem(activityNoteCacheKey);
+          if (raw) {
+            try {
+              const cached = JSON.parse(raw) as { note: string; timestamp: number };
+              if (
+                cached?.note &&
+                cached?.timestamp &&
+                Date.now() - cached.timestamp < COACH_NOTE_CACHE_TTL
+              ) {
+                setCoachNote(cached.note);
+                setCoachLoading(false);
+                return;
+              }
+            } catch {
+              // ignore parse errors
+            }
+          }
+        }
+
         const {
           data: { session },
         } = await supabase.auth.getSession();
@@ -270,6 +296,12 @@ export const ActivityDetailScreen: FC = () => {
         }
         const note = (data as { note?: string }).note ?? null;
         setCoachNote(note);
+        if (note) {
+          await AsyncStorage.setItem(
+            activityNoteCacheKey,
+            JSON.stringify({ note, timestamp: Date.now() }),
+          ).catch(() => {});
+        }
         queryClient.invalidateQueries({ queryKey: ["activity-detail-mobile", id] });
       } catch {
         setCoachError(true);
@@ -282,10 +314,12 @@ export const ActivityDetailScreen: FC = () => {
 
   useEffect(() => {
     if (!activity) return;
+    // DB is source of truth: activity.coachNote already applied in other effect. Only fetch if no note from DB.
+    if (activity.coachNote) return;
     if (!coachNote && !coachLoading) {
       generateCoachNote(false);
     }
-  }, [activity?.id, coachNote, coachLoading, generateCoachNote]);
+  }, [activity?.id, activity?.coachNote, coachNote, coachLoading, generateCoachNote]);
 
   if (isLoading) {
     return (
@@ -326,7 +360,16 @@ export const ActivityDetailScreen: FC = () => {
           <Ionicons name="arrow-back" size={18} color="#999" />
           <Text style={styles.backText}>Back</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>{listActivity.name}</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 4 }}>
+          <Text style={styles.title}>{listActivity.name}</Text>
+          {isRunningActivity(listActivity.type) && (
+            <View style={[styles.runTypePill, { backgroundColor: colors.muted }]}>
+              <Text style={[styles.runTypePillText, { color: colors.foreground }]}>
+                {getRunTypeLabelForDisplay({ type: listActivity.type, avg_hr: listActivity.hr, max_hr: listActivity.maxHr })}
+              </Text>
+            </View>
+          )}
+        </View>
         <Text style={styles.debugText}>{dateLabel}</Text>
         <Text style={styles.debugText}>
           {formatDistance(listActivity.nonDist ? null : listActivity.km)}
@@ -334,16 +377,20 @@ export const ActivityDetailScreen: FC = () => {
           {formatDuration(listActivity.durationSeconds)}
           {listActivity.hr != null ? ` · ${listActivity.hr} bpm` : ""}
         </Text>
-        <Text style={styles.debugText}>
+        <Text style={[styles.debugText, { color: colors.textSecondary ?? "#6b7280" }]}>
           Source: {String(listActivity.source)}
         </Text>
-        <Text style={styles.debugText}>
-          Note: detailed charts are not available yet for this activity.
+        <Text style={[styles.fallbackNote, { color: theme.textSecondary ?? colors.foreground }]}>
+          Charts and stream data are still loading. If this activity was just synced, tap Retry to fetch details.
         </Text>
-        <Text style={styles.debugText}>
-          id: {String(id)} · rawId: {String(listActivity.rawId)} · externalId:{" "}
-          {String(listActivity.externalId ?? "null")}
-        </Text>
+        <TouchableOpacity
+          style={[styles.retryButton, { backgroundColor: theme.accentBlue ?? "#2563eb" }]}
+          onPress={() => refetchDetail()}
+          disabled={isRefetching}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.retryButtonText}>{isRefetching ? "Loading…" : "Retry"}</Text>
+        </TouchableOpacity>
       </ScreenContainer>
     );
   }
@@ -463,6 +510,13 @@ export const ActivityDetailScreen: FC = () => {
                 showsHorizontalScrollIndicator={false}
                 contentContainerStyle={styles.secondaryChipsContent}
               >
+                {isRunningActivity(activity.type) && (
+                  <View style={[styles.runTypePill, { backgroundColor: theme.cardBorder ?? colors.muted }]}>
+                    <Text style={[styles.runTypePillText, { color: theme.textPrimary ?? colors.foreground }]}>
+                      {getRunTypeLabelForDisplay({ type: activity.type, avg_hr: activity.avg_hr, max_hr: activity.max_hr })}
+                    </Text>
+                  </View>
+                )}
                 {activity.max_hr != null && (
                   <SecondaryChip label={`❤️ Max ${activity.max_hr} bpm`} />
                 )}
@@ -574,6 +628,25 @@ export const ActivityDetailScreen: FC = () => {
           {/* Charts tab */}
           {tab === "charts" && (
             <>
+              <TouchableOpacity
+                activeOpacity={0.85}
+                onPress={() =>
+                  (navigation as any).getParent?.()?.navigate?.("Coach", {
+                    from: "activity",
+                    activityId: activity.id,
+                    activityName: activity.name ?? activity.type ?? "Run",
+                  })
+                }
+                style={[
+                  styles.aiAnalysisCard,
+                  isDarkPro && { backgroundColor: theme.cardBackground, borderColor: theme.cardBorder },
+                ]}
+              >
+                <Text style={[styles.aiAnalysisTitle, isDarkPro && { color: theme.textPrimary }]}>AI Analysis</Text>
+                <Text style={[styles.aiAnalysisBody, isDarkPro && { color: theme.textSecondary }]}>
+                  💬 Kipcoachee: {coachNote ?? "Good aerobic run. HR stayed controlled through most of the session."}
+                </Text>
+              </TouchableOpacity>
               <LapScroll laps={activity.laps} />
               {streams && processed && (
                 <View
@@ -684,8 +757,16 @@ export const ActivityDetailScreen: FC = () => {
                       isDarkPro && { color: theme.textSecondary },
                     ]}
                   >
-                    No stream data. Sync from intervals.icu to see charts.
+                    No stream data yet. Tap Retry to fetch from intervals.icu.
                   </Text>
+                  <TouchableOpacity
+                    style={[styles.retryButton, { backgroundColor: theme.accentBlue ?? "#2563eb", marginTop: 12 }]}
+                    onPress={() => refetchDetail()}
+                    disabled={isRefetching}
+                    activeOpacity={0.8}
+                  >
+                    <Text style={styles.retryButtonText}>{isRefetching ? "Loading…" : "Retry"}</Text>
+                  </TouchableOpacity>
                 </View>
               )}
             </>
@@ -1028,24 +1109,23 @@ export const ActivityDetailScreen: FC = () => {
                     Analyzing your activity…
                   </Text>
                 )}
-                <TouchableOpacity
-                  style={[
-                    styles.regenButton,
-                    isDarkPro && { backgroundColor: theme.cardBorder },
-                  ]}
-                  onPress={() => generateCoachNote(true)}
-                  activeOpacity={0.8}
-                  disabled={coachLoading}
-                >
-                  <Text
-                    style={[
-                      styles.regenButtonText,
-                      isDarkPro && { color: theme.textSecondary },
-                    ]}
+                {coachNote && (
+                  <TouchableOpacity
+                    style={{ marginTop: 6, alignSelf: "flex-start" }}
+                    onPress={() => generateCoachNote(true)}
+                    activeOpacity={0.7}
+                    disabled={coachLoading}
                   >
-                    {coachLoading ? "Generating…" : "Regenerate feedback"}
-                  </Text>
-                </TouchableOpacity>
+                    <Text
+                      style={[
+                        styles.regenButtonText,
+                        { fontSize: 12, color: isDarkPro ? theme.textSecondary : "#6b7280" },
+                      ]}
+                    >
+                      {coachLoading ? "Generating…" : "↻ Regenerate"}
+                    </Text>
+                  </TouchableOpacity>
+                )}
               </View>
 
               <View
@@ -1552,6 +1632,27 @@ const styles = StyleSheet.create({
     backgroundColor: "#f8f7f2",
     paddingBottom: 16,
   },
+  aiAnalysisCard: {
+    marginHorizontal: 16,
+    marginBottom: 10,
+    borderRadius: 14,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: "#e5e7eb",
+    backgroundColor: "#ffffff",
+  },
+  aiAnalysisTitle: {
+    fontSize: 12,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 4,
+  },
+  aiAnalysisBody: {
+    fontSize: 13,
+    lineHeight: 19,
+    color: "#374151",
+  },
   hrAnalysis: { marginTop: 0 },
   noStreams: { padding: 24, alignItems: "center", backgroundColor: "#f5f5f0" },
   noStreamsText: { fontSize: 13, color: "#999", textAlign: "center", lineHeight: 20 },
@@ -1781,5 +1882,32 @@ const styles = StyleSheet.create({
     marginTop: 6,
     fontSize: 11,
     color: "#9ca3af",
+  },
+  fallbackNote: {
+    marginTop: 12,
+    fontSize: 13,
+    lineHeight: 20,
+    maxWidth: 320,
+  },
+  retryButton: {
+    marginTop: 16,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    borderRadius: 10,
+    alignSelf: "flex-start",
+  },
+  retryButtonText: {
+    fontSize: 15,
+    fontWeight: "600",
+    color: "#fff",
+  },
+  runTypePill: {
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+  },
+  runTypePillText: {
+    fontSize: 12,
+    fontWeight: "600",
   },
 });

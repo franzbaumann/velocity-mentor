@@ -1,9 +1,11 @@
 import { FC, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   Alert,
   KeyboardAvoidingView,
   Platform,
+  RefreshControl,
   ScrollView,
   StyleSheet,
   Text,
@@ -21,6 +23,9 @@ import { useTheme } from "../context/ThemeContext";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { getLocalDateString } from "../lib/date";
 import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase, callEdgeFunctionWithRetry } from "../shared/supabase";
+import { callEdgeFunctionWithRetry as callEdgeFetchWithRetry } from "../lib/edgeFunctionWithRetry";
+
+const CHAT_URL = `${SUPABASE_URL}/functions/v1/coach-chat`;
 import { useIntervalsIntegration } from "../hooks/useIntervalsIntegration";
 import { useTrainingPlan } from "../hooks/useTrainingPlan";
 import { extractPlanJson, stripPlanJson } from "../lib/coach-plan";
@@ -29,6 +34,7 @@ import type { AppTabsParamList } from "../navigation/RootNavigator";
 import { addDays, format, startOfWeek, isToday } from "date-fns";
 import Toast from "react-native-toast-message";
 import { ChatStatChartsMobile } from "../components/ChatStatChartsMobile";
+import { NutritionCard } from "../components/mobile/NutritionCard";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -51,7 +57,18 @@ const DEFAULT_QUICK_PROMPTS = [
   "Help me peak for my race",
 ];
 
+const PREMIUM_PROMPTS = [
+  "🏃 How was my last run (6.1km)?",
+  "📋 Am I on track with my plan?",
+  "💪 Should I run hard today?",
+  "📈 How is my fitness trending?",
+  "🎯 What are my training zones?",
+  "🏁 Help me peak for my race",
+];
+
 type FromSource = "plan" | "training" | "activities" | "activity" | "stats" | "dashboard" | null;
+
+type ChatFilter = "all" | "analyses" | "chat";
 
 function buildQuickPrompts({
   from,
@@ -124,8 +141,6 @@ Before we build a plan, I need to understand you. Tell me your running history, 
 
 Make sure you’ve connected intervals.icu in Settings so I can see your real activities and wellness data.`;
 
-const CHAT_URL = `${SUPABASE_URL}/functions/v1/coach-chat`;
-const GENERATE_PLAN_URL = `${SUPABASE_URL}/functions/v1/coach-generate-plan`;
 
 const HAS_ALL_DATA_PATTERNS = [
   /i have all the data/i,
@@ -330,6 +345,8 @@ export const CoachScreen: FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [rateLimitUntil, setRateLimitUntil] = useState<number>(0);
   const [generatingPlan, setGeneratingPlan] = useState(false);
+  const [generatingPlanMessage, setGeneratingPlanMessage] = useState("Generating plan... (this may take a moment)");
+  const [generatePlanFailed, setGeneratePlanFailed] = useState(false);
   const [intakeAnswers, setIntakeAnswers] = useState<Record<string, string | string[]> | null>(null);
   const scrollRef = useRef<ScrollView | null>(null);
   const { activities, readinessRows, readiness, todaysWorkout } = useDashboardData();
@@ -340,62 +357,30 @@ export const CoachScreen: FC = () => {
   const [applyingPlan, setApplyingPlan] = useState(false);
   const [openingMessage, setOpeningMessage] = useState<string | null>(null);
   const [openingLoading, setOpeningLoading] = useState(false);
+  const [showHeaderMenu, setShowHeaderMenu] = useState(false);
+  const [loadingTipIdx, setLoadingTipIdx] = useState(0);
+  const onlinePulse = useRef(new Animated.Value(0)).current;
+  const thinkingDots = useRef(new Animated.Value(0)).current;
 
   messagesRef.current = messages;
 
-  const { data: activitiesData } = useQuery({
-    queryKey: ["activities", 730],
-    queryFn: async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return [];
-      const oldest = new Date();
-      oldest.setDate(oldest.getDate() - 730);
-      const { data, error } = await supabase
-        .from("activity")
-        .select("id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, source")
-        .eq("user_id", user.id)
-        .gte("date", oldest.toISOString().slice(0, 10))
-        .order("date", { ascending: true })
-        .limit(2000);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: isConnected,
-    staleTime: 2 * 60 * 1000,
-  });
-
-  const { data: wellnessData } = useQuery({
-    queryKey: ["daily_readiness", 730],
-    queryFn: async () => {
-      const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return [];
-      const oldest = new Date();
-      oldest.setDate(oldest.getDate() - 730);
-      const { data, error } = await supabase
-        .from("daily_readiness")
-        .select("id, date, score, hrv, hrv_baseline, sleep_hours, sleep_quality, resting_hr, ctl, atl, tsb")
-        .eq("user_id", user.id)
-        .gte("date", oldest.toISOString().slice(0, 10))
-        .order("date", { ascending: true })
-        .limit(2200);
-      if (error) throw error;
-      return data ?? [];
-    },
-    enabled: isConnected,
-    staleTime: 2 * 60 * 1000,
-  });
-
+  // Use dashboard data for intervalsContext instead of duplicate queries
   const intervalsContext =
-    isConnected && (Array.isArray(wellnessData) || Array.isArray(activitiesData))
+    isConnected && (readinessRows?.length > 0 || (activities?.length ?? 0) > 0)
       ? {
-          wellness: Array.isArray(wellnessData) ? wellnessData : undefined,
-          activities: Array.isArray(activitiesData) ? activitiesData : undefined,
+          wellness: readinessRows?.length ? readinessRows : undefined,
+          activities: activities?.length ? activities : undefined,
         }
       : null;
+
+  const intervalsContextRef = useRef(intervalsContext);
+  const activitiesRef = useRef(activities);
+  useEffect(() => {
+    intervalsContextRef.current = intervalsContext;
+  }, [intervalsContext]);
+  useEffect(() => {
+    activitiesRef.current = activities;
+  }, [activities]);
 
   const { data: chatHistory = [] } = useQuery({
     queryKey: ["coach_history"],
@@ -419,6 +404,16 @@ export const CoachScreen: FC = () => {
     () => chatHistory.filter((m) => m.message_type === "post_workout_analysis"),
     [chatHistory],
   );
+
+  const chatOnly = useMemo(
+    () =>
+      [...chatHistory]
+        .filter((m) => m.message_type !== "post_workout_analysis")
+        .reverse(),
+    [chatHistory],
+  );
+
+  const [chatFilter, setChatFilter] = useState<ChatFilter>("all");
 
   const contextAwareOpener = useMemo(() => {
     const acts = Array.isArray(activities) ? activities : [];
@@ -488,25 +483,42 @@ export const CoachScreen: FC = () => {
     };
   }, []);
 
-  useEffect(() => {
-    if (messages.length > 0) return;
-    let cancelled = false;
+  const OPENING_CACHE_TTL = 12 * 60 * 60 * 1000; // 12 hours
 
-    const loadOpening = async () => {
-      const OPENING_COOLDOWN_MS = 30 * 60 * 1000;
-      const cacheKey = "kipcoachee_opening";
-      try {
-        const raw = await AsyncStorage.getItem(cacheKey);
-        if (cancelled) return;
-        if (raw) {
-          const cached = JSON.parse(raw) as { msg: string; ts: number };
-          if (cached.msg && Date.now() - cached.ts < OPENING_COOLDOWN_MS) {
-            setOpeningMessage(cached.msg);
-            return;
+  const loadOpening = useCallback(
+    async (forceRefresh: boolean) => {
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) return;
+      const cacheKey = `coach_opening_${user.id}`;
+      type CacheEntry = { message: string; timestamp: number; lastActivityDate: string | null };
+      if (!forceRefresh) {
+        try {
+          const raw = await AsyncStorage.getItem(cacheKey);
+          if (raw) {
+            const cached = JSON.parse(raw) as CacheEntry;
+            if (
+              cached?.message &&
+              Date.now() - cached.timestamp < OPENING_CACHE_TTL
+            ) {
+              const acts = activitiesRef.current ?? [];
+              const currentNewest =
+                acts.length > 0 ? (acts[acts.length - 1]?.date ?? null) : null;
+              const noNewActivitySinceCache =
+                (cached.lastActivityDate == null && !currentNewest) ||
+                (cached.lastActivityDate != null &&
+                  currentNewest != null &&
+                  currentNewest <= cached.lastActivityDate);
+              if (noNewActivitySinceCache) {
+                setOpeningMessage(cached.message);
+                return;
+              }
+            }
           }
+        } catch {
+          // ignore cache errors
         }
-      } catch {
-        // ignore cache errors
       }
 
       setOpeningLoading(true);
@@ -515,17 +527,27 @@ export const CoachScreen: FC = () => {
         const { data, error } = await callEdgeFunctionWithRetry({
           functionName: "coach-opening",
           body: {
-            intervalsContext,
+            intervalsContext: intervalsContextRef.current,
           },
           timeoutMs: 15000,
           maxRetries: 3,
           logContext: "CoachScreen:coach-opening",
         });
-        if (!cancelled && !error && (data as any)?.message) {
+        if (!error && (data as any)?.message) {
           const msg = (data as any).message as string;
           setOpeningMessage(msg);
+          const acts = activitiesRef.current ?? [];
+          const lastActivityDate =
+            acts.length > 0 ? (acts[acts.length - 1]?.date ?? null) : null;
           try {
-            await AsyncStorage.setItem(cacheKey, JSON.stringify({ msg, ts: Date.now() }));
+            await AsyncStorage.setItem(
+              cacheKey,
+              JSON.stringify({
+                message: msg,
+                timestamp: Date.now(),
+                lastActivityDate,
+              } as CacheEntry),
+            );
           } catch {
             // ignore cache write errors
           }
@@ -533,15 +555,26 @@ export const CoachScreen: FC = () => {
       } catch {
         // ignore — fall back to contextAwareOpener/WELCOME
       } finally {
-        if (!cancelled) setOpeningLoading(false);
+        setOpeningLoading(false);
       }
-    };
+    },
+    [],
+  );
 
-    loadOpening();
-    return () => {
-      cancelled = true;
-    };
-  }, [messages.length, intervalsContext]);
+  useEffect(() => {
+    if (messages.length > 0) return;
+    loadOpening(false);
+  }, [messages.length, loadOpening]);
+
+  const handleRefreshOpening = useCallback(async () => {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      await AsyncStorage.removeItem(`coach_opening_${user.id}`).catch(() => {});
+    }
+    await loadOpening(true);
+  }, [loadOpening]);
 
   const rateLimitSecs = Math.max(0, Math.ceil((rateLimitUntil - Date.now()) / 1000));
   const [, setTick] = useState(0);
@@ -558,6 +591,31 @@ export const CoachScreen: FC = () => {
   }, [messages.length]);
 
   useEffect(() => {
+    const pulse = Animated.loop(
+      Animated.sequence([
+        Animated.timing(onlinePulse, { toValue: 1, duration: 900, useNativeDriver: true }),
+        Animated.timing(onlinePulse, { toValue: 0, duration: 900, useNativeDriver: true }),
+      ]),
+    );
+    pulse.start();
+    return () => pulse.stop();
+  }, [onlinePulse]);
+
+  useEffect(() => {
+    if (!isLoading) return;
+    const loop = Animated.loop(
+      Animated.timing(thinkingDots, { toValue: 1, duration: 1000, useNativeDriver: true }),
+    );
+    loop.start();
+    const id = setInterval(() => setLoadingTipIdx((v) => (v + 1) % 3), 1600);
+    return () => {
+      loop.stop();
+      thinkingDots.setValue(0);
+      clearInterval(id);
+    };
+  }, [isLoading, thinkingDots]);
+
+  useEffect(() => {
     return () => {
       extractMemories(messagesRef.current);
     };
@@ -571,6 +629,7 @@ export const CoachScreen: FC = () => {
     async (input: string) => {
       const trimmed = input.trim();
       if (!trimmed || isLoading) return;
+      setChatFilter("all");
       if (rateLimitUntil > Date.now()) {
         Alert.alert(
           "Rate limit",
@@ -631,10 +690,15 @@ export const CoachScreen: FC = () => {
     [isLoading, messages, intakeAnswers, intervalsContext, rateLimitUntil, navigation],
   );
 
-  const handleStartFresh = () => {
+  const handleStartFresh = async () => {
     extractMemories(messages);
     setMessages([]);
-    AsyncStorage.removeItem("kipcoachee_opening").catch(() => {});
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (user) {
+      await AsyncStorage.removeItem(`coach_opening_${user.id}`).catch(() => {});
+    }
     Alert.alert("Done", "Started a fresh conversation.");
   };
 
@@ -645,32 +709,39 @@ export const CoachScreen: FC = () => {
       Alert.alert("Sign in to generate a plan.");
       return;
     }
+    setGeneratePlanFailed(false);
     setGeneratingPlan(true);
+    setGeneratingPlanMessage("Generating plan... (this may take a moment)");
     try {
-      const res = await fetch(GENERATE_PLAN_URL, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(SUPABASE_ANON_KEY ? { apikey: SUPABASE_ANON_KEY } : {}),
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
+      await callEdgeFetchWithRetry<{ plan_id?: string; error?: string }>(
+        "coach-generate-plan",
+        {
           intakeAnswers: intakeAnswers ?? {},
           conversationContext: messages.slice(-10).map((m) => ({ role: m.role, content: m.content })),
-        }),
-      });
-      const dataRes = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        Alert.alert("Error", dataRes.error ?? "Failed to generate plan");
-        return;
-      }
+        },
+        {
+          authToken: token,
+          maxRetries: 3,
+          timeout: 45000,
+          onRetry: () => setGeneratingPlanMessage("Taking longer than expected, retrying..."),
+        },
+      );
       Alert.alert("Plan generated", "Check the Training Plan tab.", [
         { text: "OK", onPress: () => navigation.navigate("Plan") },
       ]);
     } catch (e) {
-      Alert.alert("Error", e instanceof Error ? e.message : "Failed to generate plan");
+      setGeneratePlanFailed(true);
+      Alert.alert(
+        "Plan generation failed",
+        "Try again?",
+        [
+          { text: "Retry", onPress: () => handleGeneratePlan() },
+          { text: "OK", style: "cancel" },
+        ],
+      );
     } finally {
       setGeneratingPlan(false);
+      setGeneratingPlanMessage("Generating plan... (this may take a moment)");
     }
   }, [intakeAnswers, messages, navigation]);
 
@@ -694,7 +765,7 @@ export const CoachScreen: FC = () => {
         const ok = await savePlanFromChat(plan, isAdjustment, adjustmentReason);
         if (ok) {
           queryClient.invalidateQueries({ queryKey: ["training-plan"] });
-          Toast.show({ type: "success", text1: "Plan applied successfully ✓", position: "bottom" });
+          Toast.show({ type: "success", text1: "✓ Plan applied successfully", position: "bottom", visibilityTime: 2500 });
           Alert.alert("Plan updated", "View it on the Training Plan tab.", [
             { text: "OK", onPress: () => navigation.navigate("Plan") },
           ]);
@@ -712,7 +783,7 @@ export const CoachScreen: FC = () => {
 
   const weekDays = useMemo(() => {
     const weeks = planData?.weeks ?? [];
-    if (!weeks.length && !Array.isArray(activitiesData)) return [];
+    if (!weeks.length && !Array.isArray(activities)) return [];
 
     const mon = startOfWeek(new Date(), { weekStartsOn: 1 });
     const monStr = format(mon, "yyyy-MM-dd");
@@ -736,7 +807,7 @@ export const CoachScreen: FC = () => {
       }
     }
 
-    const acts = Array.isArray(activitiesData) ? activitiesData : [];
+    const acts = Array.isArray(activities) ? activities : [];
 
     return [0, 1, 2, 3, 4, 5, 6].map((i) => {
       const d = addDays(mon, i);
@@ -786,7 +857,7 @@ export const CoachScreen: FC = () => {
         hasSession,
       };
     });
-  }, [activitiesData, planData]);
+  }, [activities, planData]);
 
   const hasWeekPlan = weekDays.some((d) => d.hasSession);
 
@@ -828,6 +899,29 @@ export const CoachScreen: FC = () => {
           justifyContent: "space-between",
           marginBottom: 4,
         },
+        titleRow: { flexDirection: "row", alignItems: "center", gap: 8 },
+        onlineDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: "#22c55e" },
+        onlineText: { fontSize: 12, color: "#16a34a", fontWeight: "600" },
+        tabBar: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 4,
+          marginBottom: 12,
+          borderBottomWidth: StyleSheet.hairlineWidth,
+          borderBottomColor: colors.border,
+        },
+        tab: {
+          paddingVertical: 10,
+          paddingHorizontal: 12,
+          marginBottom: -1,
+        },
+        tabSelected: {
+          borderBottomWidth: 2,
+          borderBottomColor: colors.primary,
+        },
+        tabLabel: { fontSize: 14, fontWeight: "500" },
+        tabLabelSelected: { color: colors.primary },
+        tabLabelUnselected: { color: colors.mutedForeground },
         title: { fontSize: 22, fontWeight: "600", color: colors.foreground },
         headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
         importButton: {
@@ -836,6 +930,28 @@ export const CoachScreen: FC = () => {
           borderRadius: 999,
           backgroundColor: colors.muted,
         },
+        overflowButton: {
+          width: 28,
+          height: 28,
+          borderRadius: 999,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.muted,
+        },
+        overflowMenu: {
+          position: "absolute",
+          top: 34,
+          right: 0,
+          borderRadius: 12,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          minWidth: 140,
+          zIndex: 5,
+          paddingVertical: 4,
+        },
+        overflowMenuItem: { paddingHorizontal: 12, paddingVertical: 10 },
+        overflowMenuText: { fontSize: 13, color: colors.foreground },
         importButtonText: { fontSize: 12, fontWeight: "500", color: colors.mutedForeground },
         startFreshText: { fontSize: 14, color: colors.mutedForeground },
         chatCard: {
@@ -880,18 +996,6 @@ export const CoachScreen: FC = () => {
           borderColor: colors.border,
         },
         bubbleNutrition: { backgroundColor: "transparent", borderWidth: 0, padding: 0, overflow: "hidden" },
-        nutritionCard: {
-          borderRadius: 12,
-          borderWidth: 1,
-          borderColor: "rgba(16, 185, 129, 0.3)",
-          backgroundColor: "rgba(16, 185, 129, 0.05)",
-          padding: 14,
-          gap: 10,
-        },
-        nutritionHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
-        nutritionEmoji: { fontSize: 18 },
-        nutritionTitle: { fontSize: 13, fontWeight: "600", color: "#10b981" },
-        nutritionBody: { fontSize: 14, color: colors.foreground, lineHeight: 22 },
         messageText: { fontSize: 14, color: colors.foreground },
         messageTextUser: { color: colors.primaryForeground },
         weekStripCard: {
@@ -929,6 +1033,7 @@ export const CoachScreen: FC = () => {
           borderColor: colors.border,
           paddingVertical: 6,
           paddingHorizontal: 4,
+          minHeight: 80,
           backgroundColor: colors.background,
         },
         weekDayHeader: {
@@ -979,6 +1084,30 @@ export const CoachScreen: FC = () => {
         },
         generatePlanButtonDisabled: { opacity: 0.6 },
         generatePlanButtonText: { fontSize: 14, fontWeight: "600", color: colors.primaryForeground },
+        loadingCard: {
+          borderRadius: 12,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          padding: 10,
+          marginTop: 8,
+        },
+        loadingTitle: { fontSize: 13, fontWeight: "600", color: colors.foreground },
+        loadingTip: { marginTop: 4, fontSize: 12, color: colors.mutedForeground },
+        promptCard: {
+          borderRadius: 12,
+          borderWidth: StyleSheet.hairlineWidth,
+          borderColor: colors.border,
+          backgroundColor: colors.card,
+          paddingHorizontal: 12,
+          paddingVertical: 10,
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.08,
+          shadowRadius: 8,
+          elevation: 2,
+        },
+        promptCardText: { fontSize: 13, color: colors.foreground },
         inputRow: {
           flexDirection: "row",
           alignItems: "center",
@@ -1019,15 +1148,42 @@ export const CoachScreen: FC = () => {
     >
       <ScreenContainer contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
-          <Text style={styles.title}>Kipcoachee</Text>
+          <View style={styles.titleRow}>
+            <Text style={styles.title}>Kipcoachee</Text>
+            <Animated.View
+              style={[
+                styles.onlineDot,
+                {
+                  opacity: onlinePulse.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }),
+                  transform: [
+                    {
+                      scale: onlinePulse.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1.15] }),
+                    },
+                  ],
+                },
+              ]}
+            />
+            <Text style={styles.onlineText}>Online</Text>
+          </View>
           <View style={styles.headerActions}>
-            <TouchableOpacity
-              style={styles.importButton}
-              onPress={() => navigation.navigate("Settings")}
-              activeOpacity={0.8}
-            >
-              <Text style={styles.importButtonText}>Import Garmin</Text>
-            </TouchableOpacity>
+            <View style={{ position: "relative" }}>
+              <TouchableOpacity style={styles.overflowButton} onPress={() => setShowHeaderMenu((v) => !v)} activeOpacity={0.85}>
+                <Text style={{ color: colors.mutedForeground, fontSize: 16 }}>⋮</Text>
+              </TouchableOpacity>
+              {showHeaderMenu && (
+                <View style={styles.overflowMenu}>
+                  <TouchableOpacity
+                    style={styles.overflowMenuItem}
+                    onPress={() => {
+                      setShowHeaderMenu(false);
+                      navigation.navigate("Settings");
+                    }}
+                  >
+                    <Text style={styles.overflowMenuText}>Import Garmin</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
             {messages.length > 0 && (
               <TouchableOpacity onPress={handleStartFresh} activeOpacity={0.8}>
                 <Text style={styles.startFreshText}>Start fresh</Text>
@@ -1036,80 +1192,116 @@ export const CoachScreen: FC = () => {
           </View>
         </View>
 
+        <View style={styles.tabBar}>
+          {(["all", "analyses", "chat"] as const).map((key) => (
+            <TouchableOpacity
+              key={key}
+              style={[styles.tab, chatFilter === key && styles.tabSelected]}
+              onPress={() => setChatFilter(key)}
+              activeOpacity={0.8}
+            >
+              <Text
+                style={[
+                  styles.tabLabel,
+                  chatFilter === key ? styles.tabLabelSelected : styles.tabLabelUnselected,
+                ]}
+              >
+                {key === "all" ? "All" : key === "analyses" ? "Analyses" : "Chat"}
+              </Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+
         {hasWeekPlan && (
-          <View style={styles.weekStripCard}>
-            <View style={styles.weekStripRow}>
-              <Text style={styles.weekStripTitle}>This week</Text>
-              <Text style={styles.weekStripSubtitle}>Plan + completed runs</Text>
-            </View>
-            <View style={styles.weekStripDaysRow}>
-              {weekDays.map((d) => {
-                const pillColors: Record<string, { bg: string; fg: string }> = {
-                  easy: { bg: colors.accent, fg: theme.primaryForeground },
-                  tempo: { bg: colors.primary, fg: colors.primaryForeground },
-                  interval: { bg: colors.destructive, fg: "#fff" },
-                  intervals: { bg: colors.destructive, fg: "#fff" },
-                  long: { bg: colors.primary, fg: colors.primaryForeground },
-                  recovery: { bg: colors.muted, fg: colors.mutedForeground },
-                  rest: { bg: "transparent", fg: colors.mutedForeground },
-                };
-                const pill = pillColors[d.type] ?? pillColors.rest;
-                return (
-                  <TouchableOpacity
-                    key={d.key}
-                    style={styles.weekDayCard}
-                    activeOpacity={d.hasSession ? 0.85 : 1}
-                    onPress={
-                      d.hasSession
-                        ? () =>
-                            send(
-                              `Tell me about ${
-                                d.today ? "today's" : `${d.dayLabel}'s`
-                              } session: ${d.title}`,
-                            )
-                        : undefined
-                    }
-                  >
-                    <Text
-                      style={[
-                        styles.weekDayHeader,
-                        d.today
-                          ? styles.weekDayHeaderToday
-                          : styles.weekDayHeaderNormal,
-                      ]}
+          <View>
+            <View style={styles.weekStripCard}>
+              <View style={styles.weekStripRow}>
+                <Text style={styles.weekStripTitle}>This week</Text>
+                <Text style={styles.weekStripSubtitle}>Plan + completed runs</Text>
+              </View>
+              <View style={styles.weekStripDaysRow}>
+                {weekDays.map((d) => {
+                  const pillColors: Record<string, { bg: string; fg: string }> = {
+                    easy: { bg: colors.accent, fg: theme.primaryForeground },
+                    tempo: { bg: colors.primary, fg: colors.primaryForeground },
+                    interval: { bg: colors.destructive, fg: "#fff" },
+                    intervals: { bg: colors.destructive, fg: "#fff" },
+                    long: { bg: colors.primary, fg: colors.primaryForeground },
+                    recovery: { bg: colors.muted, fg: colors.mutedForeground },
+                    rest: { bg: "transparent", fg: colors.mutedForeground },
+                  };
+                  const pill = pillColors[d.type] ?? pillColors.rest;
+                  return (
+                    <TouchableOpacity
+                      key={d.key}
+                      style={styles.weekDayCard}
+                      activeOpacity={d.hasSession ? 0.85 : 1}
+                      onPress={
+                        d.hasSession
+                          ? () =>
+                              send(
+                                `Tell me about ${
+                                  d.today ? "today's" : `${d.dayLabel}'s`
+                                } session: ${d.title}`,
+                              )
+                          : undefined
+                      }
                     >
-                      {d.today ? "Today" : d.dayLabel} {d.dateLabel}
-                    </Text>
-                    <Text
-                      numberOfLines={2}
-                      style={[
-                        styles.weekDayTitle,
-                        !d.hasSession && styles.weekDayTitleMuted,
-                      ]}
-                    >
-                      {d.hasSession ? d.title : "Rest"}
-                    </Text>
-                    {d.hasSession && (
-                      <View
+                      <Text
                         style={[
-                          styles.weekDayPill,
-                          { backgroundColor: pill.bg + "33" },
+                          styles.weekDayHeader,
+                          d.today
+                            ? styles.weekDayHeaderToday
+                            : styles.weekDayHeaderNormal,
                         ]}
                       >
-                        <Text
+                        {d.today ? "Today" : d.dayLabel} {d.dateLabel}
+                      </Text>
+                      <Text
+                        numberOfLines={2}
+                        style={[
+                          styles.weekDayTitle,
+                          !d.hasSession && styles.weekDayTitleMuted,
+                        ]}
+                      >
+                        {d.hasSession ? d.title : "Rest"}
+                      </Text>
+                      {d.hasSession && (
+                        <View
                           style={[
-                            styles.weekDayPillText,
-                            { color: pill.fg },
+                            styles.weekDayPill,
+                            { backgroundColor: pill.bg + "33" },
                           ]}
                         >
-                          {d.done ? "Done" : d.type}
-                        </Text>
-                      </View>
-                    )}
-                  </TouchableOpacity>
-                );
-              })}
+                          <Text
+                            style={[
+                              styles.weekDayPillText,
+                              { color: pill.fg },
+                            ]}
+                          >
+                            {d.done ? "Done" : d.type}
+                          </Text>
+                        </View>
+                      )}
+                    </TouchableOpacity>
+                  );
+                })}
+              </View>
+              <View
+                pointerEvents="none"
+                style={{
+                  position: "absolute",
+                  right: 0,
+                  top: 0,
+                  bottom: 0,
+                  width: 24,
+                  backgroundColor: colors.card + "00",
+                }}
+              />
             </View>
+            <Text style={{ marginTop: 4, fontSize: 11, color: colors.mutedForeground, textAlign: "right" }}>
+              swipe →
+            </Text>
           </View>
         )}
 
@@ -1118,23 +1310,51 @@ export const CoachScreen: FC = () => {
             ref={scrollRef}
             contentContainerStyle={styles.messagesContainer}
             keyboardShouldPersistTaps="handled"
+            refreshControl={
+              <RefreshControl
+                refreshing={openingLoading}
+                onRefresh={handleRefreshOpening}
+              />
+            }
           >
-            {messages.length === 0 && (
+            {chatFilter === "all" && messages.length === 0 && (
               <View style={styles.row}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>K</Text>
                 </View>
                 <GlassCard>
-                  <Text style={styles.welcomeText}>
-                    {openingLoading
-                      ? "Kipcoachee is reading your data…"
-                      : openingMessage || contextAwareOpener || WELCOME}
-                  </Text>
+                  {openingLoading ? (
+                    <View style={styles.loadingCard}>
+                      <Text style={styles.loadingTitle}>Kipcoachee is reading your data...</Text>
+                      <Text style={styles.loadingTip}>
+                        {"●●●".split("").map((dot, idx) => {
+                          const opacity = thinkingDots.interpolate({
+                            inputRange: [0, 1],
+                            outputRange: [0.3 + idx * 0.15, 1 - idx * 0.1],
+                          });
+                          return (
+                            <Animated.Text key={idx} style={{ opacity, color: colors.mutedForeground }}>
+                              {dot}
+                            </Animated.Text>
+                          );
+                        })}
+                      </Text>
+                      <Text style={styles.loadingTip}>
+                        {[
+                          "Reading your recent runs...",
+                          "Checking your recovery data...",
+                          "Reviewing your training plan...",
+                        ][loadingTipIdx]}
+                      </Text>
+                    </View>
+                  ) : (
+                    <Text style={styles.welcomeText}>{openingMessage || contextAwareOpener || WELCOME}</Text>
+                  )}
                 </GlassCard>
               </View>
             )}
 
-            {messages.length === 0 && analyses.length > 0 && (
+            {chatFilter === "all" && messages.length === 0 && analyses.length > 0 && (
               <View style={{ marginTop: 8, gap: 6 }}>
                 <Text
                   style={{
@@ -1170,7 +1390,92 @@ export const CoachScreen: FC = () => {
               </View>
             )}
 
-            {messages.map((msg, idx) => {
+            {chatFilter === "analyses" && analyses.length > 0 && (
+              <View style={{ gap: 6 }}>
+                <Text
+                  style={{
+                    fontSize: 11,
+                    color: colors.mutedForeground,
+                    marginLeft: 36,
+                    marginBottom: 2,
+                  }}
+                >
+                  Post-workout analyses
+                </Text>
+                {analyses.slice(0, 20).map((a) => (
+                  <View key={a.id} style={styles.row}>
+                    <View style={styles.avatar}>
+                      <Text style={styles.avatarText}>K</Text>
+                    </View>
+                    <GlassCard>
+                      <View style={{ padding: 10 }}>
+                        <Text
+                          style={{
+                            fontSize: 11,
+                            color: colors.mutedForeground,
+                            marginBottom: 4,
+                          }}
+                        >
+                          {format(new Date(a.created_at), "MMM d, HH:mm")}
+                        </Text>
+                        {renderMarkdownLike(a.content, colors.foreground)}
+                      </View>
+                    </GlassCard>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            {chatFilter === "analyses" && analyses.length === 0 && (
+              <View style={styles.row}>
+                <Text style={[styles.welcomeText, { color: colors.mutedForeground }]}>
+                  No post-workout analyses yet.
+                </Text>
+              </View>
+            )}
+
+            {chatFilter === "chat" && chatOnly.length > 0 &&
+              chatOnly.map((m) => {
+                const isNutrition = m.role === "assistant" && (m.message_type === "nutrition" || isNutritionMessage(m.content));
+                return (
+                  <View
+                    key={m.id}
+                    style={[
+                      styles.messageRow,
+                      m.role === "user" ? styles.messageRowUser : styles.messageRowAssistant,
+                    ]}
+                  >
+                    {m.role === "assistant" && (
+                      <View style={styles.avatar}>
+                        <Text style={styles.avatarText}>K</Text>
+                      </View>
+                    )}
+                    <View
+                      style={[
+                        styles.bubble,
+                        m.role === "user" ? styles.bubbleUser : styles.bubbleAssistant,
+                        isNutrition && styles.bubbleNutrition,
+                      ]}
+                    >
+                      {isNutrition ? (
+                        <NutritionCard content={m.content} />
+                      ) : (
+                        renderMarkdownLike(m.content, m.role === "user" ? colors.primaryForeground : colors.foreground)
+                      )}
+                    </View>
+                  </View>
+                );
+              })}
+
+            {chatFilter === "chat" && chatOnly.length === 0 && (
+              <View style={styles.row}>
+                <Text style={[styles.welcomeText, { color: colors.mutedForeground }]}>
+                  No chat messages yet.
+                </Text>
+              </View>
+            )}
+
+            {chatFilter === "all" && messages.map((msg, idx) => {
               const isUser = msg.role === "user";
               const extractedPlan = !isUser ? extractPlanJson(msg.content) : null;
               const displayText =
@@ -1197,13 +1502,7 @@ export const CoachScreen: FC = () => {
                       ]}
                     >
                       {!isUser && isNutritionMessage(displayText) ? (
-                        <View style={styles.nutritionCard}>
-                          <View style={styles.nutritionHeader}>
-                            <Text style={styles.nutritionEmoji}>🥗</Text>
-                            <Text style={styles.nutritionTitle}>Recovery Nutrition</Text>
-                          </View>
-                          <Text style={styles.nutritionBody}>{displayText}</Text>
-                        </View>
+                        <NutritionCard content={displayText} />
                       ) : (
                         renderMarkdownLike(
                           displayText,
@@ -1313,28 +1612,37 @@ export const CoachScreen: FC = () => {
               );
             })}
 
-            {isLoading && (messages[messages.length - 1]?.role !== "assistant") && (
+            {chatFilter === "all" && isLoading && (messages[messages.length - 1]?.role !== "assistant") && (
               <View style={styles.row}>
                 <View style={styles.avatar}>
                   <Text style={styles.avatarText}>K</Text>
                 </View>
                 <GlassCard>
-                  <ActivityIndicator size="small" color={colors.mutedForeground} />
+                  <View style={styles.loadingCard}>
+                    <Text style={styles.loadingTitle}>Kipcoachee is reading your data...</Text>
+                    <Text style={styles.loadingTip}>
+                      {[
+                        "Reading your recent runs...",
+                        "Checking your recovery data...",
+                        "Reviewing your training plan...",
+                      ][loadingTipIdx]}
+                    </Text>
+                  </View>
                 </GlassCard>
               </View>
             )}
           </ScrollView>
 
-          {messages.length === 0 && (
+          {chatFilter === "all" && messages.length === 0 && (
             <View style={styles.chips}>
-              {quickPrompts.map((p) => (
+              {(PREMIUM_PROMPTS.length ? PREMIUM_PROMPTS : quickPrompts).map((p) => (
                 <TouchableOpacity
                   key={p}
-                  style={styles.chip}
+                  style={styles.promptCard}
                   onPress={() => handleQuickPrompt(p)}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.chipText} numberOfLines={2}>
+                  <Text style={styles.promptCardText} numberOfLines={2}>
                     {p}
                   </Text>
                 </TouchableOpacity>
@@ -1342,7 +1650,7 @@ export const CoachScreen: FC = () => {
             </View>
           )}
 
-          {showGeneratePlan && (
+          {chatFilter === "all" && showGeneratePlan && (
             <View style={styles.generatePlanBar}>
               <TouchableOpacity
                 style={[styles.generatePlanButton, generatingPlan && styles.generatePlanButtonDisabled]}
@@ -1353,10 +1661,10 @@ export const CoachScreen: FC = () => {
                 {generatingPlan ? (
                   <>
                     <ActivityIndicator size="small" color={colors.primaryForeground} />
-                    <Text style={styles.generatePlanButtonText}>Generating plan…</Text>
+                    <Text style={styles.generatePlanButtonText}>{generatingPlanMessage}</Text>
                   </>
                 ) : (
-                  <Text style={styles.generatePlanButtonText}>Generate plan</Text>
+                  <Text style={styles.generatePlanButtonText}>{generatePlanFailed ? "Try again?" : "Generate plan"}</Text>
                 )}
               </TouchableOpacity>
             </View>

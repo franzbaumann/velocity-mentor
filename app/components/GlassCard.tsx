@@ -25,11 +25,11 @@ export function GlassCard({ children, style, padding }: GlassCardProps) {
             : Platform.select({
                 ios: {
                   shadowColor: "#000",
-                  shadowOffset: { width: 0, height: 1 },
+                  shadowOffset: { width: 0, height: 2 },
                   shadowOpacity: 0.08,
-                  shadowRadius: 4,
+                  shadowRadius: 8,
                 },
-                android: { elevation: 2 },
+                android: { elevation: 3 },
               })),
         },
         style,

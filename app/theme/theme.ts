@@ -73,9 +73,10 @@ export const typography = {
   sectionHeader: {
     fontSize: 11,
     fontWeight: "600" as const,
-    letterSpacing: 0.5,
+    letterSpacing: 1,
     textTransform: "uppercase" as const,
-    marginBottom: 12,
+    marginTop: 16,
+    marginBottom: 8,
   },
   mono: {
     fontVariant: ["tabular-nums" as const],

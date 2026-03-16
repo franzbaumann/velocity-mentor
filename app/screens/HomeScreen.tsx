@@ -1,4 +1,4 @@
-import { FC, useMemo, useRef, useState } from "react";
+import { FC, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
@@ -8,14 +8,16 @@ import { GlassCard } from "../components/GlassCard";
 import { ReadinessRing } from "../components/ReadinessRing";
 import { WorkoutBadge } from "../components/WorkoutBadge";
 import { Sparkline } from "../components/Sparkline";
+import { SkeletonCard, SkeletonLine } from "../components/Skeleton";
 import { useTheme } from "../context/ThemeContext";
 import { useGreeting } from "../hooks/useGreeting";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useIntervalsAutoSync } from "../hooks/useIntervalsAutoSync";
+import { useRacePredictions } from "../hooks/useRacePredictions";
 import { getLocalDateString } from "../lib/date";
 import { formatDuration, formatSleepHours } from "../lib/format";
 import { spacing, typography } from "../theme/theme";
-import { calculateZonePaces, findBestEffort, formatRaceTime, predictRaceTime } from "../lib/race-prediction";
+import { formatRaceTime, formatPace } from "../lib/race-prediction";
 
 const RACE_DISTANCES: { km: number; label: string }[] = [
   { km: 5, label: "5K" },
@@ -24,8 +26,28 @@ const RACE_DISTANCES: { km: number; label: string }[] = [
   { km: 42.195, label: "Marathon" },
 ];
 
-const COACH_BUBBLE_BOTTOM = 80;
-const SCROLL_PADDING_BELOW_BUBBLE = 100;
+const SCROLL_PADDING_BELOW_BUBBLE = 24;
+
+function workoutAccent(type: string | undefined, theme: ReturnType<typeof useTheme>["theme"]) {
+  const t = String(type ?? "").toLowerCase();
+  if (t.includes("interval")) return theme.accentRed;
+  if (t.includes("tempo") || t.includes("threshold")) return theme.accentBlue;
+  if (t.includes("easy") || t.includes("recovery")) return theme.accentGreen;
+  return theme.accentBlue;
+}
+
+function relativeMinsLabel(lastFetchedAt: number | null): string {
+  if (!lastFetchedAt) return "Updated just now";
+  const mins = Math.round((Date.now() - lastFetchedAt) / 60000);
+  if (mins < 1) return "Updated just now";
+  if (mins === 1) return "Updated 1 min ago";
+  return `Updated ${mins} min ago`;
+}
+
+/** e.g. "12 Mar" from "2026-03-12" */
+function formatReadinessDate(dateStr: string): string {
+  return new Date(dateStr + "T12:00:00").toLocaleDateString(undefined, { day: "numeric", month: "short" });
+}
 
 export const HomeScreen: FC = () => {
   const { themeName, theme, colors } = useTheme();
@@ -47,13 +69,23 @@ export const HomeScreen: FC = () => {
     activities,
     isRefetching,
     refetchAll,
+    lastFetchedAt,
   } = dashboard;
+
+  // No refetch on focus — reduces unnecessary API load. Use pull-to-refresh to refresh.
 
   const todayStr = getLocalDateString();
   const todaysActual = activities?.filter((a) => a.date === todayStr)?.[0] ?? null;
   const todaysPlan = weekPlan?.find((d) => d.isToday) ?? null;
+  const readinessTitle =
+    readiness?.isToday === true || (readiness as { date?: string })?.date === todayStr
+      ? "Today's Readiness"
+      : readiness?.date
+        ? `Readiness · ${formatReadinessDate(readiness.date)}`
+        : "Today's Readiness";
 
   const flipAnim = useRef(new Animated.Value(0)).current;
+  const refreshSpin = useRef(new Animated.Value(0)).current;
   const [isFlipped, setIsFlipped] = useState(false);
 
   const frontRotation = flipAnim.interpolate({
@@ -78,6 +110,24 @@ export const HomeScreen: FC = () => {
 
   const isDarkPro = themeName === "darkPro";
 
+  useEffect(() => {
+    if (!isRefetching) {
+      refreshSpin.stopAnimation();
+      refreshSpin.setValue(0);
+      return;
+    }
+    const loop = Animated.loop(
+      Animated.timing(refreshSpin, {
+        toValue: 1,
+        duration: 800,
+        easing: Easing.linear,
+        useNativeDriver: true,
+      }),
+    );
+    loop.start();
+    return () => loop.stop();
+  }, [isRefetching, refreshSpin]);
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -92,26 +142,17 @@ export const HomeScreen: FC = () => {
           padding: 8,
           marginRight: -8,
         },
-        coachBubbleFixed: {
-          position: "absolute",
-          bottom: insets.bottom + COACH_BUBBLE_BOTTOM,
-          left: 0,
-          right: 0,
-          alignItems: "flex-end",
-          paddingRight: 16,
-          pointerEvents: "box-none",
+        headerPlanTrack: {
+          marginTop: 8,
+          height: 4,
+          borderRadius: 999,
+          overflow: "hidden",
+          backgroundColor: theme.cardBorder,
         },
-        coachBubbleInner: {
-          width: 48,
-          height: 48,
-          borderRadius: 24,
-          alignItems: "center",
-          justifyContent: "center",
-          shadowColor: "#000",
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.15,
-          shadowRadius: 8,
-          elevation: 4,
+        headerPlanFill: {
+          height: "100%",
+          borderRadius: 999,
+          backgroundColor: theme.accentBlue,
         },
         // Dark Pro specific layout
         topRow: {
@@ -187,12 +228,18 @@ export const HomeScreen: FC = () => {
         subtitle: { fontSize: 13, color: theme.textSecondary },
         sectionHeader: { color: theme.textLabel, letterSpacing: 1.5 },
         readinessCard: { padding: 24 },
-        readinessRow: { flexDirection: "row", alignItems: "center", gap: 24 },
+        readinessRow: { flexDirection: "row", alignItems: "center", gap: 20 },
         readinessBody: { flex: 1, minWidth: 0 },
         readinessTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
         readinessTitle: { fontSize: 16, fontWeight: "600", color: theme.textPrimary },
+        readinessTrend: { fontSize: 12, color: theme.accentGreen, marginBottom: 6 },
         readinessSummary: { fontSize: 13, color: theme.textSecondary, lineHeight: 20 },
-        readinessMeta: { flexDirection: "row", gap: 16, marginTop: 12 },
+        readinessMeta: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
+        readinessChip: {
+          borderRadius: 999,
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+        },
         metaText: { fontSize: 11, color: theme.textMuted },
         flipContainer: {
           position: "relative",
@@ -208,17 +255,39 @@ export const HomeScreen: FC = () => {
           backfaceVisibility: "hidden",
         },
         activityCard: { padding: 20 },
+        activityCardWrap: {
+          borderLeftWidth: 3,
+          borderRadius: 16,
+          overflow: "hidden",
+        },
         activityTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
         activityLabel: { fontSize: 12, fontWeight: "600", color: theme.textLabel, textTransform: "uppercase", letterSpacing: 0.5 },
         activityName: { fontSize: 16, fontWeight: "600", color: theme.textPrimary },
         activityMeta: { fontSize: 13, color: theme.textSecondary, marginTop: 4 },
         activityMetrics: { flexDirection: "row", flexWrap: "wrap", gap: 16, marginTop: 12 },
         activityMetric: { flexDirection: "row", alignItems: "baseline", gap: 4 },
+        activityHint: { marginTop: 10, fontSize: 12, color: theme.textMuted },
+        quickActionsRow: { flexDirection: "row", gap: 8, marginTop: 12 },
+        quickActionPrimary: {
+          borderRadius: 999,
+          paddingHorizontal: 14,
+          paddingVertical: 8,
+          backgroundColor: theme.accentBlue,
+        },
+        quickActionSecondary: {
+          borderRadius: 999,
+          paddingHorizontal: 14,
+          paddingVertical: 8,
+          backgroundColor: theme.cardBorder,
+        },
+        quickActionTextPrimary: { fontSize: 12, fontWeight: "600", color: theme.primaryForeground },
+        quickActionTextSecondary: { fontSize: 12, fontWeight: "600", color: theme.textSecondary },
         weekRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center", marginBottom: 8 },
         weekKm: { fontSize: 14, fontWeight: "500", color: theme.textPrimary },
         weekPct: { fontSize: 12, color: theme.textMuted },
-        progressTrack: { height: 8, borderRadius: 999, backgroundColor: theme.cardBorder, overflow: "hidden", marginBottom: 16 },
+        progressTrack: { height: 8, borderRadius: 999, backgroundColor: theme.cardBorder, overflow: "hidden", marginBottom: 10 },
         progressFill: { height: "100%", borderRadius: 999, backgroundColor: theme.accentBlue },
+        weekSessionsText: { fontSize: 11, color: theme.textMuted, marginBottom: 12 },
         qualityRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
         dotsRow: { flexDirection: "row", gap: 6 },
         dot: { width: 10, height: 10, borderRadius: 999 },
@@ -236,19 +305,29 @@ export const HomeScreen: FC = () => {
         recoveryValueRow: { flexDirection: "row", alignItems: "center", gap: 6 },
         recoveryValue: { fontSize: 18, fontWeight: "600", color: colors.foreground },
         hrZonesBlock: { marginTop: 8 },
-        hrZonesBar: { flexDirection: "row", height: 12, borderRadius: 999, overflow: "hidden" },
+        hrZonesBar: { flexDirection: "row", height: 6, borderRadius: 999, overflow: "hidden" },
         hrZone: { height: "100%" },
         hrZonesLabels: { flexDirection: "row", justifyContent: "space-between", marginTop: 4 },
         hrZoneLabel: { fontSize: 10, color: theme.textMuted },
         raceHeader: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 8 },
+        raceGradientTint: {
+          ...StyleSheet.absoluteFillObject,
+          borderRadius: 16,
+          backgroundColor: "#dbeafe",
+          opacity: 0.35,
+        },
         raceIcon: { width: 32, height: 32, borderRadius: 8, backgroundColor: theme.chartFill, alignItems: "center", justifyContent: "center" },
         raceEmoji: { fontSize: 14 },
         raceTitle: { fontSize: 14, fontWeight: "500", color: theme.textPrimary },
         raceSubtitle: { fontSize: 12, color: theme.textSecondary },
         raceTime: { fontSize: 28, fontWeight: "700", color: theme.textPrimary, marginBottom: 8 },
         racePaces: { gap: 2 },
+        racePillsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
+        racePill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
+        racePillText: { fontSize: 11, fontWeight: "600" },
         raceFootnote: { fontSize: 10, color: theme.textMuted, marginTop: 12 },
-        raceViewAll: { fontSize: 12, marginTop: 8 },
+        raceViewAllBtn: { marginTop: 10, flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start" },
+        raceViewAll: { fontSize: 12 },
         raceModalBackdrop: { flex: 1, justifyContent: "flex-end", backgroundColor: "rgba(0,0,0,0.4)" },
         raceModalSheet: {
           backgroundColor: "#ffffff",
@@ -256,7 +335,7 @@ export const HomeScreen: FC = () => {
           borderTopRightRadius: 24,
           paddingTop: 12,
           paddingHorizontal: 20,
-          paddingBottom: 32,
+          paddingBottom: 32 + insets.bottom,
         },
         raceModalHandle: {
           width: 36,
@@ -288,7 +367,9 @@ export const HomeScreen: FC = () => {
         },
         raceModalRowLast: { borderBottomWidth: 0 },
         raceModalRowLabel: { fontSize: 15, fontWeight: "600", color: "#171717" },
+        raceModalRowRight: { alignItems: "flex-end" },
         raceModalRowTime: { fontSize: 15, fontWeight: "600", color: "#171717" },
+        raceModalRowPace: { fontSize: 11, color: "#737373", marginTop: 2 },
         daysRow: { gap: 12, paddingBottom: 8 },
         dayCard: {
           width: 140,
@@ -306,6 +387,24 @@ export const HomeScreen: FC = () => {
         dayCardTitle: { fontSize: 14, fontWeight: "500", color: theme.textPrimary, marginTop: 8 },
         dayCardDistance: { fontSize: 12, color: theme.textMuted, marginTop: 4 },
         dayCardDetail: { fontSize: 11, color: theme.textMuted, marginTop: 4 },
+        dayZoneBar: { marginTop: 10, height: 4, borderRadius: 999, backgroundColor: theme.cardBorder },
+        dayZoneFill: { height: "100%", borderRadius: 999 },
+        dayRestCentered: { marginTop: 18, textAlign: "center", fontSize: 13, color: theme.textMuted },
+        lastUpdatedBlock: { marginTop: 8, gap: 2 },
+        lastUpdatedText: { fontSize: 10, color: theme.textMuted },
+        updatedInlineRow: { marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6 },
+        lastActivityActionBtn: {
+          width: 28,
+          height: 28,
+          borderRadius: 999,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: theme.cardBorder,
+        },
+        recoveryHeaderRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 8 },
+        recoveryHeaderDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: theme.accentGreen },
+        recoveryTrendNegative: { fontSize: 11, color: theme.accentOrange },
+        recoveryTrendPositive: { fontSize: 11, color: theme.accentGreen },
       }),
     [colors, theme, insets]
   );
@@ -330,58 +429,49 @@ export const HomeScreen: FC = () => {
     return "Half Marathon";
   })();
 
-  const racePrediction = useMemo(() => {
-    if (!activities || readiness?.ctl == null || !Number.isFinite(readiness.ctl) || readiness.ctl <= 0)
-      return null;
-    const best = findBestEffort(
-      activities.map((a) => ({
+  const activitiesForPrediction = useMemo(
+    () =>
+      activities?.map((a) => ({
+        date: a.date,
         distance_km: a.distance_km,
         duration_seconds: a.duration_seconds,
-        date: a.date,
-      })),
-    );
-    if (!best || goalRaceKm <= 0 || !Number.isFinite(goalRaceKm)) return null;
-    const ctl = readiness.ctl;
-    const baselineCTL = Math.max(ctl * 0.7, 20);
-    const predictedSeconds = predictRaceTime(
-      best.timeSeconds,
-      best.distanceKm,
-      goalRaceKm,
-      ctl,
-      baselineCTL,
-    );
-    const validPrediction =
-      Number.isFinite(predictedSeconds) && predictedSeconds > 0 && predictedSeconds < 86400 * 2;
-    const paces = validPrediction
-      ? calculateZonePaces(predictedSeconds, goalRaceKm)
-      : { zone2: "--", threshold: "--", vo2max: "--" };
-    const allPredictions = RACE_DISTANCES.map(({ km, label }) => ({
-      label,
-      km,
-      time: predictRaceTime(best.timeSeconds, best.distanceKm, km, ctl, baselineCTL),
-    }));
-    return {
-      time: formatRaceTime(predictedSeconds),
-      zone2: paces.zone2,
-      threshold: paces.threshold,
-      vo2max: paces.vo2max,
-      ctl,
-      best,
-      allPredictions,
-    };
-  }, [activities, readiness, goalRaceKm]);
+      })) ?? [],
+    [activities],
+  );
+  const { racePrediction } = useRacePredictions(
+    activitiesForPrediction,
+    readiness?.ctl ?? null,
+    goalRaceKm,
+  );
 
   const [raceModalVisible, setRaceModalVisible] = useState(false);
 
   if (!readiness || !weekStats) {
     return (
       <ScreenContainer contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Loading…</Text>
+        <SkeletonCard>
+          <SkeletonLine width="45%" />
+          <SkeletonLine width="80%" style={{ marginTop: 12 }} />
+          <SkeletonLine width="100%" style={{ marginTop: 12, height: 80, borderRadius: 12 }} />
+        </SkeletonCard>
+        <SkeletonCard>
+          <SkeletonLine width="40%" />
+          <SkeletonLine width="70%" style={{ marginTop: 10 }} />
+          <SkeletonLine width="100%" style={{ marginTop: 10 }} />
+        </SkeletonCard>
       </ScreenContainer>
     );
   }
 
   const progressPct = Math.round((weekStats.actualKm / weekStats.plannedKm) * 100);
+  const planWeekProgressPct = Math.round((6 / 14) * 100);
+  const refreshRotation = refreshSpin.interpolate({
+    inputRange: [0, 1],
+    outputRange: ["0deg", "360deg"],
+  });
+  const hrvDelta = (recoveryMetrics.hrv ?? 0) - (recoveryMetrics.hrv7dayAvg ?? 0);
+  const workoutBorderColor = workoutAccent(todaysWorkout?.type, theme);
+  const sessionsDone = Math.max(0, Math.min(7, Math.round((weekStats.actualKm / Math.max(weekStats.plannedKm, 1)) * 7)));
   const lastActivityDetailId =
     (lastActivity as unknown as { detailId?: string | null }).detailId ?? null;
 
@@ -415,6 +505,9 @@ export const HomeScreen: FC = () => {
                 Week 6 of 14 · {athlete.currentPhase} Phase · {athlete.goalRace.type} in{" "}
                 {athlete.goalRace.weeksRemaining} weeks
               </Text>
+              <View style={styles.headerPlanTrack}>
+                <View style={[styles.headerPlanFill, { width: `${planWeekProgressPct}%` }]} />
+              </View>
             </View>
             <TouchableOpacity
               style={styles.headerSettingsBtn}
@@ -433,24 +526,31 @@ export const HomeScreen: FC = () => {
                 <View style={styles.readinessRow}>
                   <ReadinessRing
                     score={readiness.score}
-                    size={96}
+                    size={80}
                     statusLabel={statusLabel}
                     statusColor={statusColor}
                   />
                   <View style={styles.readinessBody}>
                     <View style={styles.readinessTitleRow}>
-                      <Text style={styles.readinessTitle}>Today's Readiness</Text>
+                      <Text style={styles.readinessTitle}>{readinessTitle}</Text>
                       <WorkoutBadge type={todaysWorkout.type} />
                     </View>
+                    <Text style={styles.readinessTrend}>↑ +3 from yesterday</Text>
                     <Text style={styles.readinessSummary}>{readiness.aiSummary}</Text>
                     <View style={styles.readinessMeta}>
-                      <Text style={styles.metaText}>
-                        HRV {readiness.hrv != null && readiness.hrv !== 0 ? `${readiness.hrv}ms` : "—"}
-                      </Text>
-                      <Text style={styles.metaText}>{formatSleepHours(readiness.sleepHours)} sleep</Text>
-                      <Text style={[styles.metaText, typography.mono]}>
-                        TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}
-                      </Text>
+                      <View style={[styles.readinessChip, { backgroundColor: theme.accentGreen + "22" }]}>
+                        <Text style={styles.metaText}>
+                          HRV {readiness.hrv != null && readiness.hrv !== 0 ? `${readiness.hrv}ms` : "—"}
+                        </Text>
+                      </View>
+                      <View style={[styles.readinessChip, { backgroundColor: theme.accentBlue + "20" }]}>
+                        <Text style={styles.metaText}>{formatSleepHours(readiness.sleepHours)} sleep</Text>
+                      </View>
+                      <View style={[styles.readinessChip, { backgroundColor: theme.accentOrange + "24" }]}>
+                        <Text style={[styles.metaText, typography.mono]}>
+                          TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}
+                        </Text>
+                      </View>
                     </View>
                   </View>
                 </View>
@@ -458,6 +558,12 @@ export const HomeScreen: FC = () => {
             </Animated.View>
           </View>
         </TouchableOpacity>
+        <View style={styles.updatedInlineRow}>
+          <Text style={styles.lastUpdatedText}>{relativeMinsLabel(lastFetchedAt)} ·</Text>
+          <Animated.View style={{ transform: [{ rotate: refreshRotation }] }}>
+            <Ionicons name="refresh" size={12} color={theme.textMuted} />
+          </Animated.View>
+        </View>
 
         {/* SECTION 2 – Three-column widget row */}
         <View style={styles.widgetRow}>
@@ -472,7 +578,8 @@ export const HomeScreen: FC = () => {
             <View style={styles.progressTrack}>
               <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
             </View>
-            <Text style={styles.metaText}>Quality sessions</Text>
+            <Text style={styles.weekSessionsText}>Sessions: {sessionsDone}/7 complete</Text>
+            <Text style={styles.metaText}>🏃 Quality sessions</Text>
             <Text style={styles.metaText}>
               {weekStats.qualityDone} of {weekStats.qualityPlanned} done
             </Text>
@@ -480,12 +587,28 @@ export const HomeScreen: FC = () => {
               {Array.from({ length: weekStats.qualityPlanned }).map((_, i) => (
                 <View
                   key={i}
-                  style={[styles.dot, i < weekStats.qualityDone ? styles.dotDone : styles.dotPlanned]}
+                  style={[
+                    styles.dot,
+                    {
+                      backgroundColor:
+                        i < weekStats.qualityDone
+                          ? i % 3 === 0
+                            ? theme.accentGreen
+                            : i % 3 === 1
+                            ? theme.accentRed
+                            : theme.accentBlue
+                          : theme.cardBorder,
+                    },
+                  ]}
                 />
               ))}
             </View>
             <View style={styles.sparklineBlock}>
               <Text style={styles.sparklineLabel}>Load trend</Text>
+              <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+                <Text style={styles.metaText}>min {Math.round(Math.min(...weekStats.tssData))}</Text>
+                <Text style={styles.metaText}>max {Math.round(Math.max(...weekStats.tssData))}</Text>
+              </View>
               <Sparkline data={weekStats.tssData} />
             </View>
             <TouchableOpacity
@@ -505,7 +628,12 @@ export const HomeScreen: FC = () => {
             <Text style={styles.widgetHeader}>Last Activity</Text>
             <View style={styles.lastActivityHeader}>
               <Text style={styles.lastActivityType}>{lastActivity.type}</Text>
-              <Text style={styles.metaText}>{lastActivity.date}</Text>
+              <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
+                <Text style={styles.metaText}>{lastActivity.date}</Text>
+                <TouchableOpacity style={styles.lastActivityActionBtn} onPress={() => navigation.navigate("Coach" as never)} activeOpacity={0.85}>
+                  <Ionicons name="chatbubble-ellipses" size={14} color={theme.textSecondary} />
+                </TouchableOpacity>
+              </View>
             </View>
             <View style={styles.metricsGrid}>
               <View style={styles.metricCell}>
@@ -588,7 +716,10 @@ export const HomeScreen: FC = () => {
             activeOpacity={0.9}
             onPress={() => navigation.navigate("Stats" as never)}
           >
-            <Text style={styles.widgetHeader}>Recovery</Text>
+            <View style={styles.recoveryHeaderRow}>
+              <View style={styles.recoveryHeaderDot} />
+              <Text style={styles.widgetHeader}>Recovery</Text>
+            </View>
             <View style={styles.recoveryRow}>
               <View>
                 <Text style={styles.metricLabel}>HRV</Text>
@@ -600,6 +731,9 @@ export const HomeScreen: FC = () => {
                 </View>
               </View>
             </View>
+            <Text style={hrvDelta < 0 ? styles.recoveryTrendNegative : styles.recoveryTrendPositive}>
+              {hrvDelta < 0 ? "↓" : "↑"} {Math.abs(Math.round(hrvDelta))}ms {hrvDelta < 0 ? "below" : "above"} baseline
+            </Text>
             <View style={styles.sparklineBlock}>
               <Text style={styles.sparklineLabel}>HRV (7 days)</Text>
               <Sparkline data={recoveryMetrics.hrvTrend} color={theme.chartLineTSB} />
@@ -618,61 +752,73 @@ export const HomeScreen: FC = () => {
         </View>
 
         {/* SECTION 4 – Today’s activity (existing card) */}
-        <GlassCard style={styles.activityCard}>
-          <View style={styles.activityTitleRow}>
-            <Text style={styles.activityLabel}>Today's Activity</Text>
-            {todaysActual && <View style={[styles.dot, styles.dotDone]} />}
-          </View>
-          {todaysActual ? (
-            <>
-              <View style={styles.readinessTitleRow}>
-                <Text style={styles.activityName} numberOfLines={1}>
-                  {todaysActual.name ?? todaysActual.type ?? "Run"}
+        <View style={[styles.activityCardWrap, { borderLeftColor: workoutBorderColor }]}>
+          <GlassCard style={styles.activityCard}>
+            <View style={styles.activityTitleRow}>
+              <Text style={styles.activityLabel}>Today's Activity</Text>
+              {todaysActual && <View style={[styles.dot, styles.dotDone]} />}
+            </View>
+            {todaysActual ? (
+              <>
+                <View style={styles.readinessTitleRow}>
+                  <Text style={styles.activityName} numberOfLines={1}>
+                    {todaysActual.name ?? todaysActual.type ?? "Run"}
+                  </Text>
+                  <WorkoutBadge
+                    type={
+                      (todaysActual.type?.toLowerCase().includes("interval")
+                        ? "interval"
+                        : todaysActual.type?.toLowerCase().includes("tempo")
+                        ? "tempo"
+                        : todaysActual.type?.toLowerCase().includes("long")
+                        ? "long"
+                        : todaysActual.type?.toLowerCase().includes("recovery")
+                        ? "recovery"
+                        : "easy") as "easy" | "tempo" | "interval" | "long" | "recovery"
+                    }
+                  />
+                </View>
+                <Text style={styles.activityMeta}>
+                  {(todaysActual.distance_km ?? 0).toFixed(1)} km · {formatDuration(todaysActual.duration_seconds)}
+                  {todaysActual.avg_pace ? ` @ ${todaysActual.avg_pace}` : ""}
                 </Text>
-                <WorkoutBadge
-                  type={
-                    (todaysActual.type?.toLowerCase().includes("interval")
-                      ? "interval"
-                      : todaysActual.type?.toLowerCase().includes("tempo")
-                      ? "tempo"
-                      : todaysActual.type?.toLowerCase().includes("long")
-                      ? "long"
-                      : todaysActual.type?.toLowerCase().includes("recovery")
-                      ? "recovery"
-                      : "easy") as "easy" | "tempo" | "interval" | "long" | "recovery"
-                  }
-                />
-              </View>
-              <Text style={styles.activityMeta}>
-                {(todaysActual.distance_km ?? 0).toFixed(1)} km · {formatDuration(todaysActual.duration_seconds)}
-                {todaysActual.avg_pace ? ` @ ${todaysActual.avg_pace}` : ""}
-              </Text>
-            </>
-          ) : todaysPlan ? (
-            <>
-              <View style={styles.readinessTitleRow}>
-                <WorkoutBadge type={todaysPlan.type} />
-                <Text style={styles.metaText}>{todaysPlan.day}</Text>
-              </View>
-              <Text style={styles.activityName}>{todaysPlan.title}</Text>
-              <Text style={styles.activityMeta}>
-                {todaysPlan.distance > 0 ? `${todaysPlan.distance} km` : ""}
-                {todaysPlan.detail
-                  ? todaysPlan.distance > 0
-                    ? ` · ${todaysPlan.detail}`
-                    : todaysPlan.detail
-                  : ""}
-              </Text>
-            </>
-          ) : (
-            <Text style={styles.activityMeta}>No activity planned or logged for today.</Text>
-          )}
-        </GlassCard>
+              </>
+            ) : todaysPlan ? (
+              <>
+                <View style={styles.readinessTitleRow}>
+                  <WorkoutBadge type={todaysPlan.type} />
+                  <Text style={styles.metaText}>{todaysPlan.day}</Text>
+                </View>
+                <Text style={styles.activityName}>{todaysPlan.title}</Text>
+                <Text style={styles.activityMeta}>
+                  {todaysPlan.distance > 0 ? `${todaysPlan.distance} km` : ""}
+                  {todaysPlan.detail
+                    ? todaysPlan.distance > 0
+                      ? ` · ${todaysPlan.detail}`
+                      : todaysPlan.detail
+                    : ""}
+                </Text>
+              </>
+            ) : (
+              <Text style={styles.activityMeta}>No activity planned or logged for today.</Text>
+            )}
+            <Text style={styles.activityHint}>Tap to see full session details →</Text>
+            <View style={styles.quickActionsRow}>
+              <TouchableOpacity style={styles.quickActionPrimary} activeOpacity={0.85}>
+                <Text style={styles.quickActionTextPrimary}>Start</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.quickActionSecondary} activeOpacity={0.85} onPress={() => navigation.navigate("Coach" as never)}>
+                <Text style={styles.quickActionTextSecondary}>Ask Coach</Text>
+              </TouchableOpacity>
+            </View>
+          </GlassCard>
+        </View>
 
         {/* Keep existing lower sections (race prediction, CTA, next 7 days) */}
         {racePrediction && (
           <TouchableOpacity activeOpacity={0.9} onPress={() => setRaceModalVisible(true)}>
             <GlassCard>
+              <View style={styles.raceGradientTint} />
               <View style={styles.raceHeader}>
                 <View style={styles.raceIcon}>
                   <Text style={styles.raceEmoji}>🏁</Text>
@@ -683,17 +829,24 @@ export const HomeScreen: FC = () => {
                 </View>
               </View>
               <Text style={[styles.raceTime, typography.mono]}>{racePrediction.time}</Text>
-              <View style={styles.racePaces}>
-                <Text style={styles.metaText}>Z2 pace: {racePrediction.zone2}</Text>
-                <Text style={styles.metaText}>Threshold: {racePrediction.threshold}</Text>
-                <Text style={styles.metaText}>VO2max: {racePrediction.vo2max}</Text>
+              <View style={styles.racePillsRow}>
+                <View style={[styles.racePill, { backgroundColor: theme.accentGreen + "22" }]}>
+                  <Text style={[styles.racePillText, { color: theme.accentGreen }]}>Z2 {racePrediction.zone2}</Text>
+                </View>
+                <View style={[styles.racePill, { backgroundColor: theme.accentBlue + "22" }]}>
+                  <Text style={[styles.racePillText, { color: theme.accentBlue }]}>Threshold {racePrediction.threshold}</Text>
+                </View>
+                <View style={[styles.racePill, { backgroundColor: theme.accentRed + "22" }]}>
+                  <Text style={[styles.racePillText, { color: theme.accentRed }]}>VO2max {racePrediction.vo2max}</Text>
+                </View>
               </View>
               <Text style={styles.raceFootnote}>
                 Based on best effort · CTL {Math.round(racePrediction.ctl)}
               </Text>
-              <Text style={[styles.raceViewAll, { color: theme.accentBlue }]}>
-                View all distances →
-              </Text>
+              <View style={styles.raceViewAllBtn}>
+                <Text style={[styles.raceViewAll, { color: theme.accentBlue }]}>View all distances</Text>
+                <Ionicons name="chevron-forward" size={14} color={theme.accentBlue} />
+              </View>
             </GlassCard>
           </TouchableOpacity>
         )}
@@ -726,7 +879,7 @@ export const HomeScreen: FC = () => {
                   </TouchableOpacity>
                 </View>
                 <Text style={styles.raceModalSubtitle}>
-                  Based on best effort ({racePrediction.best.distanceKm.toFixed(1)} km) · CTL {Math.round(racePrediction.ctl)}
+                  Based on best effort{racePrediction.best.distanceKm > 0 ? ` (${racePrediction.best.distanceKm.toFixed(1)} km)` : ""} · CTL {Math.round(racePrediction.ctl)}
                 </Text>
                 <View style={styles.raceModalRows}>
                   {racePrediction.allPredictions.map(({ label, km, time }, idx) => (
@@ -735,7 +888,10 @@ export const HomeScreen: FC = () => {
                       style={[styles.raceModalRow, idx === racePrediction.allPredictions.length - 1 && styles.raceModalRowLast]}
                     >
                       <Text style={styles.raceModalRowLabel}>{label}</Text>
-                      <Text style={[styles.raceModalRowTime, typography.mono]}>{formatRaceTime(time)}</Text>
+                      <View style={styles.raceModalRowRight}>
+                        <Text style={[styles.raceModalRowTime, typography.mono]}>{formatRaceTime(time)}</Text>
+                        <Text style={styles.raceModalRowPace}>{formatPace(time, km)}</Text>
+                      </View>
                     </View>
                   ))}
                 </View>
@@ -763,25 +919,37 @@ export const HomeScreen: FC = () => {
               </View>
               <WorkoutBadge type={day.type} />
               <Text style={styles.dayCardTitle}>{day.title}</Text>
-              {day.distance > 0 && (
-                <Text style={[styles.dayCardDistance, typography.mono]}>{day.distance} km</Text>
+              {day.distance > 0 ? (
+                <>
+                  <Text style={[styles.dayCardDistance, typography.mono]}>{day.distance} km</Text>
+                  <Text style={styles.dayCardDetail}>@ planned pace</Text>
+                  <Text style={styles.dayCardDetail}>{day.detail}</Text>
+                </>
+              ) : (
+                <Text style={styles.dayRestCentered}>Rest 💤</Text>
               )}
-              <Text style={styles.dayCardDetail}>{day.detail}</Text>
+              <View style={styles.dayZoneBar}>
+                <View
+                  style={[
+                    styles.dayZoneFill,
+                    {
+                      width: "100%",
+                      backgroundColor:
+                        day.type === "interval"
+                          ? theme.accentRed
+                          : day.type === "tempo"
+                          ? theme.accentBlue
+                          : day.type === "easy" || day.type === "recovery"
+                          ? theme.accentGreen
+                          : theme.textMuted,
+                    },
+                  ]}
+                />
+              </View>
             </View>
           ))}
         </ScrollView>
         </ScreenContainer>
-        {/* Ask Kipcoachee – fixed above tab bar, right side */}
-        <View style={styles.coachBubbleFixed} pointerEvents="box-none">
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={() => navigation.navigate("Coach" as never)}
-            style={[styles.coachBubbleInner, { backgroundColor: theme.card }]}
-            accessibilityLabel="Ask Kipcoachee"
-          >
-            <Ionicons name="chatbubble-ellipses" size={24} color={theme.textPrimary} />
-          </TouchableOpacity>
-        </View>
       </View>
     );
   }
@@ -800,6 +968,9 @@ export const HomeScreen: FC = () => {
             <Text style={styles.subtitle}>
               Week 6 of 14 · {athlete.currentPhase} Phase · {athlete.goalRace.type} in {athlete.goalRace.weeksRemaining} weeks
             </Text>
+            <View style={styles.headerPlanTrack}>
+              <View style={[styles.headerPlanFill, { width: `${planWeekProgressPct}%` }]} />
+            </View>
           </View>
           <TouchableOpacity
             style={styles.headerSettingsBtn}
@@ -818,7 +989,7 @@ export const HomeScreen: FC = () => {
               <View style={styles.readinessRow}>
                 <ReadinessRing
                   score={readiness.score}
-                  size={96}
+                  size={80}
                   statusLabel={
                     readiness.tsb != null
                       ? Number(readiness.tsb) > 5
@@ -840,18 +1011,25 @@ export const HomeScreen: FC = () => {
                 />
                 <View style={styles.readinessBody}>
                   <View style={styles.readinessTitleRow}>
-                    <Text style={styles.readinessTitle}>Today's Readiness</Text>
+                    <Text style={styles.readinessTitle}>{readinessTitle}</Text>
                     <WorkoutBadge type={todaysWorkout.type} />
                   </View>
+                  <Text style={styles.readinessTrend}>↑ +3 from yesterday</Text>
                   <Text style={styles.readinessSummary}>{readiness.aiSummary}</Text>
                   <View style={styles.readinessMeta}>
-                    <Text style={styles.metaText}>
-                      HRV {readiness.hrv != null && readiness.hrv !== 0 ? `${readiness.hrv}ms` : "—"}
-                    </Text>
-                    <Text style={styles.metaText}>{formatSleepHours(readiness.sleepHours)} sleep</Text>
-                    <Text style={[styles.metaText, typography.mono]}>
-                      TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}
-                    </Text>
+                    <View style={[styles.readinessChip, { backgroundColor: theme.accentGreen + "22" }]}>
+                      <Text style={styles.metaText}>
+                        HRV {readiness.hrv != null && readiness.hrv !== 0 ? `${readiness.hrv}ms` : "—"}
+                      </Text>
+                    </View>
+                    <View style={[styles.readinessChip, { backgroundColor: theme.accentBlue + "20" }]}>
+                      <Text style={styles.metaText}>{formatSleepHours(readiness.sleepHours)} sleep</Text>
+                    </View>
+                    <View style={[styles.readinessChip, { backgroundColor: theme.accentOrange + "24" }]}>
+                      <Text style={[styles.metaText, typography.mono]}>
+                        TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}
+                      </Text>
+                    </View>
                   </View>
                 </View>
               </View>
@@ -859,72 +1037,89 @@ export const HomeScreen: FC = () => {
           </Animated.View>
         </View>
       </TouchableOpacity>
+      <View style={styles.updatedInlineRow}>
+        <Text style={styles.lastUpdatedText}>{relativeMinsLabel(lastFetchedAt)} ·</Text>
+        <Animated.View style={{ transform: [{ rotate: refreshRotation }] }}>
+          <Ionicons name="refresh" size={12} color={theme.textMuted} />
+        </Animated.View>
+      </View>
 
       {/* Today's Activity – planned or completed */}
-      <GlassCard style={styles.activityCard}>
-        <View style={styles.activityTitleRow}>
-          <Text style={styles.activityLabel}>Today's Activity</Text>
-          {todaysActual && (
-            <View style={[styles.dot, styles.dotDone]} />
+      <View style={[styles.activityCardWrap, { borderLeftColor: workoutBorderColor }]}>
+        <GlassCard style={styles.activityCard}>
+          <View style={styles.activityTitleRow}>
+            <Text style={styles.activityLabel}>Today's Activity</Text>
+            {todaysActual && (
+              <View style={[styles.dot, styles.dotDone]} />
+            )}
+          </View>
+          {todaysActual ? (
+            <>
+              <View style={styles.readinessTitleRow}>
+                <Text style={styles.activityName} numberOfLines={1}>{todaysActual.name ?? todaysActual.type ?? "Run"}</Text>
+                <WorkoutBadge
+                  type={
+                    (todaysActual.type?.toLowerCase().includes("interval")
+                      ? "interval"
+                      : todaysActual.type?.toLowerCase().includes("tempo")
+                      ? "tempo"
+                      : todaysActual.type?.toLowerCase().includes("long")
+                      ? "long"
+                      : todaysActual.type?.toLowerCase().includes("recovery")
+                      ? "recovery"
+                      : "easy") as "easy" | "tempo" | "interval" | "long" | "recovery"
+                  }
+                />
+              </View>
+              <Text style={styles.activityMeta}>
+                {(todaysActual.distance_km != null && todaysActual.distance_km > 0 ? todaysActual.distance_km.toFixed(1) : "—")} km · {formatDuration(todaysActual.duration_seconds)}
+                {todaysActual.avg_pace && todaysActual.avg_pace !== "0" ? ` @ ${todaysActual.avg_pace}` : ""}
+              </Text>
+              <View style={styles.activityMetrics}>
+                <View style={styles.activityMetric}>
+                  <Text style={[styles.metricValue, typography.mono]}>
+                    {todaysActual.distance_km != null && todaysActual.distance_km > 0 ? todaysActual.distance_km.toFixed(1) : "—"}
+                  </Text>
+                  <Text style={styles.metricLabel}>km</Text>
+                </View>
+                <View style={styles.activityMetric}>
+                  <Text style={[styles.metricValue, typography.mono]}>{formatDuration(todaysActual.duration_seconds)}</Text>
+                  <Text style={styles.metricLabel}>duration</Text>
+                </View>
+                <View style={styles.activityMetric}>
+                  <Text style={[styles.metricValue, typography.mono]}>
+                    {todaysActual.avg_pace && todaysActual.avg_pace !== "0" ? todaysActual.avg_pace : "—"}
+                  </Text>
+                  <Text style={styles.metricLabel}>pace</Text>
+                </View>
+              </View>
+            </>
+          ) : todaysPlan ? (
+            <>
+              <View style={styles.readinessTitleRow}>
+                <WorkoutBadge type={todaysPlan.type} />
+                <Text style={styles.metaText}>{todaysPlan.day}</Text>
+              </View>
+              <Text style={styles.activityName}>{todaysPlan.title}</Text>
+              <Text style={styles.activityMeta}>
+                {todaysPlan.distance > 0 ? `${todaysPlan.distance} km` : ""}
+                {todaysPlan.detail ? (todaysPlan.distance > 0 ? ` · ${todaysPlan.detail}` : todaysPlan.detail) : ""}
+              </Text>
+            </>
+          ) : (
+            <Text style={styles.activityMeta}>No activity planned or logged for today.</Text>
           )}
-        </View>
-        {todaysActual ? (
-          <>
-            <View style={styles.readinessTitleRow}>
-              <Text style={styles.activityName} numberOfLines={1}>{todaysActual.name ?? todaysActual.type ?? "Run"}</Text>
-              <WorkoutBadge
-                type={
-                  (todaysActual.type?.toLowerCase().includes("interval")
-                    ? "interval"
-                    : todaysActual.type?.toLowerCase().includes("tempo")
-                    ? "tempo"
-                    : todaysActual.type?.toLowerCase().includes("long")
-                    ? "long"
-                    : todaysActual.type?.toLowerCase().includes("recovery")
-                    ? "recovery"
-                    : "easy") as "easy" | "tempo" | "interval" | "long" | "recovery"
-                }
-              />
-            </View>
-            <Text style={styles.activityMeta}>
-              {(todaysActual.distance_km != null && todaysActual.distance_km > 0 ? todaysActual.distance_km.toFixed(1) : "—")} km · {formatDuration(todaysActual.duration_seconds)}
-              {todaysActual.avg_pace && todaysActual.avg_pace !== "0" ? ` @ ${todaysActual.avg_pace}` : ""}
-            </Text>
-            <View style={styles.activityMetrics}>
-              <View style={styles.activityMetric}>
-                <Text style={[styles.metricValue, typography.mono]}>
-                  {todaysActual.distance_km != null && todaysActual.distance_km > 0 ? todaysActual.distance_km.toFixed(1) : "—"}
-                </Text>
-                <Text style={styles.metricLabel}>km</Text>
-              </View>
-              <View style={styles.activityMetric}>
-                <Text style={[styles.metricValue, typography.mono]}>{formatDuration(todaysActual.duration_seconds)}</Text>
-                <Text style={styles.metricLabel}>duration</Text>
-              </View>
-              <View style={styles.activityMetric}>
-                <Text style={[styles.metricValue, typography.mono]}>
-                  {todaysActual.avg_pace && todaysActual.avg_pace !== "0" ? todaysActual.avg_pace : "—"}
-                </Text>
-                <Text style={styles.metricLabel}>pace</Text>
-              </View>
-            </View>
-          </>
-        ) : todaysPlan ? (
-          <>
-            <View style={styles.readinessTitleRow}>
-              <WorkoutBadge type={todaysPlan.type} />
-              <Text style={styles.metaText}>{todaysPlan.day}</Text>
-            </View>
-            <Text style={styles.activityName}>{todaysPlan.title}</Text>
-            <Text style={styles.activityMeta}>
-              {todaysPlan.distance > 0 ? `${todaysPlan.distance} km` : ""}
-              {todaysPlan.detail ? (todaysPlan.distance > 0 ? ` · ${todaysPlan.detail}` : todaysPlan.detail) : ""}
-            </Text>
-          </>
-        ) : (
-          <Text style={styles.activityMeta}>No activity planned or logged for today.</Text>
-        )}
-      </GlassCard>
+          <Text style={styles.activityHint}>Tap to see full session details →</Text>
+          <View style={styles.quickActionsRow}>
+            <TouchableOpacity style={styles.quickActionPrimary} activeOpacity={0.85}>
+              <Text style={styles.quickActionTextPrimary}>Start</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.quickActionSecondary} activeOpacity={0.85} onPress={() => navigation.navigate("Coach" as never)}>
+              <Text style={styles.quickActionTextSecondary}>Ask Coach</Text>
+            </TouchableOpacity>
+          </View>
+        </GlassCard>
+      </View>
 
       {/* This Week – matches web card (light theme) */}
       <GlassCard>
@@ -937,19 +1132,36 @@ export const HomeScreen: FC = () => {
         <View style={styles.progressTrack}>
           <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
         </View>
+        <Text style={styles.weekSessionsText}>Sessions: {sessionsDone}/7 complete</Text>
         <View style={styles.qualityRow}>
-          <Text style={styles.metaText}>Quality sessions</Text>
+          <Text style={styles.metaText}>🏃 Quality sessions</Text>
           <View style={styles.dotsRow}>
             {Array.from({ length: weekStats.qualityPlanned }).map((_, i) => (
               <View
                 key={i}
-                style={[styles.dot, i < weekStats.qualityDone ? styles.dotDone : styles.dotPlanned]}
+                style={[
+                  styles.dot,
+                  {
+                    backgroundColor:
+                      i < weekStats.qualityDone
+                        ? i % 3 === 0
+                          ? theme.accentGreen
+                          : i % 3 === 1
+                          ? theme.accentRed
+                          : theme.accentBlue
+                        : theme.cardBorder,
+                  },
+                ]}
               />
             ))}
           </View>
         </View>
         <View style={styles.sparklineBlock}>
           <Text style={styles.sparklineLabel}>Load trend</Text>
+          <View style={{ flexDirection: "row", justifyContent: "space-between", marginBottom: 4 }}>
+            <Text style={styles.metaText}>min {Math.round(Math.min(...weekStats.tssData))}</Text>
+            <Text style={styles.metaText}>max {Math.round(Math.max(...weekStats.tssData))}</Text>
+          </View>
           <Sparkline data={weekStats.tssData} />
         </View>
       </GlassCard>
@@ -963,7 +1175,12 @@ export const HomeScreen: FC = () => {
         >
           <View style={styles.lastActivityHeader}>
             <Text style={styles.lastActivityType}>{lastActivity.type}</Text>
+          <View style={{ flexDirection: "row", alignItems: "center", gap: 6 }}>
             <Text style={styles.metaText}>{lastActivity.date}</Text>
+            <TouchableOpacity style={styles.lastActivityActionBtn} onPress={() => navigation.navigate("Coach" as never)} activeOpacity={0.85}>
+              <Ionicons name="chatbubble-ellipses" size={14} color={theme.textSecondary} />
+            </TouchableOpacity>
+          </View>
           </View>
           <View style={styles.metricsGrid}>
             <View style={styles.metricCell}>
@@ -1015,7 +1232,10 @@ export const HomeScreen: FC = () => {
         onPress={() => navigation.navigate("Stats" as never)}
       >
         <GlassCard>
-          <Text style={[styles.sectionHeader, typography.sectionHeader]}>Recovery</Text>
+          <View style={styles.recoveryHeaderRow}>
+            <View style={styles.recoveryHeaderDot} />
+            <Text style={[styles.sectionHeader, typography.sectionHeader]}>Recovery</Text>
+          </View>
           <View style={styles.recoveryRow}>
             <View>
               <Text style={styles.metricLabel}>HRV</Text>
@@ -1027,6 +1247,9 @@ export const HomeScreen: FC = () => {
               </View>
             </View>
           </View>
+          <Text style={hrvDelta < 0 ? styles.recoveryTrendNegative : styles.recoveryTrendPositive}>
+            {hrvDelta < 0 ? "↓" : "↑"} {Math.abs(Math.round(hrvDelta))}ms {hrvDelta < 0 ? "below" : "above"} baseline
+          </Text>
           <View style={styles.sparklineBlock}>
             <Text style={styles.sparklineLabel}>HRV (7 days)</Text>
             <Sparkline data={recoveryMetrics.hrvTrend} color={theme.chartLineTSB} />
@@ -1042,6 +1265,7 @@ export const HomeScreen: FC = () => {
       {racePrediction && (
         <TouchableOpacity activeOpacity={0.9} onPress={() => setRaceModalVisible(true)}>
           <GlassCard>
+            <View style={styles.raceGradientTint} />
             <View style={styles.raceHeader}>
               <View style={styles.raceIcon}>
                 <Text style={styles.raceEmoji}>🏁</Text>
@@ -1052,17 +1276,24 @@ export const HomeScreen: FC = () => {
               </View>
             </View>
             <Text style={[styles.raceTime, typography.mono]}>{racePrediction.time}</Text>
-            <View style={styles.racePaces}>
-              <Text style={styles.metaText}>Z2 pace: {racePrediction.zone2}</Text>
-              <Text style={styles.metaText}>Threshold: {racePrediction.threshold}</Text>
-              <Text style={styles.metaText}>VO2max: {racePrediction.vo2max}</Text>
+            <View style={styles.racePillsRow}>
+              <View style={[styles.racePill, { backgroundColor: theme.accentGreen + "22" }]}>
+                <Text style={[styles.racePillText, { color: theme.accentGreen }]}>Z2 {racePrediction.zone2}</Text>
+              </View>
+              <View style={[styles.racePill, { backgroundColor: theme.accentBlue + "22" }]}>
+                <Text style={[styles.racePillText, { color: theme.accentBlue }]}>Threshold {racePrediction.threshold}</Text>
+              </View>
+              <View style={[styles.racePill, { backgroundColor: theme.accentRed + "22" }]}>
+                <Text style={[styles.racePillText, { color: theme.accentRed }]}>VO2max {racePrediction.vo2max}</Text>
+              </View>
             </View>
             <Text style={styles.raceFootnote}>
               Based on best effort · CTL {Math.round(racePrediction.ctl)}
             </Text>
-            <Text style={[styles.raceViewAll, { color: theme.accentBlue }]}>
-              View all distances →
-            </Text>
+            <View style={styles.raceViewAllBtn}>
+              <Text style={[styles.raceViewAll, { color: theme.accentBlue }]}>View all distances</Text>
+              <Ionicons name="chevron-forward" size={14} color={theme.accentBlue} />
+            </View>
           </GlassCard>
         </TouchableOpacity>
       )}
@@ -1095,7 +1326,7 @@ export const HomeScreen: FC = () => {
                 </TouchableOpacity>
               </View>
               <Text style={styles.raceModalSubtitle}>
-                Based on best effort ({racePrediction.best.distanceKm.toFixed(1)} km) · CTL {Math.round(racePrediction.ctl)}
+                Based on best effort{racePrediction.best.distanceKm > 0 ? ` (${racePrediction.best.distanceKm.toFixed(1)} km)` : ""} · CTL {Math.round(racePrediction.ctl)}
               </Text>
               <View style={styles.raceModalRows}>
                 {racePrediction.allPredictions.map(({ label, km, time }, idx) => (
@@ -1104,7 +1335,10 @@ export const HomeScreen: FC = () => {
                     style={[styles.raceModalRow, idx === racePrediction.allPredictions.length - 1 && styles.raceModalRowLast]}
                   >
                     <Text style={styles.raceModalRowLabel}>{label}</Text>
-                    <Text style={[styles.raceModalRowTime, typography.mono]}>{formatRaceTime(time)}</Text>
+                    <View style={styles.raceModalRowRight}>
+                      <Text style={[styles.raceModalRowTime, typography.mono]}>{formatRaceTime(time)}</Text>
+                      <Text style={styles.raceModalRowPace}>{formatPace(time, km)}</Text>
+                    </View>
                   </View>
                 ))}
               </View>
@@ -1133,25 +1367,37 @@ export const HomeScreen: FC = () => {
             </View>
             <WorkoutBadge type={day.type} />
             <Text style={styles.dayCardTitle}>{day.title}</Text>
-            {day.distance > 0 && (
-              <Text style={[styles.dayCardDistance, typography.mono]}>{day.distance} km</Text>
+            {day.distance > 0 ? (
+              <>
+                <Text style={[styles.dayCardDistance, typography.mono]}>{day.distance} km</Text>
+                <Text style={styles.dayCardDetail}>@ planned pace</Text>
+                <Text style={styles.dayCardDetail}>{day.detail}</Text>
+              </>
+            ) : (
+              <Text style={styles.dayRestCentered}>Rest 💤</Text>
             )}
-            <Text style={styles.dayCardDetail}>{day.detail}</Text>
+            <View style={styles.dayZoneBar}>
+              <View
+                style={[
+                  styles.dayZoneFill,
+                  {
+                    width: "100%",
+                    backgroundColor:
+                      day.type === "interval"
+                        ? theme.accentRed
+                        : day.type === "tempo"
+                        ? theme.accentBlue
+                        : day.type === "easy" || day.type === "recovery"
+                        ? theme.accentGreen
+                        : theme.textMuted,
+                  },
+                ]}
+              />
+            </View>
           </View>
         ))}
       </ScrollView>
       </ScreenContainer>
-      {/* Ask Kipcoachee – fixed above tab bar, right side */}
-      <View style={styles.coachBubbleFixed} pointerEvents="box-none">
-        <TouchableOpacity
-          activeOpacity={0.9}
-          onPress={() => navigation.navigate("Coach" as never)}
-          style={[styles.coachBubbleInner, { backgroundColor: theme.card }]}
-          accessibilityLabel="Ask Kipcoachee"
-        >
-          <Ionicons name="chatbubble-ellipses" size={24} color={theme.textPrimary} />
-        </TouchableOpacity>
-      </View>
     </View>
   );
 };

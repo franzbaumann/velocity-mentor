@@ -50,13 +50,19 @@ type ActivityRow = {
   duration_seconds: number | null;
   avg_pace: string | null;
   avg_hr: number | null;
-  max_hr: number | null;
   source: string | null;
-  splits: unknown;
-  hr_zones?: Record<string, number> | null;
-  hr_zone_times?: number[] | null;
   external_id?: string | null;
+  /** Max HR (bpm); optional from DB */
+  max_hr?: number | null;
+  /** Splits/lap data; optional from DB */
+  splits?: unknown;
+  /** HR zone percentages keyed by zone */
+  hr_zones?: Record<string, number> | null;
+  /** HR zone times in seconds per zone */
+  hr_zone_times?: number[] | null;
+  /** Intervals.icu training load */
   icu_training_load?: number | null;
+  /** TRIMP score */
   trimp?: number | null;
 };
 

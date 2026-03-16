@@ -14,6 +14,7 @@ import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { useTheme } from "../context/ThemeContext";
 import { useSupabaseAuth } from "../SupabaseProvider";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { GlassCard } from "../components/GlassCard";
 import * as SecureStore from "expo-secure-store";
 import { AUTH_STORAGE_KEY } from "../shared/supabase";
@@ -33,7 +34,7 @@ export const AuthScreen: FC = () => {
   );
   const [error, setError] = useState<string | null>(null);
   const [rememberMe, setRememberMe] = useState(true);
-  const { signInWithPassword, signUpWithPassword } = useSupabaseAuth();
+  const { signInWithPassword, signUpWithPassword, bypassLogin } = useSupabaseAuth();
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -175,6 +176,7 @@ export const AuthScreen: FC = () => {
       await signUpWithPassword(email.trim(), password);
       // Logga in direkt efter lyckad signup
       await signInWithPassword(email.trim(), password);
+      await AsyncStorage.setItem("account_created_at", new Date().toISOString());
       if (!rememberMe) {
         await SecureStore.deleteItemAsync(AUTH_STORAGE_KEY);
       }
@@ -324,7 +326,15 @@ export const AuthScreen: FC = () => {
           <TouchableOpacity
             style={styles.secondaryButton}
             activeOpacity={0.85}
-            onPress={() => navigation.navigate("Pricing")}
+            onPress={async () => {
+              try {
+                await AsyncStorage.setItem("account_created_at", new Date().toISOString());
+              } catch (e) {
+                console.warn("[auth] Failed to persist account_created_at", e);
+              } finally {
+                bypassLogin();
+              }
+            }}
           >
             <Text style={styles.secondaryButtonText}>Skip login for now</Text>
           </TouchableOpacity>

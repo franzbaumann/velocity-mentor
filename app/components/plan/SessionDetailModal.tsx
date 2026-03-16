@@ -1,5 +1,6 @@
 import { FC, useEffect, useMemo, useState } from "react";
 import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../../context/ThemeContext";
 import { TrainingPlanSession } from "../../hooks/useTrainingPlan";
 import { typography } from "../../theme/theme";
@@ -14,6 +15,8 @@ type Props = {
   onClose: () => void;
   onToggleDone: (session: TrainingPlanSession) => void;
   onAskKipcoachee?: (session: TrainingPlanSession) => void;
+  isMarkingDone?: boolean;
+  isNutritionLoading?: boolean;
 };
 
 type WorkoutKind =
@@ -57,6 +60,8 @@ export const SessionDetailModal: FC<Props> = ({
   onClose,
   onToggleDone,
   onAskKipcoachee,
+  isMarkingDone = false,
+  isNutritionLoading = false,
 }) => {
   const { theme } = useTheme();
   const queryClient = useQueryClient();
@@ -379,10 +384,13 @@ export const SessionDetailModal: FC<Props> = ({
     [theme],
   );
 
+  const COACH_NOTE_CACHE_TTL = 24 * 60 * 60 * 1000; // 24h
+
   useEffect(() => {
     if (!session) return;
     setCoachNote(session.coach_note ?? null);
     setCoachNoteError(null);
+    // DB first (session.coach_note). Only fetch if both DB and cache might be empty.
     if (session.supportsCoachNote !== false && !session.coach_note) {
       void fetchCoachNote(false);
     }
@@ -391,9 +399,32 @@ export const SessionDetailModal: FC<Props> = ({
 
   const fetchCoachNote = async (regenerate: boolean) => {
     if (!session) return;
+    const cacheKey = `coach_note_session_${session.id}`;
     setCoachNoteLoading(true);
     setCoachNoteError(null);
     try {
+      if (regenerate) {
+        await AsyncStorage.removeItem(cacheKey).catch(() => {});
+      } else {
+        const raw = await AsyncStorage.getItem(cacheKey);
+        if (raw) {
+          try {
+            const cached = JSON.parse(raw) as { note: string; timestamp: number };
+            if (
+              cached?.note &&
+              cached?.timestamp &&
+              Date.now() - cached.timestamp < COACH_NOTE_CACHE_TTL
+            ) {
+              setCoachNote(cached.note);
+              setCoachNoteLoading(false);
+              return;
+            }
+          } catch {
+            // ignore parse errors
+          }
+        }
+      }
+
       const { data, error } = await callEdgeFunctionWithRetry({
         functionName: "intervals-proxy",
         body: { action: "workout_coach_note", workoutId: session.id, regenerate },
@@ -410,6 +441,10 @@ export const SessionDetailModal: FC<Props> = ({
       const note = res?.note;
       if (note) {
         setCoachNote(note);
+        await AsyncStorage.setItem(
+          cacheKey,
+          JSON.stringify({ note, timestamp: Date.now() }),
+        ).catch(() => {});
         queryClient.invalidateQueries({ queryKey: ["training-plan"] });
       }
     } catch (e) {
@@ -1093,7 +1128,24 @@ export const SessionDetailModal: FC<Props> = ({
                         </TouchableOpacity>
                       </>
                     ) : coachNote ? (
-                      <Text style={styles.coachText}>{coachNote}</Text>
+                      <>
+                        <Text style={styles.coachText}>{coachNote}</Text>
+                        <TouchableOpacity
+                          style={{ marginTop: 6 }}
+                          onPress={() => fetchCoachNote(true)}
+                          activeOpacity={0.7}
+                          disabled={coachNoteLoading}
+                        >
+                          <Text
+                            style={{
+                              fontSize: 12,
+                              color: theme.textSecondary ?? "#6b7280",
+                            }}
+                          >
+                            {coachNoteLoading ? "Generating…" : "↻ Regenerate"}
+                          </Text>
+                        </TouchableOpacity>
+                      </>
                     ) : (
                       <Text style={styles.coachText}>—</Text>
                     )}
@@ -1121,15 +1173,22 @@ export const SessionDetailModal: FC<Props> = ({
               <Text style={styles.buttonGhostText}>Close</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={styles.buttonPrimary}
+              style={[styles.buttonPrimary, (isMarkingDone || isNutritionLoading) && { opacity: 0.7 }]}
               activeOpacity={0.85}
+              disabled={isMarkingDone || isNutritionLoading}
               onPress={() => {
                 onToggleDone(session);
                 onClose();
               }}
             >
               <Text style={styles.buttonPrimaryText}>
-                {session.completed_at ? "Mark incomplete" : "Mark complete"}
+                {isMarkingDone
+                  ? "Saving…"
+                  : isNutritionLoading
+                    ? "✓ Complete · Getting nutrition advice..."
+                    : session.completed_at
+                      ? "Mark incomplete"
+                      : "Mark complete"}
               </Text>
             </TouchableOpacity>
           </View>

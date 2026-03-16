@@ -11,6 +11,8 @@ export type StatsActivity = {
   splits?: unknown;
   icu_training_load?: number | null;
   trimp?: number | null;
+  external_id?: string | null;
+  max_hr?: number | null;
 };
 
 const DEFAULT_THRESHOLD_HR = 170;
@@ -115,6 +117,45 @@ export function inferRunType(type: string | null): "easy" | "tempo" | "long" | "
   return "other";
 }
 
+/** Pace progression filter: easy = Zone 2 (60–70% max HR), LT1 = 75–82%, LT2 = 85–92%. Copy from web. */
+export type PaceProgressionFilter = "all" | "easy" | "lt1" | "lt2";
+
+/**
+ * Classify run by HR zones. Easy = Z2 (60–70%), LT1 = 75–82%, LT2 = 85–92%.
+ * Returns null if no avg_hr or max_hr. Copy exact logic from web analytics.ts.
+ */
+export function classifyRunByHr(
+  activity: { avg_hr?: number | null; max_hr?: number | null },
+  _zones?: unknown,
+): "easy" | "lt1" | "lt2" | null {
+  const avgHr = activity?.avg_hr ?? null;
+  const maxHr = activity?.max_hr ?? null;
+  if (avgHr == null || maxHr == null || maxHr <= 0) return null;
+  const pct = (avgHr / maxHr) * 100;
+  if (pct >= 60 && pct <= 70) return "easy";
+  if (pct >= 75 && pct <= 82) return "lt1";
+  if (pct >= 85 && pct <= 92) return "lt2";
+  return null;
+}
+
+/** Resolve run type label for display (badge). Prefer HR-based classification, fallback to name/type inference. */
+export function getRunTypeLabelForDisplay(activity: {
+  type: string | null;
+  avg_hr?: number | null;
+  max_hr?: number | null;
+}): string {
+  if (!activity?.type || !isRunningActivity(activity.type)) return activity?.type ?? "Activity";
+  const hrType = classifyRunByHr(activity);
+  if (hrType === "easy") return "Easy";
+  if (hrType === "lt1") return "Tempo";
+  if (hrType === "lt2") return "Interval";
+  const inferred = inferRunType(activity.type);
+  if (inferred === "easy") return "Easy";
+  if (inferred === "tempo") return "Tempo";
+  if (inferred === "long") return "Long";
+  return "Run";
+}
+
 export const PR_DISTANCES = [
   { key: "1km", km: 1, label: "1 km" },
   { key: "1mi", km: 1.60934, label: "1 mile" },
@@ -128,8 +169,8 @@ export function findBestForDistance(
   activities: StatsActivity[],
   targetKm: number,
   tolerance = 0.05,
-): { timeSec: number; paceMinPerKm: number; date: string; activityId: string } | null {
-  let best: { timeSec: number; paceMinPerKm: number; date: string; activityId: string } | null = null;
+): { timeSec: number; paceMinPerKm: number; date: string; activityId: string; externalId?: string | null } | null {
+  let best: { timeSec: number; paceMinPerKm: number; date: string; activityId: string; externalId?: string | null } | null = null;
   for (const a of activities) {
     if (!isRunningActivity(a.type)) continue;
     const dist = a.distance_km ?? 0;
@@ -141,7 +182,7 @@ export function findBestForDistance(
       if (pace < 2 || pace > 15) continue;
       const minTimeSec = targetKm * 120;
       if (equivTime < minTimeSec) continue;
-      if (!best || pace < best.paceMinPerKm) best = { timeSec: equivTime, paceMinPerKm: pace, date: a.date, activityId: a.id };
+      if (!best || pace < best.paceMinPerKm) best = { timeSec: equivTime, paceMinPerKm: pace, date: a.date, activityId: a.id, externalId: (a as { external_id?: string | null }).external_id };
     }
     const splits = a.splits as Array<{ distance?: number; elapsed_time?: number }> | null;
     if (splits && Array.isArray(splits)) {
@@ -160,7 +201,7 @@ export function findBestForDistance(
           if (pace < 2 || pace > 15) break;
           const minTimeSec = targetKm * 120;
           if (equivTime < minTimeSec) break;
-          if (!best || pace < best.paceMinPerKm) best = { timeSec: equivTime, paceMinPerKm: pace, date: a.date, activityId: a.id };
+          if (!best || pace < best.paceMinPerKm) best = { timeSec: equivTime, paceMinPerKm: pace, date: a.date, activityId: a.id, externalId: (a as { external_id?: string | null }).external_id };
           break;
         }
       }

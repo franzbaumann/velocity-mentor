@@ -26,12 +26,19 @@ import { GlassCard } from "../components/GlassCard";
 import { ExpandableText } from "../components/ExpandableText";
 import { useTheme } from "../context/ThemeContext";
 import type { PlanStackParamList } from "../navigation/RootNavigator";
-import { SUPABASE_ANON_KEY, SUPABASE_URL, supabase } from "../shared/supabase";
-import { useDashboardData } from "../hooks/useDashboardData";
+import { supabase } from "../shared/supabase";
+import { callEdgeFunctionWithRetry as callEdgeFetchWithRetry } from "../lib/edgeFunctionWithRetry";
+import { useMergedIntervalsData } from "../hooks/useMergedIntervalsData";
 import { useTrainingPlan } from "../hooks/useTrainingPlan";
+import {
+  buildPlanFromIntake,
+  savePlanToSupabase,
+  type PlanIntake,
+} from "../lib/generate-plan";
 
 // --- Types mirrored from web Onboarding V2 ---
 
+/** Onboarding answers; aligned with PlanIntake (goal_race_date, goal_time, detailed_injuries, availability_notes, training_history_notes) */
 type OnboardingV2Answers = {
   goal: string;
   goalDetail: string;
@@ -39,6 +46,10 @@ type OnboardingV2Answers = {
   raceDate: string;
   raceDistance: string;
   goalTime: string;
+  /** Alias for PlanIntake goal_race_date */
+  goal_race_date?: string;
+  /** Alias for PlanIntake goal_time */
+  goal_time?: string;
   weeklyKm: number;
   recentRaceType: string;
   recentRaceTime: string;
@@ -46,11 +57,17 @@ type OnboardingV2Answers = {
   daysPerWeek: number;
   sessionLength: string;
   schedulingNote: string;
+  /** Alias for PlanIntake availability_notes */
+  availability_notes?: string;
   preferredDays?: string[];
   injuries: string[];
   injuryDetail: string;
+  /** Alias for PlanIntake detailed_injuries */
+  detailed_injuries?: string;
   experienceLevel: string;
   trainingHistoryNote: string;
+  /** Alias for PlanIntake training_history_notes */
+  training_history_notes?: string;
 };
 
 type PhilosophyRecommendation = {
@@ -180,13 +197,80 @@ const ANALYSE_STEPS = [
   "Ranking philosophies for you",
 ];
 
-const PACEIQ_PHILOSOPHY_URL = `${SUPABASE_URL}/functions/v1/paceiq-philosophy`;
-const PACEIQ_GENERATE_PLAN_URL = `${SUPABASE_URL}/functions/v1/paceiq-generate-plan`;
+
+/** Toggle when paceiq-philosophy edge function is deployed. When false, use rule-based fallback. */
+const PACEIQ_PHILOSOPHY_ENABLED = false;
+
+const PHILOSOPHY_FETCH_TIMEOUT_MS = 10000;
+
+/** Rule-based philosophy recommendation when edge function is unavailable or fails. */
+function getFallbackPhilosophy(answers: OnboardingV2Answers): PhilosophyRecommendation {
+  const weeklyKm = answers.weeklyKm ?? 0;
+  let primary: { philosophy: string; reason: string; confidence: number };
+  const alternatives: { philosophy: string; reason: string }[] = [];
+
+  if (weeklyKm < 30) {
+    primary = {
+      philosophy: "80_20_polarized",
+      reason: "At under 30 km/week, 80/20 keeps intensity balanced and reduces injury risk while you build volume.",
+      confidence: 0.85,
+    };
+    alternatives.push(
+      { philosophy: "jack_daniels", reason: "VDOT-based training gives clear paces as you increase volume." },
+      { philosophy: "lydiard", reason: "Base-first approach suits lower volume; add intensity later." },
+    );
+  } else if (weeklyKm <= 60) {
+    primary = {
+      philosophy: "jack_daniels",
+      reason: "In the 30–60 km/week range, Jack Daniels VDOT provides structured zones and proven progressions.",
+      confidence: 0.85,
+    };
+    alternatives.push(
+      { philosophy: "80_20_polarized", reason: "Polarized model works well at this volume for race-focused training." },
+      { philosophy: "lydiard", reason: "Lydiard base-building fits if you prefer a long aerobic phase." },
+    );
+  } else {
+    primary = {
+      philosophy: "lydiard",
+      reason: "Above 60 km/week, Lydiard base-building leverages your volume and periodizes intensity effectively.",
+      confidence: 0.85,
+    };
+    alternatives.push(
+      { philosophy: "jack_daniels", reason: "VDOT structure pairs well with high volume for sharpening." },
+      { philosophy: "pfitzinger", reason: "Pfitzinger suits high mileage with lactate threshold focus." },
+    );
+  }
+
+  return { primary, alternatives };
+}
+
+/** Map onboarding answers to intake shape for coach-generate-plan and buildPlanFromIntake */
+function mapAnswersToIntake(answers: OnboardingV2Answers): PlanIntake {
+  const freqStr =
+    answers.daysPerWeek >= 6 ? "6-7" : answers.daysPerWeek >= 1 ? `${answers.daysPerWeek} days` : "4 days";
+  const days =
+    answers.preferredDays && answers.preferredDays.length > 0
+      ? answers.preferredDays
+      : ["Monday", "Wednesday", "Friday", "Saturday"];
+  return {
+    race_date: answers.raceDate || answers.goal_race_date,
+    race_goal: answers.raceDistance,
+    target_time: answers.goalTime || answers.goal_time,
+    goal_race_date: answers.raceDate || answers.goal_race_date,
+    goal_time: answers.goalTime || answers.goal_time,
+    weekly_frequency: freqStr,
+    long_run_day: /sunday/i.test(answers.schedulingNote || "") ? "Sunday" : "Saturday",
+    available_days: days,
+    detailed_injuries: answers.injuryDetail || answers.detailed_injuries,
+    availability_notes: answers.schedulingNote || answers.availability_notes,
+    training_history_notes: answers.trainingHistoryNote || answers.training_history_notes,
+  };
+}
 
 export const PlanOnboardingScreen: FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<PlanStackParamList>>();
-  const { activities, readinessRows } = useDashboardData();
+  const { activities, readiness: readinessRows, isLoading: mergedDataLoading } = useMergedIntervalsData();
   const { plan: existingPlan, isLoading: planCheckLoading } = useTrainingPlan();
 
   const [state, setState] = useState<OnboardingState>(DEFAULT_STATE);
@@ -474,32 +558,45 @@ export const PlanOnboardingScreen: FC = () => {
     setPhiloLoading(true);
     setPhiloError(null);
 
-    supabase.auth
-      .getSession()
-      .then(({ data: { session } }) =>
-        fetch(PACEIQ_PHILOSOPHY_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(SUPABASE_ANON_KEY ? { apikey: SUPABASE_ANON_KEY } : {}),
-            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+    if (!PACEIQ_PHILOSOPHY_ENABLED) {
+      setState((prev) => ({
+        ...prev,
+        recommendedPhilosophy: getFallbackPhilosophy(prev.answers),
+      }));
+      setPhiloLoading(false);
+      return;
+    }
+
+    (async () => {
+      try {
+        const json = await callEdgeFetchWithRetry<PhilosophyRecommendation & { primary?: unknown }>(
+          "paceiq-philosophy",
+          { answers: state.answers },
+          {
+            maxRetries: 3,
+            timeout: PHILOSOPHY_FETCH_TIMEOUT_MS,
           },
-          body: JSON.stringify({ answers: state.answers }),
-        }),
-      )
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok || !json?.primary) {
-          setPhiloError(json.error ?? "Failed to get recommendation");
-          return;
+        );
+        if (json?.primary) {
+          setState((prev) => ({
+            ...prev,
+            recommendedPhilosophy: json as PhilosophyRecommendation,
+          }));
+        } else {
+          setState((prev) => ({
+            ...prev,
+            recommendedPhilosophy: getFallbackPhilosophy(prev.answers),
+          }));
         }
+      } catch {
         setState((prev) => ({
           ...prev,
-          recommendedPhilosophy: json as PhilosophyRecommendation,
+          recommendedPhilosophy: getFallbackPhilosophy(prev.answers),
         }));
-      })
-      .catch((e) => setPhiloError(e instanceof Error ? e.message : "Network error"))
-      .finally(() => setPhiloLoading(false));
+      } finally {
+        setPhiloLoading(false);
+      }
+    })();
   }, [state.currentStep, state.answers, state.recommendedPhilosophy]);
 
   // Analysing animation steps (step 8)
@@ -557,7 +654,7 @@ export const PlanOnboardingScreen: FC = () => {
     return () => clearInterval(id);
   }, [planLoading]);
 
-  // --- Plan generation API (step 9) ---
+  // --- Plan generation API (step 9): coach-generate-plan primary, client-side buildPlanFromIntake fallback ---
   useEffect(() => {
     if (state.currentStep !== 9 || !state.selectedPhilosophy) return;
     if (state.generatedPlan) return;
@@ -565,32 +662,62 @@ export const PlanOnboardingScreen: FC = () => {
     setPlanLoading(true);
     setPlanError(null);
 
-    supabase.auth
-      .getSession()
-      .then(({ data: { session } }) =>
-        fetch(PACEIQ_GENERATE_PLAN_URL, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            ...(SUPABASE_ANON_KEY ? { apikey: SUPABASE_ANON_KEY } : {}),
-            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-          },
-          body: JSON.stringify({
-            answers: state.answers,
-            philosophy: state.selectedPhilosophy,
-          }),
-        }),
-      )
-      .then(async (res) => {
-        const json = await res.json().catch(() => ({}));
-        if (!res.ok || json.error) {
-          setPlanError(json.error ?? "Failed to generate plan");
+    const intake = mapAnswersToIntake(state.answers);
+
+    (async () => {
+      try {
+        const json = await callEdgeFetchWithRetry<{ plan_id?: string; error?: string }>(
+          "coach-generate-plan",
+          { intakeAnswers: intake, conversationContext: [] },
+          { maxRetries: 3, timeout: 45000 },
+        );
+        if (!json?.error && json?.plan_id) {
+          setState((prev) => ({
+            ...prev,
+            generatedPlan: {
+              plan_id: json.plan_id,
+              plan_name: prev.selectedPhilosophy ?? "",
+              philosophy: prev.selectedPhilosophy ?? "",
+              total_weeks: 0,
+              peak_weekly_km: null,
+              start_date: "",
+              first_workout: null,
+            },
+          }));
           return;
         }
-        setState((prev) => ({ ...prev, generatedPlan: json as PlanResult }));
-      })
-      .catch((e) => setPlanError(e instanceof Error ? e.message : "Network error"))
-      .finally(() => setPlanLoading(false));
+        throw new Error(json?.error ?? "No plan_id returned");
+      } catch {
+        // Fallback: client-side buildPlanFromIntake + savePlanToSupabase
+        const { data: { user } } = await supabase.auth.getUser();
+        if (!user) {
+          setPlanError("Failed to generate plan");
+          return;
+        }
+        try {
+          const plan = buildPlanFromIntake(intake);
+          const planId = await savePlanToSupabase(supabase, user.id, plan);
+          setState((prev) => ({
+            ...prev,
+            generatedPlan: {
+              plan_id: planId,
+              plan_name: prev.selectedPhilosophy ?? "",
+              philosophy: prev.selectedPhilosophy ?? "",
+              total_weeks: plan.weeks.length,
+              peak_weekly_km: null,
+              start_date: plan.weeks[0]?.start_date ?? "",
+              first_workout: null,
+            },
+          }));
+        } catch (fallbackErr) {
+          setPlanError(
+            fallbackErr instanceof Error ? fallbackErr.message : "Failed to generate plan",
+          );
+        }
+      } finally {
+        setPlanLoading(false);
+      }
+    })();
   }, [state.currentStep, state.selectedPhilosophy, state.answers, state.generatedPlan]);
 
   const saveProfileToSupabase = async (answers: OnboardingV2Answers, philosophy: string | null) => {

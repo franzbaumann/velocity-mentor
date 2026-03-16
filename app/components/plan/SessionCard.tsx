@@ -1,5 +1,6 @@
 import { FC, useMemo } from "react";
 import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../../context/ThemeContext";
 import { WorkoutBadge } from "../WorkoutBadge";
 import { TrainingPlanSession } from "../../hooks/useTrainingPlan";
@@ -13,6 +14,23 @@ type Props = {
 
 export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKipcoachee }) => {
   const { colors } = useTheme();
+  const sessionType = String(session.session_type ?? "").toLowerCase();
+  const borderColor = sessionType.includes("interval")
+    ? "#ef4444"
+    : sessionType.includes("tempo") || sessionType.includes("threshold")
+    ? "#3b82f6"
+    : sessionType.includes("easy") || sessionType.includes("recovery")
+    ? "#22c55e"
+    : sessionType.includes("long")
+    ? "#f97316"
+    : colors.primary;
+  const estimatedMin =
+    session.duration_min != null && isFinite(session.duration_min)
+      ? Math.round(session.duration_min)
+      : session.distance_km != null && isFinite(session.distance_km)
+      ? Math.round(session.distance_km * 6)
+      : null;
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -24,6 +42,8 @@ export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKi
           backgroundColor: colors.card,
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
+          borderLeftWidth: 3,
+          borderLeftColor: borderColor,
           marginBottom: 8,
         },
         checkbox: {
@@ -58,6 +78,8 @@ export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKi
           color: colors.foreground,
           marginTop: 4,
         },
+        titleRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
+        intervalDot: { width: 7, height: 7, borderRadius: 999, backgroundColor: "#ef4444" },
         metaRow: {
           flexDirection: "row",
           flexWrap: "wrap",
@@ -65,8 +87,16 @@ export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKi
         },
         meta: { fontSize: 11, color: colors.mutedForeground },
         dim: { opacity: session.completed_at ? 0.65 : 1 },
+        askIconBtn: {
+          width: 28,
+          height: 28,
+          borderRadius: 999,
+          alignItems: "center",
+          justifyContent: "center",
+          backgroundColor: colors.primary + "20",
+        },
       }),
-    [colors, session.completed_at],
+    [borderColor, colors, session.completed_at],
   );
 
   const handlePress = () => {
@@ -76,6 +106,7 @@ export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKi
   const km = session.distance_km != null ? `${Math.round(session.distance_km * 10) / 10} km` : null;
   const min = session.duration_min != null ? `${Math.round(session.duration_min)} min` : null;
   const pace = session.pace_target ? `@ ${session.pace_target}` : null;
+  const est = estimatedMin != null ? `~${estimatedMin} min` : null;
 
   const dateLabel = session.scheduled_date ?? "";
 
@@ -97,11 +128,14 @@ export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKi
           <WorkoutBadge type={session.session_type as any} />
           <Text style={styles.dateText}>{dateLabel}</Text>
         </View>
-        <Text style={styles.title} numberOfLines={2}>
-          {session.description}
-        </Text>
+        <View style={styles.titleRow}>
+          {sessionType.includes("interval") && <View style={styles.intervalDot} />}
+          <Text style={styles.title} numberOfLines={2}>
+            {session.description}
+          </Text>
+        </View>
         <View style={styles.metaRow}>
-          {[km, min, pace].filter(Boolean).map((m, i) => (
+          {[km, min, est, pace].filter(Boolean).map((m, i) => (
             <Text key={i} style={styles.meta}>
               {i > 0 ? " · " : ""}
               {m}
@@ -109,17 +143,10 @@ export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKi
           ))}
         </View>
         {onAskKipcoachee && (
-          <View style={{ marginTop: 6 }}>
-            <Text
-              style={{
-                fontSize: 11,
-                color: colors.mutedForeground,
-                textDecorationLine: "underline",
-              }}
-              onPress={() => onAskKipcoachee(session)}
-            >
-              Ask Kipcoachee about this session
-            </Text>
+          <View style={{ marginTop: 8, flexDirection: "row", justifyContent: "flex-end" }}>
+            <TouchableOpacity style={styles.askIconBtn} onPress={() => onAskKipcoachee(session)} activeOpacity={0.85}>
+              <Ionicons name="chatbubble-ellipses" size={14} color={colors.primary} />
+            </TouchableOpacity>
           </View>
         )}
       </View>

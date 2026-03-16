@@ -145,34 +145,14 @@ export function useActivityDetailMobile(
         hints?.externalId ??
         (isIcu ? activityId.replace(/^icu_/, "") : activityId);
 
-      // --- ICU branch: use intervals-proxy as primary source ---
+      // --- ICU branch: load from DB first (so we never fail when activity exists), then proxy for streams ---
       if (isIcu && extId) {
-        const {
-          data: { session },
-        } = await supabase.auth.getSession();
-        if (!session?.access_token) return null;
-
-        const [detailRes, streamsRes, dbRowRes, dbStreamsRes] = await Promise.all([
-          callEdgeFunctionWithRetry({
-            functionName: "intervals-proxy",
-            headers: { Authorization: `Bearer ${session.access_token}` },
-            body: { action: "activity", activityId: extId },
-            timeoutMs: 20000,
-            maxRetries: 3,
-            logContext: "useActivityDetailMobile:activity",
-          }),
-          callEdgeFunctionWithRetry({
-            functionName: "intervals-proxy",
-            headers: { Authorization: `Bearer ${session.access_token}` },
-            body: { action: "streams", activityId: extId },
-            timeoutMs: 20000,
-            maxRetries: 3,
-            logContext: "useActivityDetailMobile:streams",
-          }),
+        // 1) Always fetch from DB first (activity + streams). Use external_id for activity, activity_id = extId for streams.
+        const [dbRowRes, dbStreamsRes] = await Promise.all([
           supabase
             .from("activity")
             .select(
-              "id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, source, splits, lap_splits, external_id, latlng, user_notes, nomio_drink, lactate_levels, hr_zone_times, pace_zone_times, coach_note, cadence, icu_training_load, trimp, intensity, calories",
+              "id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, source, splits, lap_splits, external_id, hr_zone_times, pace_zone_times, cadence, icu_training_load, trimp, perceived_exertion",
             )
             .eq("user_id", user.id)
             .eq("external_id", extId)
@@ -185,15 +165,59 @@ export function useActivityDetailMobile(
             .maybeSingle(),
         ]);
 
-        const a =
-          detailRes.data &&
-          typeof detailRes.data === "object" &&
-          !("error" in (detailRes.data as Record<string, unknown>))
-            ? (detailRes.data as Record<string, unknown>)
-            : null;
         const dbAct = (dbRowRes.data as Record<string, unknown> | null) ?? null;
 
-        if (!a && !dbAct) return null;
+        // 2) Optionally fetch from intervals-proxy (detail + streams). Don't fail the whole query if proxy fails.
+        let a: Record<string, unknown> | null = null;
+        let streamsRes: { data: unknown } = { data: null };
+        const {
+          data: { session },
+        } = await supabase.auth.getSession();
+        if (session?.access_token) {
+          try {
+            const [detailRes, streamsResFetched] = await Promise.all([
+              callEdgeFunctionWithRetry({
+                functionName: "intervals-proxy",
+                headers: { Authorization: `Bearer ${session.access_token}` },
+                body: { action: "activity", activityId: extId },
+                timeoutMs: 45000,
+                maxRetries: 2,
+                logContext: "useActivityDetailMobile:activity",
+              }),
+              callEdgeFunctionWithRetry({
+                functionName: "intervals-proxy",
+                headers: { Authorization: `Bearer ${session.access_token}` },
+                body: {
+                  action: "streams",
+                  activityId: extId,
+                  requestStreams: ["time", "heartrate", "cadence", "altitude", "pace", "distance", "latlng", "temperature", "respiration_rate"],
+                },
+                timeoutMs: 45000,
+                maxRetries: 2,
+                logContext: "useActivityDetailMobile:streams",
+              }),
+            ]);
+            if (
+              detailRes.data &&
+              typeof detailRes.data === "object" &&
+              !("error" in (detailRes.data as Record<string, unknown>))
+            ) {
+              a = detailRes.data as Record<string, unknown>;
+            }
+            streamsRes = streamsResFetched;
+          } catch (e) {
+            if (__DEV__) {
+              console.log("[useActivityDetailMobile] intervals-proxy failed, using DB only", { extId, err: e instanceof Error ? e.message : String(e) });
+            }
+          }
+        }
+
+        if (!a && !dbAct) {
+          if (__DEV__) {
+            console.log("[useActivityDetailMobile] No activity found", { extId, hasDbAct: !!dbAct, dbError: dbRowRes.error?.message });
+          }
+          return null;
+        }
 
         // Distance & duration
         const distMeters = a?.distance != null ? Number(a.distance) : 0;
@@ -450,7 +474,7 @@ export function useActivityDetailMobile(
       // --- Non-ICU branch: pure DB lookup (existing logic) ---
       const rawId = hints?.rawId ?? activityId;
       const baseSelect =
-        "id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, source, splits, lap_splits, external_id, latlng, user_notes, nomio_drink, lactate_levels, hr_zone_times, pace_zone_times, coach_note, cadence, icu_training_load, trimp, intensity, calories";
+        "id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, source, splits, lap_splits, external_id, hr_zone_times, pace_zone_times, cadence, icu_training_load, trimp, perceived_exertion";
 
       let row: Record<string, unknown> | null = null;
 

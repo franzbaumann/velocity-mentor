@@ -8,6 +8,7 @@ import {
 } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
+import { Ionicons } from "@expo/vector-icons";
 import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
 import { useTheme } from "../context/ThemeContext";
@@ -16,12 +17,14 @@ import type { PlanStackParamList } from "../navigation/RootNavigator";
 import { useTrainingPlan, TrainingPlanSession } from "../hooks/useTrainingPlan";
 import { SessionCard } from "../components/plan/SessionCard";
 import { SessionDetailModal } from "../components/plan/SessionDetailModal";
+import { SkeletonCard, SkeletonLine } from "../components/Skeleton";
 import {
   addMonths,
   eachDayOfInterval,
   endOfMonth,
   endOfWeek,
   format,
+  differenceInCalendarDays,
   isWithinInterval,
   parseISO,
   isSameDay,
@@ -47,7 +50,7 @@ function formatMin(min: number | null | undefined): string {
 export const TrainingPlanScreen: FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<PlanStackParamList>>();
-  const { plan, isLoading, isRefetching, rescheduleSession, markSessionDone } = useTrainingPlan();
+  const { plan, isLoading, isRefetching, rescheduleSession, markSessionDone, isMarkingDone, isNutritionLoading } = useTrainingPlan();
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set([1]));
   const [selectedSession, setSelectedSession] = useState<TrainingPlanSession | null>(null);
@@ -57,6 +60,16 @@ export const TrainingPlanScreen: FC = () => {
       StyleSheet.create({
         content: { gap: 16, paddingBottom: 32 },
         title: { fontSize: 22, fontWeight: "600", color: colors.foreground },
+        subtitle: { fontSize: 14, color: colors.mutedForeground, marginTop: 4 },
+        countdownBadge: {
+          marginTop: 8,
+          alignSelf: "flex-start",
+          borderRadius: 999,
+          paddingHorizontal: 10,
+          paddingVertical: 5,
+          backgroundColor: colors.primary + "1f",
+        },
+        countdownText: { fontSize: 12, fontWeight: "600", color: colors.primary },
         sectionHeader: {},
         body: { fontSize: 14, color: colors.mutedForeground, lineHeight: 20 },
         weekHeaderRow: {
@@ -135,6 +148,32 @@ export const TrainingPlanScreen: FC = () => {
           fontSize: 14,
           color: colors.mutedForeground,
         },
+        thisWeekLoadTrack: {
+          marginTop: 10,
+          height: 8,
+          borderRadius: 999,
+          overflow: "hidden",
+          backgroundColor: colors.border,
+        },
+        thisWeekLoadFill: {
+          height: "100%",
+          borderRadius: 999,
+          backgroundColor: colors.primary,
+        },
+        thisWeekLoadLabel: {
+          marginTop: 6,
+          fontSize: 11,
+          color: colors.mutedForeground,
+        },
+        onTrackBadge: {
+          marginTop: 8,
+          alignSelf: "flex-start",
+          borderRadius: 999,
+          paddingHorizontal: 10,
+          paddingVertical: 4,
+          backgroundColor: "#22c55e22",
+        },
+        onTrackText: { fontSize: 11, fontWeight: "700", color: "#16a34a" },
         rebuildCard: {
           marginTop: 4,
         },
@@ -348,6 +387,14 @@ export const TrainingPlanScreen: FC = () => {
     };
   }, [weeks, today]);
 
+  const raceDateRaw = plan?.plan?.goal_date || plan?.plan?.race_date || null;
+  const raceDate = raceDateRaw ? new Date(raceDateRaw) : null;
+  const daysToRace = raceDate ? Math.max(0, differenceInCalendarDays(raceDate, new Date())) : null;
+  const planDisplayName = plan?.plan?.plan_name ?? "Jack Daniels Half Marathon";
+  const raceSubtitle = raceDate
+    ? `${planDisplayName} · ${format(raceDate, "MMM d, yyyy")}`
+    : planDisplayName;
+
   const calendarDays = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(currentMonth);
@@ -370,6 +417,10 @@ export const TrainingPlanScreen: FC = () => {
     return map;
   }, [weeks]);
 
+  const openSeason = useCallback(() => {
+    navigation.navigate("Season");
+  }, [navigation]);
+
   // Only show the blocking skeleton while the very first plan load is happening.
   // Background refetches (e.g. after marking sessions done or generating coach notes)
   // should keep showing the current plan to avoid jarring flashes.
@@ -377,12 +428,16 @@ export const TrainingPlanScreen: FC = () => {
     return (
       <ScreenContainer contentContainerStyle={styles.content}>
         <Text style={styles.title}>Training plan</Text>
-        <GlassCard>
-          <View style={{ alignItems: "center", paddingVertical: 24, gap: 12 }}>
-            <ActivityIndicator color={colors.primary} />
-            <Text style={styles.body}>Loading your plan…</Text>
-          </View>
-        </GlassCard>
+        <SkeletonCard>
+          <SkeletonLine width="35%" />
+          <SkeletonLine width="70%" style={{ marginTop: 12 }} />
+          <SkeletonLine width="100%" style={{ marginTop: 12, height: 70, borderRadius: 12 }} />
+        </SkeletonCard>
+        <SkeletonCard>
+          <SkeletonLine width="25%" />
+          <SkeletonLine width="90%" style={{ marginTop: 10 }} />
+          <SkeletonLine width="80%" style={{ marginTop: 10 }} />
+        </SkeletonCard>
       </ScreenContainer>
     );
   }
@@ -390,7 +445,17 @@ export const TrainingPlanScreen: FC = () => {
   if (!plan?.plan) {
     return (
       <ScreenContainer contentContainerStyle={styles.content}>
-        <Text style={styles.title}>Training plan</Text>
+        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
+          <Text style={styles.title}>Training plan</Text>
+          <TouchableOpacity
+            onPress={openSeason}
+            activeOpacity={0.8}
+            style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12, minHeight: 48 }}
+          >
+            <Ionicons name="trophy" size={20} color={colors.primary} />
+            <Text style={{ fontSize: 15, fontWeight: "600", color: colors.primary }}>Season</Text>
+          </TouchableOpacity>
+        </View>
         <GlassCard>
           <Text style={[styles.sectionHeader, typography.sectionHeader]}>No plan yet</Text>
           <Text style={[styles.body, { marginTop: 8 }]}>
@@ -410,17 +475,23 @@ export const TrainingPlanScreen: FC = () => {
 
   return (
     <ScreenContainer contentContainerStyle={styles.content}>
-      <Text style={styles.title}>Training plan</Text>
-      <Text style={[styles.body, { marginBottom: 4 }]}>
-        {plan.plan.plan_name || plan.plan.race_type || "Training plan"}
-        {(plan.plan.goal_date || plan.plan.race_date) &&
-          ` · ${format(
-            new Date(plan.plan.goal_date || plan.plan.race_date || ""),
-            "MMM d, yyyy",
-          )}`}
-        {(plan.plan.goal_time || plan.plan.target_time) &&
-          ` · ${plan.plan.goal_time || plan.plan.target_time}`}
-      </Text>
+      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
+        <Text style={styles.title}>Training plan</Text>
+        <TouchableOpacity
+          onPress={openSeason}
+          activeOpacity={0.8}
+          style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12, minHeight: 48 }}
+        >
+          <Ionicons name="trophy" size={20} color={colors.primary} />
+          <Text style={{ fontSize: 15, fontWeight: "600", color: colors.primary }}>Season</Text>
+        </TouchableOpacity>
+      </View>
+      <Text style={styles.subtitle}>{raceSubtitle}</Text>
+      {daysToRace != null && (
+        <View style={styles.countdownBadge}>
+          <Text style={styles.countdownText}>{daysToRace} days to race 🏁</Text>
+        </View>
+      )}
 
       {thisWeekData && (
         <GlassCard>
@@ -436,17 +507,31 @@ export const TrainingPlanScreen: FC = () => {
                 <Text style={styles.thisWeekLabel}>
                   {Math.round(thisWeekData.plannedKm)} km planned · {thisWeekData.rangeLabel}
                 </Text>
+                <View style={styles.thisWeekLoadTrack}>
+                  <View
+                    style={[
+                      styles.thisWeekLoadFill,
+                      {
+                        width: `${Math.max(
+                          0,
+                          Math.min(
+                            100,
+                            thisWeekData.plannedKm > 0
+                              ? (thisWeekData.doneCount / Math.max(thisWeekData.sessions.length, 1)) * 100
+                              : 0,
+                          ),
+                        )}%`,
+                      },
+                    ]}
+                  />
+                </View>
+                <Text style={styles.thisWeekLoadLabel}>
+                  Weekly load: {thisWeekData.doneCount}/{thisWeekData.sessions.length} sessions
+                </Text>
+                <View style={styles.onTrackBadge}>
+                  <Text style={styles.onTrackText}>On track</Text>
+                </View>
               </View>
-            </View>
-            <View>
-              <Text
-                style={{
-                  fontSize: 11,
-                  color: colors.mutedForeground,
-                }}
-              >
-                On track
-              </Text>
             </View>
           </View>
         </GlassCard>
@@ -662,6 +747,8 @@ export const TrainingPlanScreen: FC = () => {
           markSessionDone({ sessionId: sess.id, done: !sess.completed_at })
         }
         onAskKipcoachee={handleAskKipcoachee}
+        isMarkingDone={isMarkingDone}
+        isNutritionLoading={isNutritionLoading}
       />
     </ScreenContainer>
   );

@@ -2,9 +2,10 @@ import { useEffect, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase, callEdgeFunctionWithRetry } from "../shared/supabase";
 
-const STORAGE_KEY = "activity_streams_sync_last_ts";
+const STORAGE_KEY = "streams_last_sync";
 const COOLDOWN_MS = 60 * 60 * 1000; // 1 hour
 const MAX_CONCURRENT = 5;
+const MAX_ACTIVITIES_PER_BATCH = 5;
 
 function isRun(a: { type?: string | null }): boolean {
   const t = String(a?.type ?? "").toLowerCase();
@@ -57,7 +58,9 @@ async function syncStreamsForActivities(
     .eq("user_id", userId);
   const existingIds = new Set((existing ?? []).map((r) => r.activity_id));
 
-  const toSync = runs.filter((a) => a.externalId && !existingIds.has(a.externalId));
+  const toSync = runs
+    .filter((a) => a.externalId && !existingIds.has(a.externalId))
+    .slice(0, MAX_ACTIVITIES_PER_BATCH);
   if (toSync.length === 0) return;
 
   await runPool(toSync, MAX_CONCURRENT, async (a) => {

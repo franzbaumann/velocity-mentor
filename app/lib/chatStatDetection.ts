@@ -2,6 +2,21 @@ import type { ActivityRow, ReadinessRow } from "../hooks/useDashboardData";
 import { format, startOfWeek } from "date-fns";
 import { isRunningActivity } from "../lib/analytics";
 
+/** Resolve CTL/ATL/TSB with icu_* fallbacks and derive TSB = CTL - ATL when null */
+export function resolveCtlAtlTsb(r: {
+  ctl?: number | null;
+  atl?: number | null;
+  tsb?: number | null;
+  icu_ctl?: number | null;
+  icu_atl?: number | null;
+  icu_tsb?: number | null;
+}) {
+  const ctl = r.ctl ?? r.icu_ctl ?? null;
+  const atl = r.atl ?? r.icu_atl ?? null;
+  const tsb = r.tsb ?? r.icu_tsb ?? (ctl != null && atl != null ? ctl - atl : null);
+  return { ctl, atl, tsb };
+}
+
 export type StatType =
   | "fitness"
   | "hrv"
@@ -92,15 +107,17 @@ function deduplicateByDate(rows: ReadinessRow[]): ReadinessRow[] {
       continue;
     }
     const countNonNull = (row: ReadinessRow) => {
+      const { ctl, atl, tsb } = resolveCtlAtlTsb(row);
       let n = 0;
-      if (row.ctl != null) n++;
-      if (row.atl != null) n++;
-      if (row.tsb != null) n++;
+      if (ctl != null) n++;
+      if (atl != null) n++;
+      if (tsb != null) n++;
       if (row.hrv != null) n++;
       if (row.resting_hr != null) n++;
       if (row.sleep_hours != null) n++;
-      if (row.score != null) n++;
+      if (row.score != null || row.sleep_score != null) n++;
       if (row.vo2max != null) n++;
+      if (row.icu_ctl != null || row.icu_atl != null || row.icu_tsb != null) n++;
       return n;
     };
     if (countNonNull(r) > countNonNull(existing)) {
@@ -112,15 +129,16 @@ function deduplicateByDate(rows: ReadinessRow[]): ReadinessRow[] {
 
 export function buildFitnessData(readiness: ReadinessRow[]): ChartDataPoint[] {
   return deduplicateByDate(readiness)
-    .filter((r) => r.ctl != null || r.atl != null || r.tsb != null)
-    .sort((a, b) => a.date.localeCompare(b.date))
+    .map((r) => ({ r, ...resolveCtlAtlTsb(r) }))
+    .filter(({ ctl, atl, tsb }) => ctl != null || atl != null || tsb != null)
+    .sort((a, b) => a.r.date.localeCompare(b.r.date))
     .slice(-DAYS_16_WEEKS)
-    .map((r) => ({
+    .map(({ r, ctl, atl, tsb }) => ({
       date: r.date,
       label: format(new Date(r.date), "MMM d"),
-      CTL: r.ctl != null ? Math.round(r.ctl * 10) / 10 : null,
-      ATL: r.atl != null ? Math.round(r.atl * 10) / 10 : null,
-      TSB: r.tsb != null ? Math.round(r.tsb * 10) / 10 : null,
+      CTL: ctl != null ? Math.round(ctl * 10) / 10 : null,
+      ATL: atl != null ? Math.round(atl * 10) / 10 : null,
+      TSB: tsb != null ? Math.round(tsb * 10) / 10 : null,
     }));
 }
 
@@ -156,13 +174,13 @@ export function buildMileageData(activities: ActivityRow[]): ChartDataPoint[] {
 
 export function buildSleepData(readiness: ReadinessRow[]): ChartDataPoint[] {
   return deduplicateByDate(readiness)
-    .filter((r) => r.sleep_hours != null || r.score != null)
+    .filter((r) => r.sleep_hours != null || r.sleep_score != null || r.score != null)
     .sort((a, b) => a.date.localeCompare(b.date))
     .slice(-DAYS_16_WEEKS)
     .map((r) => ({
       date: r.date,
       label: format(new Date(r.date), "MMM d"),
-      sleep: r.score ?? (r.sleep_hours != null ? Math.round(r.sleep_hours * 12.5) : null),
+      sleep: r.sleep_score ?? r.score ?? (r.sleep_hours != null ? Math.round(r.sleep_hours * 12.5) : null),
     }));
 }
 

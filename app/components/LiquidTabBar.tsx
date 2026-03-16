@@ -1,6 +1,6 @@
 import { BlurView } from "expo-blur";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
-import React, { useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Pressable, StyleSheet, Text, View } from "react-native";
@@ -8,9 +8,8 @@ import { PanGestureHandler } from "react-native-gesture-handler";
 import { useTheme } from "../context/ThemeContext";
 
 const PRIMARY_ROUTES = ["Dashboard", "Plan", "Coach", "ActivitiesStack", "Stats"] as const;
-const SECONDARY_ROUTES = ["Settings", "Philosophy"] as const;
 
-type RouteKey = (typeof PRIMARY_ROUTES)[number] | (typeof SECONDARY_ROUTES)[number];
+type RouteKey = (typeof PRIMARY_ROUTES)[number];
 
 const LABELS: Record<RouteKey, string> = {
   Dashboard: "Home",
@@ -18,8 +17,6 @@ const LABELS: Record<RouteKey, string> = {
   Coach: "Coach",
   ActivitiesStack: "Activities",
   Stats: "Stats",
-  Settings: "Settings",
-  Philosophy: "Philosophy",
 };
 
 const ICONS: Record<RouteKey, keyof typeof Ionicons.glyphMap> = {
@@ -28,12 +25,9 @@ const ICONS: Record<RouteKey, keyof typeof Ionicons.glyphMap> = {
   Coach: "chatbubble-ellipses",
   ActivitiesStack: "fitness",
   Stats: "stats-chart-outline",
-  Settings: "settings",
-  Philosophy: "book",
 };
 
 export function LiquidTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
-  const [showSecondary, setShowSecondary] = useState(false);
   const { resolved, theme } = useTheme();
   const insets = useSafeAreaInsets();
   const isDark = resolved === "dark";
@@ -117,7 +111,7 @@ export function LiquidTabBar({ state, descriptors, navigation }: BottomTabBarPro
                   <Pressable
                     key={key}
                     onPress={() => handlePress(index)}
-                    onLongPress={() => setShowSecondary((prev) => !prev)}
+                    onLongPress={() => handleLongPress(index)}
                     style={({ pressed }) => [
                       styles.item,
                       pressed && { opacity: 0.7 },
@@ -145,51 +139,6 @@ export function LiquidTabBar({ state, descriptors, navigation }: BottomTabBarPro
             </View>
           </View>
         </View>
-
-        {showSecondary && (
-        <View style={[styles.secondaryContainer, { bottom: insets.bottom + 72 }]}>
-          {SECONDARY_ROUTES.map((key) => {
-            const index = state.routes.findIndex((r) => r.name === key);
-            if (index === -1) return null;
-            const isFocused = state.index === index;
-            return (
-              <View key={key} style={styles.secondaryRow}>
-                <Pressable
-                  onPress={() => handlePress(index)}
-                  onLongPress={() => handleLongPress(index)}
-                  style={({ pressed }) => [
-                    styles.secondaryBubble,
-                    { borderColor, backgroundColor: pillBg },
-                    pressed && { opacity: 0.7 },
-                  ]}
-                >
-                  <BlurView
-                    intensity={22}
-                    tint={isDark ? "dark" : "light"}
-                    style={StyleSheet.absoluteFill}
-                  />
-                  <Ionicons
-                    name={ICONS[key]}
-                    size={18}
-                    color={isFocused ? activeIconColor : inactiveIconColor}
-                  />
-                </Pressable>
-                <Text
-                  style={[
-                    styles.secondaryLabel,
-                    {
-                      color: isFocused ? activeIconColor : inactiveIconColor,
-                    },
-                  ]}
-                  numberOfLines={1}
-                >
-                  {LABELS[key]}
-                </Text>
-              </View>
-            );
-          })}
-        </View>
-        )}
       </View>
     </PanGestureHandler>
   );
@@ -229,39 +178,6 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   label: {
-    fontSize: 11,
-    fontWeight: "500",
-  },
-  searchButton: {
-    marginLeft: 10,
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    overflow: "hidden",
-    alignItems: "center",
-    justifyContent: "center",
-  },
-  secondaryContainer: {
-    position: "absolute",
-    right: 16,
-    alignItems: "center",
-  },
-  secondaryRow: {
-    alignItems: "center",
-    justifyContent: "center",
-    marginBottom: 6,
-  },
-  secondaryBubble: {
-    alignItems: "center",
-    justifyContent: "center",
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-  },
-  secondaryLabel: {
-    marginTop: 2,
     fontSize: 11,
     fontWeight: "500",
   },

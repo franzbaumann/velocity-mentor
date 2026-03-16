@@ -1,5 +1,6 @@
 import { FC, useState } from "react";
-import { ScrollView, StyleSheet, Text, View } from "react-native";
+import { ScrollView, StyleSheet, Text, View, TouchableOpacity } from "react-native";
+import { useNavigation } from "@react-navigation/native";
 import { ScreenContainer } from "../components/ScreenContainer";
 import { useTheme } from "../context/ThemeContext";
 import { StatsChartCard } from "../components/StatsChartCard";
@@ -16,6 +17,7 @@ import { StepsTrendChartMobile } from "../components/charts/StepsTrendChartMobil
 import { WeightTrendChartMobile } from "../components/charts/WeightTrendChartMobile";
 import { VO2maxTrendChartMobile } from "../components/charts/VO2maxTrendChartMobile";
 import { WellnessCheckChartMobile } from "../components/charts/WellnessCheckChartMobile";
+import { SkeletonCard, SkeletonLine } from "../components/Skeleton";
 
 type StatsTab = "runs" | "wellness";
 
@@ -46,18 +48,27 @@ export const StatsScreen: FC = () => {
     moodSeries,
     energySeries,
     sorenessSeries,
+    maxHr,
   } = useStatsData();
+  const navigation = useNavigation();
   const [tab, setTab] = useState<StatsTab>(() =>
     runningActivities.length === 0 && readinessRows.length > 0 ? "wellness" : "runs",
   );
+  const runsCount = runningActivities.length;
+  const wellnessCount = readinessRows.length;
 
   if (isLoading && !hasData) {
     return (
       <ScreenContainer contentContainerStyle={styles.loadingContent}>
         <Text style={[styles.title, { color: theme.textPrimary }]}>Stats & Analytics</Text>
-        <View style={styles.loadingCard}>
-          <Text style={[styles.loadingText, { color: theme.textMuted }]}>Loading your stats…</Text>
-        </View>
+        <SkeletonCard>
+          <SkeletonLine width="45%" />
+          <SkeletonLine width="100%" style={{ marginTop: 10, height: 90, borderRadius: 10 }} />
+        </SkeletonCard>
+        <SkeletonCard>
+          <SkeletonLine width="60%" />
+          <SkeletonLine width="100%" style={{ marginTop: 10, height: 140, borderRadius: 12 }} />
+        </SkeletonCard>
       </ScreenContainer>
     );
   }
@@ -84,28 +95,32 @@ export const StatsScreen: FC = () => {
         <View style={styles.headerRow}>
           <Text style={[styles.title, { color: theme.textPrimary }]}>Stats & Analytics</Text>
           <View style={[styles.tabSwitch, { backgroundColor: theme.cardBorder }]}>
-            <Text
+            <TouchableOpacity
               onPress={() => setTab("runs")}
               style={[
-                styles.tabLabel,
-                tab === "runs" && { backgroundColor: theme.appBackground, color: theme.textPrimary },
+                styles.tabPill,
+                tab === "runs" && { backgroundColor: theme.accentBlue, color: theme.primaryForeground },
               ]}
             >
-              Runs & Fitness
-            </Text>
-            <Text
+              <Text style={[styles.tabLabel, tab === "runs" && { color: theme.primaryForeground }]}>
+                Runs & Fitness ({runsCount})
+              </Text>
+            </TouchableOpacity>
+            <TouchableOpacity
               onPress={() => setTab("wellness")}
               style={[
-                styles.tabLabel,
-                tab === "wellness" && { backgroundColor: theme.appBackground, color: theme.textPrimary },
+                styles.tabPill,
+                tab === "wellness" && { backgroundColor: theme.accentBlue },
               ]}
             >
-              Wellness
-            </Text>
+              <Text style={[styles.tabLabel, { color: tab === "wellness" ? theme.primaryForeground : theme.textMuted }]}>
+                Wellness ({wellnessCount})
+              </Text>
+            </TouchableOpacity>
           </View>
         </View>
 
-        <View style={styles.summaryRow}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statCardsScroll}>
           {fitnessSummary.ctl != null && (
             <View style={[styles.summaryCard, { backgroundColor: theme.cardBackground }]}>
               <Text style={[styles.summaryValue, { color: theme.textPrimary }]}>
@@ -153,6 +168,14 @@ export const StatsScreen: FC = () => {
               <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>TSB · Form</Text>
             </View>
           )}
+          {fitnessSummary.vo2max != null && (
+            <View style={[styles.summaryCard, { backgroundColor: theme.cardBackground }]}>
+              <Text style={[styles.summaryValue, { color: theme.textPrimary }]}>
+                ~{fitnessSummary.vo2max.toFixed(0)}
+              </Text>
+              <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>VO2max est.</Text>
+            </View>
+          )}
           {fitnessSummary.hrv7dAvg != null && (
             <View style={[styles.summaryCard, { backgroundColor: theme.cardBackground }]}>
               <Text style={[styles.summaryValue, { color: theme.textPrimary }]}>
@@ -167,241 +190,298 @@ export const StatsScreen: FC = () => {
               <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>7-day HRV</Text>
             </View>
           )}
-        </View>
+        </ScrollView>
 
         {tab === "runs" && (
           <View style={styles.section}>
+            <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>TOTAL LOAD — 4 WEEKS</Text>
+            <View style={[styles.totalLoadCard, { backgroundColor: theme.cardBackground, borderColor: theme.cardBorder }]}>
+              <Text style={[styles.totalLoadEmpty, { color: theme.textMuted }]}>
+                Complete your daily check-in to see your total load trends. 30-second check-in on the dashboard.
+              </Text>
+            </View>
+
+            <StatsChartCard
+              icon="trophy-outline"
+              title="Personal Records (runs only)"
+              description="Your best times for key race distances. Tap a row to open the activity."
+            >
+              <PersonalRecordsListMobile
+                prs={prs}
+                onSelectPr={(id) => navigation.navigate("ActivitiesStack" as never, { screen: "ActivityDetail", params: { id } } as never)}
+              />
+            </StatsChartCard>
+
             <StatsChartCard
               icon="trending-up"
               title="Fitness & Fatigue (CTL / ATL / TSB) — 16 weeks"
-              description="Your long-term fitness (CTL), short-term fatigue (ATL), and form (TSB) over the last 16 weeks. Green TSB above 0 means you are fresh; very negative TSB means high fatigue."
+              description="CTL = 42-day fitness, ATL = 7-day fatigue, TSB = CTL − ATL. Peak (TSB > 5), Optimal (-10 to 5), Fatigued (< -10)."
             >
               <FitnessChartMobile data={fitnessSeries} />
             </StatsChartCard>
-            <StatsChartCard
-              icon="stats-chart-outline"
-              title="Weekly Mileage — 16 weeks (runs only)"
-              description="Total running distance per week for the last 16 weeks. Use this to watch your volume trend and keep ramp rate under control."
-            >
-              <WeeklyMileageChartMobile data={weeklyMileageSeries} />
-            </StatsChartCard>
+
             <StatsChartCard
               icon="heart-outline"
               title="HR Efficiency Trend — aerobic pace (140–150 bpm)"
-              description="Pace at an aerobic heart-rate (140–150 bpm). If this line moves down over time you are getting faster at the same easy effort."
+              description="Pace at aerobic HR (140–150 bpm) over time. A downward trend means your aerobic engine is improving."
             >
               <HREfficiencyChartMobile data={hrEfficiencySeries} />
             </StatsChartCard>
+
+            <StatsChartCard
+              icon="stats-chart-outline"
+              title="Weekly Mileage — 16 weeks (runs only)"
+              description="Total km per week (Mon–Sun). Tracks volume trends."
+            >
+              <WeeklyMileageChartMobile data={weeklyMileageSeries} />
+            </StatsChartCard>
+
             <StatsChartCard
               icon="speedometer-outline"
               title="Pace Progression (runs only)"
-              description="Smoothed pace trend from your runs. A line that moves down over time means you are running faster at similar effort."
+              description="Pace per run. Dashed line = 4-week average. Easy = Zone 2, LT1 = 75–82%, LT2 = 85–92%."
               bodyPressOnly
             >
               <PaceProgressionChartMobile points={pacePoints} trendline={paceTrendline} />
             </StatsChartCard>
-            <StatsChartCard
-              icon="trophy-outline"
-              title="Personal Records (runs only)"
-              description="Your best times for key race distances based on all synced runs. Latest PRs are highlighted."
-            >
-              <PersonalRecordsListMobile prs={prs} />
-            </StatsChartCard>
+
+            <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>FITNESS & BODY</Text>
+            <View style={styles.twoColGrid}>
+              <View style={styles.gridHalf}>
+                <StatsChartCard
+                  icon="walk-outline"
+                  title="VO2max"
+                  description="Estimated aerobic capacity from intervals.icu or wearable."
+                >
+                  {vo2maxSeries.length ? (
+                    <VO2maxTrendChartMobile data={vo2maxSeries} />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No VO2max data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+              <View style={styles.gridHalf}>
+                <StatsChartCard
+                  icon="flame-outline"
+                  title="Ramp Rate"
+                  description="CTL change per week. >5 pts/week = injury risk."
+                >
+                  {rampRateSeries.length ? (
+                    <FitnessChartMobile
+                      data={rampRateSeries.map((p) => ({ date: p.date, CTL: p.rampRate, ATL: 0, TSB: 0 }))}
+                    />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No ramp rate data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+              <View style={styles.gridHalf}>
+                <StatsChartCard
+                  icon="footsteps-outline"
+                  title="Steps"
+                  description="Daily steps from your wearable."
+                >
+                  {stepsSeries.length ? (
+                    <StepsTrendChartMobile data={stepsSeries} />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No steps data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+              <View style={styles.gridHalf}>
+                <StatsChartCard
+                  icon="scale-outline"
+                  title="Weight"
+                  description="Body weight trend from wellness."
+                >
+                  {weightSeries.length ? (
+                    <WeightTrendChartMobile data={weightSeries} />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No weight data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+            </View>
           </View>
         )}
 
         {tab === "wellness" && (
           <View style={styles.section}>
-            <Text style={[styles.sectionHeader, { color: theme.textMuted }]}>Wellness scores</Text>
-            <StatsChartCard
-              icon="pulse-outline"
-              title="Readiness Score"
-              description="Daily readiness score based on your imported wellness metrics (HRV, sleep, load). Higher is better; large drops often mean you should back off."
-            >
-              {readinessScoreSeries.length ? (
-                <ReadinessTrendChartMobile data={readinessScoreSeries} />
-              ) : (
-                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No readiness score data yet. Import Garmin wellness / intervals.
-                </Text>
-              )}
-            </StatsChartCard>
-            <StatsChartCard
-              icon="moon-outline"
-              title="Sleep Score"
-              description="0–100 sleep quality score from your imported wellness data. Higher scores usually mean better recovery."
-            >
-              {sleepScoreSeries.length ? (
-                <ReadinessTrendChartMobile data={sleepScoreSeries} />
-              ) : (
-                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No sleep score data yet. Import Garmin wellness / intervals.
-                </Text>
-              )}
-            </StatsChartCard>
+            <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>WELLNESS SCORES</Text>
+            <View style={styles.twoColGrid}>
+              <View style={styles.gridHalf}>
+                <StatsChartCard
+                  icon="pulse-outline"
+                  title="Readiness Score"
+                  description="0–100 from TSB/CTL or intervals.icu. Higher = ready to train hard."
+                >
+                  {readinessScoreSeries.length ? (
+                    <ReadinessTrendChartMobile data={readinessScoreSeries} />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No readiness score data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+              <View style={styles.gridHalf}>
+                <StatsChartCard
+                  icon="moon-outline"
+                  title="Sleep Score"
+                  description="0–100 from intervals.icu. Tracks recovery."
+                >
+                  {sleepScoreSeries.length ? (
+                    <ReadinessTrendChartMobile data={sleepScoreSeries} />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No sleep score data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+            </View>
 
-            <Text style={[styles.sectionHeader, { color: theme.textMuted }]}>HR & recovery</Text>
-            <StatsChartCard
-              icon="bar-chart-outline"
-              title="HRV Trend"
-              description="HRV or HRV baseline trend from intervals.icu / Garmin. Rising HRV usually means better recovery; sharp drops can signal fatigue or stress."
-            >
-              {hrvSeries.length ? (
-                <HRVTrendChartMobile
-                  data={hrvSeries.map((p) => ({
-                    date: p.date,
-                    CTL: p.hrv,
-                    ATL: 0,
-                    TSB: 0,
-                  }))}
-                />
-              ) : (
-                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No HRV data yet. Import Garmin wellness / intervals.
-                </Text>
-              )}
-            </StatsChartCard>
-            <StatsChartCard
-              icon="moon-outline"
-              title="Sleep & Resting HR"
-              description="Sleep duration and resting heart rate together. More sleep and lower resting HR generally mean better recovery."
-            >
-              {sleepRestingSeries.length ? (
-                <SleepRestingTrendChartMobile data={sleepRestingSeries} />
-              ) : (
-                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No sleep or resting HR data yet. Import Garmin wellness.
-                </Text>
-              )}
-            </StatsChartCard>
-            <StatsChartCard
-              icon="walk-outline"
-              title="VO2max"
-              description="Estimated VO2max trend from your devices or intervals.icu (ml/kg/min)."
-            >
-              {vo2maxSeries.length ? (
-                <VO2maxTrendChartMobile data={vo2maxSeries} />
-              ) : (
-                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No VO2max data yet. Import Garmin Metrics (DI-Connect-Metrics) / intervals.
-                </Text>
-              )}
-            </StatsChartCard>
-            <StatsChartCard
-              icon="flame-outline"
-              title="Ramp Rate"
-              description="How quickly your fitness load is changing. Very high positive ramp rate increases injury risk; flat or slightly rising is usually safer."
-            >
-              {rampRateSeries.length ? (
-                <FitnessChartMobile
-                  data={rampRateSeries.map((p) => ({
-                    date: p.date,
-                    CTL: p.rampRate,
-                    ATL: 0,
-                    TSB: 0,
-                  }))}
-                />
-              ) : (
-                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No ramp rate data yet. Connect intervals.icu fitness ramp rate.
-                </Text>
-              )}
-            </StatsChartCard>
-            <StatsChartCard
-              icon="footsteps-outline"
-              title="Steps"
-              description="Daily steps from your wearable. Useful as a simple movement and activity baseline."
-            >
-              {stepsSeries.length ? (
-                <StepsTrendChartMobile data={stepsSeries} />
-              ) : (
-                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No steps data yet. Import Garmin wellness / intervals.
-                </Text>
-              )}
-            </StatsChartCard>
-            <StatsChartCard
-              icon="scale-outline"
-              title="Weight"
-              description="Body weight trend over time from your connected services."
-            >
-              {weightSeries.length ? (
-                <WeightTrendChartMobile data={weightSeries} />
-              ) : (
-                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No weight data yet. Import Garmin wellness / intervals.
-                </Text>
-              )}
-            </StatsChartCard>
-            <Text style={[styles.sectionHeader, { color: theme.textMuted }]}>Wellness check</Text>
-            <StatsChartCard
-              icon="alert-circle-outline"
-              title="Stress score"
-              description="Daily stress score from intervals.icu wellness. Higher values usually indicate more perceived stress."
-            >
-              {stressSeries.length ? (
-                <WellnessCheckChartMobile
-                  data={stressSeries}
-                  scale={["None", "Low", "Avg", "High", "Extreme"]}
-                  color="#ef4444"
-                />
-              ) : (
-                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No stress data yet. Import Garmin wellness / intervals.
-                </Text>
-              )}
-            </StatsChartCard>
-            <StatsChartCard
-              icon="happy-outline"
-              title="Mood"
-              description="Self-reported mood from intervals.icu wellness. Track how your training and life stress affect how you feel."
-            >
-              {moodSeries.length ? (
-                <WellnessCheckChartMobile
-                  data={moodSeries}
-                  scale={["", "Excellent", "Good", "Avg", "Poor"]}
-                  color="#a855f7"
-                />
-              ) : (
-                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No mood data yet. Import Garmin wellness / intervals.
-                </Text>
-              )}
-            </StatsChartCard>
-            <StatsChartCard
-              icon="flash-outline"
-              title="Energy"
-              description="Daily energy level from wellness check-ins. Use this together with readiness score to decide how hard to train."
-            >
-              {energySeries.length ? (
-                <WellnessCheckChartMobile
-                  data={energySeries}
-                  scale={["", "High", "Good", "Avg", "Low"]}
-                  color="#f59e0b"
-                />
-              ) : (
-                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No energy data yet. Import Garmin wellness / intervals.
-                </Text>
-              )}
-            </StatsChartCard>
-            <StatsChartCard
-              icon="body-outline"
-              title="Muscle soreness"
-              description="Subjective muscle soreness rating. Elevated soreness together with high load can be an early warning for overtraining."
-            >
-              {sorenessSeries.length ? (
-                <WellnessCheckChartMobile
-                  data={sorenessSeries}
-                  scale={["None", "Low", "Avg", "High", "Extreme"]}
-                  color="#f97316"
-                />
-              ) : (
-                <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
-                  No muscle soreness data yet. Import Garmin wellness / intervals.
-                </Text>
-              )}
-            </StatsChartCard>
+            <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>HR & RECOVERY</Text>
+            <View style={styles.twoColGrid}>
+              <View style={styles.gridHalf}>
+                <StatsChartCard
+                  icon="bar-chart-outline"
+                  title="HRV Trend"
+                  description="Heart rate variability (ms). Low = fatigue or illness."
+                >
+                  {hrvSeries.length ? (
+                    <HRVTrendChartMobile
+                      data={hrvSeries.map((p) => ({ date: p.date, CTL: p.hrv, ATL: 0, TSB: 0 }))}
+                    />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No HRV data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+              <View style={styles.gridHalf}>
+                <StatsChartCard
+                  icon="moon-outline"
+                  title="Sleep & Resting HR"
+                  description="Sleep hours + resting HR. Rising RHR = fatigue."
+                >
+                  {sleepRestingSeries.length ? (
+                    <SleepRestingTrendChartMobile data={sleepRestingSeries} />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No sleep/HR data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+            </View>
+
+            <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>FITNESS & BODY</Text>
+            <View style={styles.twoColGrid}>
+              <View style={styles.gridHalf}>
+                <StatsChartCard icon="walk-outline" title="VO2max" description="Estimated aerobic capacity.">
+                  {vo2maxSeries.length ? (
+                    <VO2maxTrendChartMobile data={vo2maxSeries} />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No VO2max data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+              <View style={styles.gridHalf}>
+                <StatsChartCard icon="flame-outline" title="Ramp Rate" description="CTL change per week.">
+                  {rampRateSeries.length ? (
+                    <FitnessChartMobile
+                      data={rampRateSeries.map((p) => ({ date: p.date, CTL: p.rampRate, ATL: 0, TSB: 0 }))}
+                    />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No ramp rate data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+              <View style={styles.gridHalf}>
+                <StatsChartCard icon="footsteps-outline" title="Steps" description="Daily steps.">
+                  {stepsSeries.length ? (
+                    <StepsTrendChartMobile data={stepsSeries} />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No steps data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+              <View style={styles.gridHalf}>
+                <StatsChartCard icon="scale-outline" title="Weight" description="Body weight trend.">
+                  {weightSeries.length ? (
+                    <WeightTrendChartMobile data={weightSeries} />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No weight data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+            </View>
+
+            <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>WELLNESS CHECKS</Text>
+            <View style={styles.twoColGrid}>
+              <View style={styles.gridHalf}>
+                <StatsChartCard
+                  icon="alert-circle-outline"
+                  title="Stress Score"
+                  description="Daily stress from intervals.icu. Higher = more perceived stress."
+                >
+                  {stressSeries.length ? (
+                    <WellnessCheckChartMobile
+                      data={stressSeries}
+                      scale={["None", "Low", "Avg", "High", "Extreme"]}
+                      color="#ef4444"
+                    />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No stress data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+              <View style={styles.gridHalf}>
+                <StatsChartCard
+                  icon="happy-outline"
+                  title="Mood"
+                  description="Self-reported mood from intervals.icu wellness."
+                >
+                  {moodSeries.length ? (
+                    <WellnessCheckChartMobile
+                      data={moodSeries}
+                      scale={["", "Excellent", "Good", "Avg", "Poor"]}
+                      color="#a855f7"
+                    />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No mood data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+              <View style={styles.gridHalf}>
+                <StatsChartCard
+                  icon="flash-outline"
+                  title="Energy"
+                  description="Daily energy level from wellness check-ins."
+                >
+                  {energySeries.length ? (
+                    <WellnessCheckChartMobile
+                      data={energySeries}
+                      scale={["", "High", "Good", "Avg", "Low"]}
+                      color="#f59e0b"
+                    />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No energy data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+              <View style={styles.gridHalf}>
+                <StatsChartCard
+                  icon="body-outline"
+                  title="Muscle Soreness"
+                  description="Subjective soreness. High load + elevated soreness = overtraining risk."
+                >
+                  {sorenessSeries.length ? (
+                    <WellnessCheckChartMobile
+                      data={sorenessSeries}
+                      scale={["None", "Low", "Avg", "High", "Extreme"]}
+                      color="#f97316"
+                    />
+                  ) : (
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No muscle soreness data yet.</Text>
+                  )}
+                </StatsChartCard>
+              </View>
+            </View>
           </View>
         )}
       </ScrollView>
@@ -432,18 +512,18 @@ const styles = StyleSheet.create({
     alignItems: "center",
     gap: 12,
   },
-  summaryRow: {
+  statCardsScroll: {
     flexDirection: "row",
-    flexWrap: "wrap",
     gap: 8,
     marginTop: 12,
     marginBottom: 8,
+    paddingVertical: 4,
   },
   summaryCard: {
-    borderRadius: 14,
+    borderRadius: 12,
     paddingHorizontal: 12,
     paddingVertical: 10,
-    minWidth: 120,
+    minWidth: 100,
   },
   summaryValue: {
     fontSize: 20,
@@ -463,21 +543,53 @@ const styles = StyleSheet.create({
     borderRadius: 999,
     padding: 2,
   },
-  tabLabel: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+  tabPill: {
+    paddingHorizontal: 14,
+    paddingVertical: 8,
     borderRadius: 999,
-    fontSize: 12,
-    fontWeight: "500",
+  },
+  tabLabel: {
+    fontSize: 13,
+    fontWeight: "600",
   },
   section: {
     gap: 16,
+  },
+  sectionLabel: {
+    fontSize: 11,
+    fontWeight: "600",
+    letterSpacing: 0.5,
+    marginTop: 8,
+    marginBottom: 4,
   },
   sectionHeader: {
     fontSize: 13,
     fontWeight: "600",
     marginBottom: 4,
     marginTop: 4,
+  },
+  totalLoadCard: {
+    borderRadius: 12,
+    borderWidth: StyleSheet.hairlineWidth,
+    padding: 20,
+    minHeight: 140,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  totalLoadEmpty: {
+    fontSize: 13,
+    textAlign: "center",
+    lineHeight: 20,
+  },
+  twoColGrid: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    marginHorizontal: -4,
+  },
+  gridHalf: {
+    width: "50%",
+    paddingHorizontal: 4,
+    marginBottom: 8,
   },
   loadingCard: {
     borderRadius: 16,

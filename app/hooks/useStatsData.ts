@@ -25,7 +25,7 @@ type PRRow = {
   key: string;
   label: string;
   km: number;
-  best: { timeSec: number; pace: number; date: string } | null;
+  best: { timeSec: number; pace: number; date: string; activityLinkId: string } | null;
 };
 type HREfficiencyPoint = { date: string; pace: number; hr: number };
 type HRVPoint = { date: string; hrv: number };
@@ -75,6 +75,8 @@ function toStatsActivities(activities: ActivityRow[]): StatsActivity[] {
     avg_hr: a.avg_hr,
     avg_pace: a.avg_pace,
     splits: undefined,
+    external_id: a.external_id,
+    max_hr: a.max_hr,
   }));
 }
 
@@ -108,7 +110,8 @@ function buildFitnessSeries(activities: ActivityRow[], readinessRows: ReadinessR
     });
 
   if (fromReadiness.length > 0) {
-    return fromReadiness;
+    const hasSignal = fromReadiness.some((p) => p.CTL !== 0 || p.ATL !== 0 || p.TSB !== 0);
+    if (hasSignal) return fromReadiness;
   }
 
   if (!statsActs.length) return [];
@@ -179,6 +182,7 @@ function buildPRs(activities: ActivityRow[]): PRRow[] {
   return PR_DISTANCES.map(({ key, km, label }) => {
     const best = findBestForDistance(statsActs, km);
     if (!best) return { key, label, km, best: null };
+    const activityLinkId = best.externalId ? `icu_${best.externalId}` : best.activityId;
     return {
       key,
       label,
@@ -187,6 +191,7 @@ function buildPRs(activities: ActivityRow[]): PRRow[] {
         timeSec: best.timeSec,
         pace: best.paceMinPerKm,
         date: best.date,
+        activityLinkId,
       },
     };
   });
@@ -440,6 +445,15 @@ export function useStatsData() {
     };
   }, [athleteProfile, readinessRows]);
 
+  const maxHr = useMemo(() => {
+    const profileMax = (athleteProfile as { max_hr?: number | null })?.max_hr;
+    if (profileMax != null && profileMax > 0) return profileMax;
+    const actMax = activities
+      .map((a) => (a as { max_hr?: number | null }).max_hr)
+      .filter((v): v is number => v != null && v > 0);
+    return actMax.length > 0 ? Math.max(...actMax) : null;
+  }, [athleteProfile, activities]);
+
   return {
     isLoading,
     hasData,
@@ -464,6 +478,7 @@ export function useStatsData() {
     moodSeries,
     energySeries,
     sorenessSeries,
+    maxHr,
     refetchAll,
   };
 }

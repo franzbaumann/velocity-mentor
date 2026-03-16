@@ -8,9 +8,10 @@ import { useTheme } from "../context/ThemeContext";
 import { useActivitiesList, type ActivityListItem } from "../hooks/useActivities";
 import { useActivityStreamsSync } from "../hooks/useActivityStreamsSync";
 import { useIntervalsIntegration } from "../hooks/useIntervalsIntegration";
-import { dailyTSSFromActivities } from "../lib/analytics";
+import { dailyTSSFromActivities, getRunTypeLabelForDisplay, isRunningActivity } from "../lib/analytics";
 import type { ActivitiesStackParamList } from "../navigation/RootNavigator";
 import { useTrainingPlan, type TrainingPlanSession } from "../hooks/useTrainingPlan";
+import { SkeletonCard, SkeletonLine } from "../components/Skeleton";
 import {
   addDays,
   addMonths,
@@ -356,6 +357,7 @@ export const ActivitiesScreen: FC = () => {
         <Text style={styles.title}>Activities</Text>
         <GlassCard>
           <View style={styles.emptyCard}>
+            <Text style={{ fontSize: 48, color: theme.textMuted }}>🧭</Text>
             <Text style={styles.emptyTitle}>Add your activities</Text>
             <Text style={[styles.body, { textAlign: "center" }]}>
               Connect intervals.icu in Settings to sync your activities.
@@ -373,9 +375,10 @@ export const ActivitiesScreen: FC = () => {
     return (
       <ScreenContainer contentContainerStyle={styles.loadingContent}>
         <Text style={styles.title}>Activities</Text>
-        <GlassCard>
-          <Text style={styles.body}>Loading activities…</Text>
-        </GlassCard>
+        <SkeletonCard>
+          <SkeletonLine width="30%" />
+          <SkeletonLine width="100%" style={{ marginTop: 10, height: 220, borderRadius: 14 }} />
+        </SkeletonCard>
       </ScreenContainer>
     );
   }
@@ -386,6 +389,7 @@ export const ActivitiesScreen: FC = () => {
         <Text style={styles.title}>Activities</Text>
         <GlassCard>
           <View style={styles.emptyCard}>
+            <Text style={{ fontSize: 48, color: theme.textMuted }}>🏃</Text>
             <Text style={styles.emptyTitle}>No activities yet</Text>
             <Text style={[styles.body, { textAlign: "center" }]}>
               {isConnected
@@ -516,18 +520,23 @@ export const ActivitiesScreen: FC = () => {
                       </Text>
                       {hasActivities && (
                         <View style={styles.dotRow}>
-                          {dayActivities.slice(0, 4).map((a) => (
-                            <View
-                              key={a.id}
-                              style={{
-                                width: 6,
-                                height: 6,
-                                borderRadius: 999,
-                                backgroundColor: activityTypeToColor(a.type, a.name, theme),
-                                opacity: 0.6 + intensity * 0.4,
-                              }}
-                            />
-                          ))}
+                          {dayActivities.slice(0, 4).map((a) => {
+                            const displayType = isRunningActivity(a.type)
+                              ? getRunTypeLabelForDisplay({ type: a.type, avg_hr: a.hr, max_hr: a.maxHr })
+                              : a.type;
+                            return (
+                              <View
+                                key={a.id}
+                                style={{
+                                  width: 6,
+                                  height: 6,
+                                  borderRadius: 999,
+                                  backgroundColor: activityTypeToColor(displayType, a.name, theme),
+                                  opacity: 0.6 + intensity * 0.4,
+                                }}
+                              />
+                            );
+                          })}
                           {dayActivities.length > 4 && (
                             <Text style={styles.moreCountText}>+{dayActivities.length - 4}</Text>
                           )}
@@ -640,7 +649,11 @@ export const ActivitiesScreen: FC = () => {
                               ? `${a.km.toFixed(1)} km`
                               : ""}
                         </Text>
-                        <Text style={styles.dayModalType}>{a.type}</Text>
+                        <Text style={styles.dayModalType}>
+                          {isRunningActivity(a.type)
+                            ? getRunTypeLabelForDisplay({ type: a.type, avg_hr: a.hr, max_hr: a.maxHr })
+                            : a.type}
+                        </Text>
                       </View>
                     </TouchableOpacity>
                   ))}

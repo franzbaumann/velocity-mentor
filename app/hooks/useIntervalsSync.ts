@@ -152,6 +152,8 @@ export function useIntervalsSync() {
           await Promise.all([
             queryClient.invalidateQueries({ queryKey: ["activities"], ...refetchOpts }),
             queryClient.invalidateQueries({ queryKey: ["daily_readiness"], ...refetchOpts }),
+            queryClient.invalidateQueries({ queryKey: ["activities-dashboard"], ...refetchOpts }),
+            queryClient.invalidateQueries({ queryKey: ["daily_readiness-dashboard"], ...refetchOpts }),
             queryClient.invalidateQueries({ queryKey: ["intervals-activities-chunked"], ...refetchOpts }),
             queryClient.invalidateQueries({ queryKey: ["intervals-data"], ...refetchOpts }),
             queryClient.invalidateQueries({ queryKey: ["weekStats"], ...refetchOpts }),
@@ -249,6 +251,8 @@ export function useIntervalsSync() {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["activities"], ...refetchOpts }),
         queryClient.invalidateQueries({ queryKey: ["daily_readiness"], ...refetchOpts }),
+        queryClient.invalidateQueries({ queryKey: ["activities-dashboard"], ...refetchOpts }),
+        queryClient.invalidateQueries({ queryKey: ["daily_readiness-dashboard"], ...refetchOpts }),
         queryClient.invalidateQueries({ queryKey: ["intervals-activities-chunked"], ...refetchOpts }),
         queryClient.invalidateQueries({ queryKey: ["intervals-data"], ...refetchOpts }),
         queryClient.invalidateQueries({ queryKey: ["weekStats"], ...refetchOpts }),

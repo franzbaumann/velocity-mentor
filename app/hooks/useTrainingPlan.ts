@@ -1,3 +1,4 @@
+import { useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Alert } from "react-native";
 import Toast from "react-native-toast-message";
@@ -309,12 +310,15 @@ export function useTrainingPlan() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["training-plan"] });
-      Toast.show({ type: "success", text1: "Session rescheduled ✓", position: "bottom" });
+      Toast.show({ type: "success", text1: "✓ Session rescheduled", position: "bottom", visibilityTime: 2500 });
     },
     onError: (e: any) => {
       Toast.show({ type: "error", text1: e?.message ?? "Failed to move session", position: "bottom" });
     },
   });
+
+  const [isNutritionLoading, setIsNutritionLoading] = useState(false);
+  const nutritionLoadingRef = useRef(false);
 
   const markDoneMutation = useMutation({
     mutationFn: async ({
@@ -344,8 +348,30 @@ export function useTrainingPlan() {
     onSuccess: (_, { sessionId, done }) => {
       queryClient.invalidateQueries({ queryKey: ["training-plan"] });
       if (done) {
-        Toast.show({ type: "success", text1: "Session marked complete ✓", position: "bottom" });
-        triggerNutritionMessage(sessionId).catch(() => {});
+        if (nutritionLoadingRef.current) return;
+        nutritionLoadingRef.current = true;
+        setIsNutritionLoading(true);
+        Toast.show({
+          type: "success",
+          text1: "✓ Session complete · Getting nutrition advice...",
+          position: "bottom",
+          visibilityTime: 3000,
+        });
+        triggerNutritionMessage(sessionId)
+          .finally(() => {
+            nutritionLoadingRef.current = false;
+            setIsNutritionLoading(false);
+            Toast.show({
+              type: "success",
+              text1: "✓ Nutrition tip added to Coach chat",
+              position: "bottom",
+              visibilityTime: 3000,
+            });
+          })
+          .catch(() => {
+            nutritionLoadingRef.current = false;
+            setIsNutritionLoading(false);
+          });
       }
     },
     onError: (e: any) => {
@@ -362,6 +388,7 @@ export function useTrainingPlan() {
     isRescheduling: rescheduleMutation.isPending,
     markSessionDone: markDoneMutation.mutate,
     isMarkingDone: markDoneMutation.isPending,
+    isNutritionLoading,
   };
 }
 

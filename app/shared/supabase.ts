@@ -84,13 +84,34 @@ export async function callEdgeFunctionWithRetry<TResult = unknown, TBody = unkno
       );
 
       if (resp.error) {
-        // Log with minimal context, no sensitive data
-        console.warn("[edge] invoke error", {
+        const err = resp.error as Error & { context?: unknown };
+        const logPayload: Record<string, unknown> = {
           fn: functionName,
           attempt,
-          message: resp.error.message,
+          message: err.message,
           context: logContext,
-        });
+        };
+        // Response body: error.context or resp.response (functions-js returns response on error)
+        const responseLike =
+          (resp as { response?: unknown }).response ?? err.context;
+        const readBody = async (r: unknown): Promise<{ error?: string } | null> => {
+          if (r == null) return null;
+          try {
+            if (typeof (r as { json?: () => Promise<unknown> }).json === "function") {
+              return (await (r as { json: () => Promise<unknown> }).json()) as { error?: string };
+            }
+            if (typeof (r as { text?: () => Promise<unknown> }).text === "function") {
+              const text = await (r as { text: () => Promise<string> }).text();
+              return text ? (JSON.parse(text) as { error?: string }) : null;
+            }
+          } catch {
+            // ignore
+          }
+          return null;
+        };
+        const body = await readBody(responseLike);
+        if (body?.error) logPayload.edgeError = body.error;
+        console.warn("[edge] invoke error", logPayload);
         if (attempt >= maxRetries) {
           return resp;
         }

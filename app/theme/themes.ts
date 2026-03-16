@@ -67,7 +67,7 @@ export const lightTheme: AppTheme = {
   chartFill: "rgba(59,130,246,0.15)",
   cardRadius: 16,
   cardPadding: 16,
-  cardShadow: "0 1px 4px rgba(0,0,0,0.08)",
+  cardShadow: "0 2px 8px rgba(0,0,0,0.08)",
   cardBorderWidth: 0,
   navBackground: lightColors.background,
   navBorder: "rgba(0,0,0,0.06)",

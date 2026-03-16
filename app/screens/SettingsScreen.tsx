@@ -24,9 +24,11 @@ import { lightTheme, darkProTheme } from "../theme/themes";
 import { spacing, typography } from "../theme/theme";
 import { useIntervalsIntegration } from "../hooks/useIntervalsIntegration";
 import { useIntervalsSync } from "../hooks/useIntervalsSync";
-import { supabase, SUPABASE_ANON_KEY, SUPABASE_URL, callEdgeFunctionWithRetry } from "../shared/supabase";
+import { supabase, callEdgeFunctionWithRetry } from "../shared/supabase";
+import { callEdgeFunctionWithRetry as callEdgeFetchWithRetry } from "../lib/edgeFunctionWithRetry";
 import type { AppTabsParamList } from "../navigation/RootNavigator";
 import { useQueryClient } from "@tanstack/react-query";
+import Toast from "react-native-toast-message";
 
 const APPEARANCE_OPTIONS: { name: "light" | "darkPro"; label: string; emoji: string; previewTheme: typeof lightTheme }[] = [
   { name: "light", label: "Light", emoji: "☀️", previewTheme: lightTheme },
@@ -73,6 +75,7 @@ export const SettingsScreen: FC = () => {
   const [streamsSyncing, setStreamsSyncing] = useState(false);
   const [pbsSyncing, setPbsSyncing] = useState(false);
   const [labExtracting, setLabExtracting] = useState(false);
+  const [labExtractAttempt, setLabExtractAttempt] = useState(1);
   const [labSaving, setLabSaving] = useState(false);
   const [labConfirmVisible, setLabConfirmVisible] = useState(false);
   const [labForm, setLabForm] = useState<{
@@ -273,6 +276,7 @@ export const SettingsScreen: FC = () => {
                 { onConflict: "user_id" },
               );
               queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+              Toast.show({ type: "neutral", text1: "Plan removed", position: "bottom", visibilityTime: 2500 });
               Alert.alert("Plan deleted", "Starting fresh onboarding on the Plan tab.");
               navigation.navigate("Plan");
             } catch (e) {
@@ -448,6 +452,7 @@ export const SettingsScreen: FC = () => {
         return;
       }
       setLabExtracting(true);
+      setLabExtractAttempt(1);
       const base64 = await FileSystem.readAsStringAsync(asset.uri, {
         encoding: FileSystem.EncodingType.Base64,
       });
@@ -457,21 +462,17 @@ export const SettingsScreen: FC = () => {
         Alert.alert("Sign in required", "Please sign in again to analyze lab results.");
         return;
       }
-      const res = await fetch(`${SUPABASE_URL}/functions/v1/lab-extract`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(SUPABASE_ANON_KEY ? { apikey: SUPABASE_ANON_KEY } : {}),
-          Authorization: `Bearer ${token}`,
+      const json = await callEdgeFetchWithRetry<{ extracted?: Record<string, unknown>; error?: string }>(
+        "lab-extract",
+        { pdf: base64 },
+        {
+          authToken: token,
+          maxRetries: 3,
+          timeout: 30000,
+          onRetry: (attempt) => setLabExtractAttempt(attempt),
         },
-        body: JSON.stringify({ pdf: base64 }),
-      });
-      const json = await res.json().catch(() => ({}));
-      if (!res.ok || json.error) {
-        Alert.alert("Error", json.error ?? `Failed to analyze PDF (status ${res.status})`);
-        return;
-      }
-      const extracted = json.extracted ?? {};
+      );
+      const extracted = json?.extracted ?? {};
       setLabForm((prev) => ({
         vo2max: extracted.vo2max != null ? String(extracted.vo2max) : prev.vo2max ?? "",
         ltHr: extracted.lactate_threshold_hr != null ? String(extracted.lactate_threshold_hr) : prev.ltHr ?? "",
@@ -497,6 +498,7 @@ export const SettingsScreen: FC = () => {
       Alert.alert("Error", e instanceof Error ? e.message : "Failed to analyze lab PDF.");
     } finally {
       setLabExtracting(false);
+      setLabExtractAttempt(1);
     }
   };
 
@@ -823,7 +825,7 @@ export const SettingsScreen: FC = () => {
   );
 
   return (
-    <ScreenContainer contentContainerStyle={styles.content}>
+    <ScreenContainer contentContainerStyle={{ ...styles.content, paddingBottom: spacing.screenBottom + 120 }}>
       <Text style={styles.title}>Settings</Text>
 
       <GlassCard>
@@ -1210,7 +1212,7 @@ export const SettingsScreen: FC = () => {
           ) : (
             <Ionicons name="document-text-outline" size={18} color={colors.mutedForeground} />
           )}
-          <Text style={styles.uploadBtnText}>{labExtracting ? "Analyzing lab results..." : "Upload lab PDF"}</Text>
+          <Text style={styles.uploadBtnText}>{labExtracting ? `Analyzing... (attempt ${labExtractAttempt} of 3)` : "Upload lab PDF"}</Text>
         </TouchableOpacity>
         <View style={{ marginTop: 10 }}>
           <View style={styles.labRow}>

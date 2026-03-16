@@ -7,8 +7,6 @@ export type Json =
   | Json[]
 
 export type Database = {
-  // Allows to automatically instantiate createClient with right options
-  // instead of createClient<Database, { PostgrestVersion: 'XX' }>(URL, KEY)
   __InternalSupabase: {
     PostgrestVersion: "14.1"
   }
@@ -42,6 +40,8 @@ export type Database = {
           trimp: number | null
           type: string | null
           user_id: string
+          name?: string | null
+          user_notes?: string | null
         }
         Insert: {
           ai_analysis?: string | null
@@ -70,6 +70,8 @@ export type Database = {
           trimp?: number | null
           type?: string | null
           user_id: string
+          name?: string | null
+          user_notes?: string | null
         }
         Update: {
           ai_analysis?: string | null
@@ -98,6 +100,8 @@ export type Database = {
           trimp?: number | null
           type?: string | null
           user_id?: string
+          name?: string | null
+          user_notes?: string | null
         }
         Relationships: []
       }
@@ -300,6 +304,20 @@ export type Database = {
           sleep_quality: number | null
           tsb: number | null
           user_id: string
+          sleep_score?: number | null
+          icu_ctl?: number | null
+          icu_atl?: number | null
+          icu_tsb?: number | null
+          vo2max?: number | null
+          ramp_rate?: number | null
+          icu_ramp_rate?: number | null
+          steps?: number | null
+          weight?: number | null
+          readiness?: number | null
+          stress_score?: number | null
+          mood?: number | null
+          energy?: number | null
+          muscle_soreness?: number | null
         }
         Insert: {
           ai_summary?: string | null
@@ -316,6 +334,20 @@ export type Database = {
           sleep_quality?: number | null
           tsb?: number | null
           user_id: string
+          sleep_score?: number | null
+          icu_ctl?: number | null
+          icu_atl?: number | null
+          icu_tsb?: number | null
+          vo2max?: number | null
+          ramp_rate?: number | null
+          icu_ramp_rate?: number | null
+          steps?: number | null
+          weight?: number | null
+          readiness?: number | null
+          stress_score?: number | null
+          mood?: number | null
+          energy?: number | null
+          muscle_soreness?: number | null
         }
         Update: {
           ai_summary?: string | null
@@ -332,6 +364,20 @@ export type Database = {
           sleep_quality?: number | null
           tsb?: number | null
           user_id?: string
+          sleep_score?: number | null
+          icu_ctl?: number | null
+          icu_atl?: number | null
+          icu_tsb?: number | null
+          vo2max?: number | null
+          ramp_rate?: number | null
+          icu_ramp_rate?: number | null
+          steps?: number | null
+          weight?: number | null
+          readiness?: number | null
+          stress_score?: number | null
+          mood?: number | null
+          energy?: number | null
+          muscle_soreness?: number | null
         }
         Relationships: []
       }
@@ -593,6 +639,78 @@ export type Database = {
         }
         Relationships: []
       }
+      seasons: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          season_type: string
+          start_date: string
+          end_date: string
+          primary_distance: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          season_type: string
+          start_date: string
+          end_date: string
+          primary_distance?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          season_type?: string
+          start_date?: string
+          end_date?: string
+          primary_distance?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      season_races: {
+        Row: {
+          id: string
+          season_id: string
+          user_id: string
+          name: string
+          race_date: string
+          distance: string | null
+          venue: string | null
+          priority: "A" | "B" | "C"
+          goal_time: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          season_id: string
+          user_id: string
+          name: string
+          race_date: string
+          distance?: string | null
+          venue?: string | null
+          priority: "A" | "B" | "C"
+          goal_time?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          season_id?: string
+          user_id?: string
+          name?: string
+          race_date?: string
+          distance?: string | null
+          venue?: string | null
+          priority?: "A" | "B" | "C"
+          goal_time?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       race_predictions: {
         Row: {
           id: string
@@ -632,6 +750,57 @@ export type Database = {
           threshold_pace?: string | null
           vo2max_pace?: string | null
           created_at?: string
+        }
+        Relationships: []
+      }
+      personal_records: {
+        Row: {
+          id: string
+          user_id: string
+          activity_id: string | null
+          distance: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          activity_id?: string | null
+          distance?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          activity_id?: string | null
+          distance?: string | null
+        }
+        Relationships: []
+      }
+      coaching_memory: {
+        Row: {
+          id: string
+          user_id: string
+          category: string | null
+          content: string | null
+          created_at: string | null
+          importance: number | null
+          expires_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          category?: string | null
+          content?: string | null
+          created_at?: string | null
+          importance?: number | null
+          expires_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          category?: string | null
+          content?: string | null
+          created_at?: string | null
+          importance?: number | null
+          expires_at?: string | null
         }
         Relationships: []
       }
@@ -721,7 +890,7 @@ export type Database = {
     }
     Enums: {
       activity_source: "garmin" | "strava" | "manual" | "intervals_icu"
-      coach_role: "user" | "coach"
+      coach_role: "user" | "coach" | "assistant"
       coach_trigger: "user" | "proactive" | "activity_sync" | "readiness"
       oauth_provider: "garmin" | "strava"
       training_philosophy: "jack_daniels" | "pfitzinger" | "hansons" | "ai" | "80_20" | "lydiard"
@@ -853,7 +1022,7 @@ export const Constants = {
   public: {
     Enums: {
       activity_source: ["garmin", "strava", "manual", "intervals_icu"],
-      coach_role: ["user", "coach"],
+      coach_role: ["user", "coach", "assistant"],
       coach_trigger: ["user", "proactive", "activity_sync", "readiness"],
       oauth_provider: ["garmin", "strava"],
       training_philosophy: ["jack_daniels", "pfitzinger", "hansons", "ai", "80_20", "lydiard"],

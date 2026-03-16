@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import { useQueryClient } from "@tanstack/react-query";
 import { supabase, callEdgeFunctionWithRetry } from "../shared/supabase";
 import { useIntervalsIntegration } from "./useIntervalsIntegration";
 
@@ -13,6 +14,7 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
  */
 export function useIntervalsAutoSync(): void {
   const { isConnected } = useIntervalsIntegration();
+  const queryClient = useQueryClient();
   const hasRun = useRef(false);
 
   useEffect(() => {
@@ -49,6 +51,11 @@ export function useIntervalsAutoSync(): void {
         }
 
         await AsyncStorage.setItem(STORAGE_KEY, String(Date.now()));
+        const refetchOpts = { refetchType: "all" as const };
+        await Promise.all([
+          queryClient.invalidateQueries({ queryKey: ["activities-dashboard"], ...refetchOpts }),
+          queryClient.invalidateQueries({ queryKey: ["daily_readiness-dashboard"], ...refetchOpts }),
+        ]);
       } catch (err) {
         console.warn("[IntervalsAutoSync] quick_sync error:", err instanceof Error ? err.message : err);
       }
@@ -57,5 +64,5 @@ export function useIntervalsAutoSync(): void {
     return () => {
       cancelled = true;
     };
-  }, [isConnected]);
+  }, [isConnected, queryClient]);
 }

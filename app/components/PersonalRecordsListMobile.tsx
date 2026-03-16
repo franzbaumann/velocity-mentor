@@ -1,5 +1,5 @@
 import { FC, useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { StyleSheet, Text, View, TouchableOpacity } from "react-native";
 import { format } from "date-fns";
 import { useTheme } from "../context/ThemeContext";
 import { formatDuration, formatPaceFromMinPerKm } from "../lib/format";
@@ -8,14 +8,15 @@ export type PersonalRecordRow = {
   key: string;
   label: string;
   km: number;
-  best: { timeSec: number; pace: number; date: string } | null;
+  best: { timeSec: number; pace: number; date: string; activityLinkId: string } | null;
 };
 
 type Props = {
   prs: PersonalRecordRow[];
+  onSelectPr?: (activityLinkId: string) => void;
 };
 
-export const PersonalRecordsListMobile: FC<Props> = ({ prs }) => {
+export const PersonalRecordsListMobile: FC<Props> = ({ prs, onSelectPr }) => {
   const { colors } = useTheme();
 
   const latestDate = useMemo(
@@ -50,10 +51,13 @@ export const PersonalRecordsListMobile: FC<Props> = ({ prs }) => {
         const timeStr = formatDuration(p.best.timeSec);
         const paceStr = formatPaceFromMinPerKm(p.best.pace);
         const isLatest = p.best.date === latestDate;
+        const RowWrapper = onSelectPr ? TouchableOpacity : View;
         return (
-          <View
+          <RowWrapper
             key={p.key}
             style={[styles.row, { borderBottomColor: colors.border }]}
+            onPress={onSelectPr ? () => onSelectPr(p.best!.activityLinkId) : undefined}
+            activeOpacity={onSelectPr ? 0.7 : 1}
           >
             <Text style={[styles.cell, styles.distCell, { color: colors.foreground }]}>
               {p.label}
@@ -69,8 +73,9 @@ export const PersonalRecordsListMobile: FC<Props> = ({ prs }) => {
                   <Text style={styles.badgeText}>Latest</Text>
                 </View>
               )}
+              {onSelectPr && <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>→</Text>}
             </View>
-          </View>
+          </RowWrapper>
         );
       })}
     </View>
@@ -124,7 +129,7 @@ const styles = StyleSheet.create({
   badgeText: {
     fontSize: 9,
     fontWeight: "600",
-    color: "#000",
+    color: "#fff",
   },
 });
 

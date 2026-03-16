@@ -1,5 +1,6 @@
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { addDays as addDaysFns, parseISO, startOfWeek as startOfWeekFns, isWithinInterval } from "date-fns";
 import { getLocalDateString } from "../lib/date";
 import { supabase } from "../shared/supabase";
 import {
@@ -11,8 +12,10 @@ import {
   recoveryMetrics as mockRecoveryMetrics,
   weekPlan as mockWeekPlan,
 } from "../data/mockDashboard";
-import { useActivitiesList } from "./useActivities";
 import { useAthleteProfile } from "./useAthleteProfile";
+import { useTrainingPlan } from "./useTrainingPlan";
+import { isRunningActivity, dailyTSSFromActivities } from "../lib/analytics";
+import { formatDistance } from "../lib/format";
 
 export type ActivityRow = {
   id: string;
@@ -28,9 +31,12 @@ export type ActivityRow = {
   external_id?: string | null;
   hr_zones?: Record<string, number> | null;
   hr_zone_times?: number[] | null;
+  icu_training_load?: number | null;
+  trimp?: number | null;
 };
 
 export type ReadinessRow = {
+  id?: string | null;
   date: string;
   ctl: number | null;
   atl: number | null;
@@ -53,6 +59,18 @@ export type ReadinessRow = {
   vo2max?: number | null;
   /** Ramp rate (fitness change rate) from intervals wellness */
   ramp_rate?: number | null;
+  /** intervals.icu readiness (0–100) when score is null */
+  readiness?: number | null;
+  /** Stress (0–4) from intervals.icu */
+  stress_score?: number | null;
+  /** Mood (1–4) from intervals.icu */
+  mood?: number | null;
+  /** Energy (1–4) from intervals.icu */
+  energy?: number | null;
+  /** Muscle soreness (0–4) from intervals.icu */
+  muscle_soreness?: number | null;
+  /** icu_ramp_rate — select and map to ramp_rate for charts */
+  icu_ramp_rate?: number | null;
 };
 
 function subDays(date: Date, days: number): Date {
@@ -84,11 +102,6 @@ function formatWeekdayShort(date: Date): string {
   return date.toLocaleDateString(undefined, { weekday: "short" });
 }
 
-function isRunningActivity(type: string | null | undefined): boolean {
-  const t = (type ?? "").toLowerCase();
-  return t === "run" || t.includes("run") || t === "trailrun" || t.includes("jog");
-}
-
 function formatDuration(sec: number | null): string {
   if (sec == null || !isFinite(sec)) return "--";
   const total = Math.max(0, Math.round(sec));
@@ -107,6 +120,7 @@ export function useDashboardData() {
     isLoading: activitiesLoading,
     isRefetching,
     refetch: refetchActivities,
+    dataUpdatedAt: activitiesUpdatedAt,
   } = useQuery({
     queryKey: ["activities-dashboard"],
     queryFn: async () => {
@@ -114,14 +128,15 @@ export function useDashboardData() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return [] as ActivityRow[];
-      const oldest = subDays(new Date(), 365 * 2);
+      const oldestDate = subDays(new Date(), 365 * 2);
+      const oldestStr = getLocalDateString(oldestDate);
       const { data, error } = await supabase
         .from("activity")
         .select(
-          "id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, source, external_id, hr_zones, hr_zone_times",
+          "id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, source, external_id, hr_zones, hr_zone_times, icu_training_load, trimp",
         )
         .eq("user_id", user.id)
-        .gte("date", oldest.toISOString().slice(0, 10))
+        .gte("date", oldestStr)
         .order("date", { ascending: true })
         .limit(2000);
       if (error) throw error;
@@ -129,15 +144,13 @@ export function useDashboardData() {
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
-    refetchOnMount: false,
-    refetchOnReconnect: false,
-    refetchOnWindowFocus: false,
   });
 
   const {
     data: readinessRows = [],
     isLoading: readinessLoading,
     refetch: refetchReadiness,
+    dataUpdatedAt: readinessUpdatedAt,
   } = useQuery({
     queryKey: ["daily_readiness-dashboard"],
     queryFn: async () => {
@@ -145,26 +158,33 @@ export function useDashboardData() {
         data: { user },
       } = await supabase.auth.getUser();
       if (!user) return [] as ReadinessRow[];
-      const oldest = subDays(new Date(), 365 * 2);
+      const oldestDate = subDays(new Date(), 365 * 2);
+      const oldestStr = getLocalDateString(oldestDate);
       const { data, error } = await supabase
         .from("daily_readiness")
         .select(
-          "date, ctl, atl, tsb, hrv, resting_hr, sleep_hours, sleep_quality, score, hrv_baseline, ai_summary, sleep_score, icu_ctl, icu_atl, icu_tsb, vo2max, ramp_rate, steps, weight, stress_score, mood, energy, muscle_soreness",
+          "id, date, ctl, atl, tsb, hrv, resting_hr, sleep_hours, sleep_quality, score, hrv_baseline, ai_summary, sleep_score, icu_ctl, icu_atl, icu_tsb, vo2max, ramp_rate, icu_ramp_rate, steps, weight, readiness, stress_score, mood, energy, muscle_soreness",
         )
         .eq("user_id", user.id)
-        .gte("date", oldest.toISOString().slice(0, 10))
+        .gte("date", oldestStr)
         .order("date", { ascending: true })
         .limit(2200);
       if (error) throw error;
       return (data ?? []) as ReadinessRow[];
     },
     staleTime: 5 * 60 * 1000,
+    refetchOnMount: "always",
   });
 
-  // Reuse the ActivitiesList hook so ids/detailIds match calendar & ActivityDetail navigation
-  const { items: activityItems } = useActivitiesList(730);
-
   const { profile: athleteProfile, refetch: refetchAthleteProfile } = useAthleteProfile();
+  const { plan: planData } = useTrainingPlan();
+
+  /** Strava week stats fallback when no intervals data; app has no Strava integration yet so returns null */
+  const { data: weekStatsReal } = useQuery({
+    queryKey: ["weekStats-strava"],
+    queryFn: async (): Promise<{ actualKm: number } | null> => null,
+    staleTime: 2 * 60 * 1000,
+  });
 
   /** Normalize hr_zones/hr_zone_times into { z1..z5 } percentages for last-activity widget */
   const normalizeHrZones = (a: { hr_zones?: Record<string, number> | null; hr_zone_times?: number[] | null }) => {
@@ -211,18 +231,10 @@ export function useDashboardData() {
       return { ...mockLastActivity, detailId: null as string | null };
     }
 
-    // Find matching item from ActivitiesList so id matches calendar/detail
-    const match = activityItems.find(
-      (it) =>
-        it.rawId === last.id ||
-        (!!last.external_id && it.externalId === last.external_id),
-    );
-
     const z = normalizeHrZones(last) ?? mockLastActivity.hrZones;
     const isIcu = last.source === "intervals_icu" && last.external_id;
-    const computedDetailId =
+    const detailId: string =
       isIcu && last.external_id ? `icu_${last.external_id}` : last.id;
-    const detailId = match ? match.id : computedDetailId;
     return {
       type: last.type ?? "Run",
       date: formatMonthDay(new Date(last.date)),
@@ -234,7 +246,7 @@ export function useDashboardData() {
       hrZones: z,
       detailId,
     };
-  }, [activities, activityItems]);
+  }, [activities]);
 
   const weekStats = useMemo(() => {
     const runningActivities = activities.filter(
@@ -251,26 +263,60 @@ export function useDashboardData() {
       .filter((a) => a.date >= monStr && a.date <= sunStr)
       .reduce((sum, a) => sum + (a.distance_km ?? 0), 0);
 
+    let plannedKm = 81;
+    let qualityPlanned = 3;
+    if (planData?.weeks?.length) {
+      const today = new Date();
+      const planStart = planData.plan?.start_date ? parseISO(planData.plan.start_date) : mon;
+      const weekStart = startOfWeekFns(planStart, { weekStartsOn: 1 });
+      const currentWeekNum = Math.floor((today.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
+      const thisWeekData = planData.weeks.find((w) => w.week_number === currentWeekNum)
+        ?? planData.weeks.find((w) => w.week_number <= currentWeekNum)
+        ?? planData.weeks[planData.weeks.length - 1];
+      if (thisWeekData) {
+        plannedKm = Math.round((thisWeekData.total_km ?? 81) * 10) / 10;
+        const sess = thisWeekData.sessions ?? [];
+        qualityPlanned = sess.filter((s) => !/rest|recovery/i.test(s.session_type ?? "")).length || 3;
+      }
+    }
+
+    const activitiesForTSS = activities as { date: string; avg_hr?: number | null; duration_seconds?: number | null; icu_training_load?: number | null; trimp?: number | null }[];
+    const dailyTSS = dailyTSSFromActivities(activitiesForTSS);
+    const tssData = [0, 1, 2, 3, 4, 5, 6].map((i) => {
+      const d = addDays(mon, i);
+      const key = getLocalDateString(d);
+      return Math.round((dailyTSS.get(key) ?? 0) * 10) / 10;
+    });
+
     if (runningActivities.length > 0) {
-      const plannedKm = 81;
       const actualKm = Math.round(thisWeekKm * 10) / 10;
-      const qualityPlanned = 3;
       const qualityDone = Math.min(qualityPlanned, Math.floor(actualKm / 20));
       return {
         plannedKm,
         actualKm,
         qualityDone,
         qualityPlanned,
-        tssData: mockWeekStats.tssData,
+        tssData: tssData.some((v) => v > 0) ? tssData : mockWeekStats.tssData,
       };
     }
-
-    return mockWeekStats;
-  }, [activities]);
+    if (weekStatsReal) {
+      const rawKm = weekStatsReal.actualKm;
+      const actualKm = rawKm > 500 ? 0 : Math.round(rawKm * 10) / 10;
+      const qualityDone = Math.min(qualityPlanned, Math.floor(actualKm / 20));
+      return {
+        plannedKm,
+        actualKm,
+        qualityDone,
+        qualityPlanned,
+        tssData: tssData.some((v) => v > 0) ? tssData : mockWeekStats.tssData,
+      };
+    }
+    return { ...mockWeekStats, plannedKm, qualityPlanned, tssData: tssData.some((v) => v > 0) ? tssData : mockWeekStats.tssData };
+  }, [weekStatsReal, activities, planData]);
 
   const recoveryMetrics = useMemo(() => {
-    const todayStr = getLocalDateString();
-    const latest = readinessRows.find((r) => r.date === todayStr) ?? readinessRows[0];
+    // Match web: use latest row (most recent), same as src/hooks/useDashboardData.ts
+    const latest = readinessRows.length > 0 ? readinessRows[readinessRows.length - 1] : null;
     if (!latest) return mockRecoveryMetrics;
     const hrvVals = readinessRows.map((r) => r.hrv ?? 0).filter(Boolean).reverse();
     const rhrVals = readinessRows.map((r) => r.resting_hr ?? 0).filter(Boolean).reverse();
@@ -292,9 +338,8 @@ export function useDashboardData() {
   }, [readinessRows]);
 
   const readiness = useMemo(() => {
-    const todayStr = getLocalDateString();
-    const todayRow = readinessRows.find((r) => r.date === todayStr);
-    const latest = todayRow ?? readinessRows[0];
+    // Match web: use latest row (most recent), same as src/hooks/useDashboardData.ts
+    const latest = readinessRows.length > 0 ? readinessRows[readinessRows.length - 1] : null;
     if (!latest) return mockReadiness;
     const hasReal =
       latest.hrv != null ||
@@ -325,6 +370,8 @@ export function useDashboardData() {
       (tsb != null || hrv != null || sleep != null
         ? "Synced from intervals.icu"
         : mockReadiness.aiSummary);
+    const todayStr = getLocalDateString();
+    const isToday = latest.date === todayStr;
     return {
       score,
       hrv: hrv ?? mockReadiness.hrv,
@@ -337,12 +384,36 @@ export function useDashboardData() {
       tsb: tsb != null ? Math.round(tsb * 10) / 10 : mockReadiness.tsb,
       aiSummary: summary,
       hrvTrend: "neutral" as const,
+      /** Row date (YYYY-MM-DD); use to show "Today" vs "12 Mar" so user sees data age */
+      date: latest.date,
+      isToday,
     };
   }, [readinessRows]);
 
   const weekPlan = useMemo(() => {
     const mon = startOfWeekMonday(new Date());
+    const monStr = getLocalDateString(mon);
+    const sunStr = getLocalDateString(addDays(mon, 6));
     const todayStr = getLocalDateString();
+    const planSessionsByDate = new Map<string, { type: string; description: string; distance_km?: number; pace_target?: string }[]>();
+    if (planData?.weeks?.length) {
+      for (const week of planData.weeks) {
+        for (const s of week.sessions ?? []) {
+          const d = s.scheduled_date ? String(s.scheduled_date).slice(0, 10) : null;
+          if (d && d >= monStr && d <= sunStr) {
+            const arr = planSessionsByDate.get(d) ?? [];
+            arr.push({
+              type: (s.session_type ?? "easy").toLowerCase(),
+              description: s.description ?? "",
+              distance_km: s.distance_km ?? undefined,
+              pace_target: s.pace_target ?? undefined,
+            });
+            planSessionsByDate.set(d, arr);
+          }
+        }
+      }
+    }
+
     return [0, 1, 2, 3, 4, 5, 6].map((i) => {
       const d = addDays(mon, i);
       const dateStr = getLocalDateString(d);
@@ -354,40 +425,77 @@ export function useDashboardData() {
           (a.distance_km ?? 0) <= 150,
       );
       const act = dayActs[0];
+      const planned = planSessionsByDate.get(dateStr)?.[0];
       const today = todayStr === dateStr;
       const mock = mockWeekPlan[i] ?? mockWeekPlan[0];
       const hasReal = activities.length > 0;
+      const hasPlan = planSessionsByDate.size > 0;
+      const detailId = act
+        ? (act.external_id && act.source === "intervals_icu" ? `icu_${act.external_id}` : act.id)
+        : null;
+
+      const type = (act ? (act.type ?? "run").toLowerCase() : planned ? planned.type : hasReal || hasPlan ? "rest" : mock.type) as "easy" | "tempo" | "interval" | "long" | "recovery" | "rest";
+      const title = act
+        ? `${act.type ?? "Run"} ${formatDistance(act.distance_km ?? 0)}`
+        : planned
+          ? (planned.description?.trim() || (planned.distance_km != null ? `Run ${formatDistance(planned.distance_km)}` : planned.type || "Run"))
+          : hasReal || hasPlan
+            ? "Rest"
+            : mock.title;
+      const distance = act ? Math.round((act.distance_km ?? 0) * 10) / 10 : (planned?.distance_km ?? 0);
+      const detail = act?.avg_pace ?? planned?.pace_target ?? (hasReal || hasPlan ? "" : mock.detail);
+
       return {
         day: formatWeekdayShort(d),
         date: formatMonthDay(d),
-        type: (act
-          ? (act.type ?? "run").toLowerCase()
-          : hasReal
-          ? "rest"
-          : mock.type) as
-          | "easy"
-          | "tempo"
-          | "interval"
-          | "long"
-          | "recovery"
-          | "rest",
-        title: act
-          ? `${act.type ?? "Run"} ${Math.round((act.distance_km ?? 0) * 10) / 10} km`
-          : hasReal
-          ? "—"
-          : mock.title,
-        distance: act ? Math.round((act.distance_km ?? 0) * 10) / 10 : 0,
-        detail: act?.avg_pace ?? (hasReal ? "" : mock.detail),
+        type,
+        title,
+        distance,
+        detail,
         isToday: today,
+        detailId,
       };
     });
-  }, [activities]);
+  }, [activities, planData]);
+
+  const todaysWorkout = useMemo(() => {
+    const todayStr = getLocalDateString();
+    if (!planData?.weeks?.length) return mockTodaysWorkout;
+    const today = new Date();
+    let thisWeekData = planData.weeks.find((w) => {
+      const start = w.start_date ? parseISO(w.start_date) : null;
+      if (!start) return false;
+      const end = addDaysFns(start, 6);
+      return isWithinInterval(today, { start, end });
+    });
+    if (!thisWeekData) {
+      const planStart = planData.plan?.start_date ? parseISO(planData.plan.start_date) : startOfWeekFns(new Date(), { weekStartsOn: 1 });
+      const weekStart = startOfWeekFns(planStart, { weekStartsOn: 1 });
+      const currentWeekNum = Math.floor((today.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
+      thisWeekData = planData.weeks.find((w) => w.week_number === currentWeekNum)
+        ?? planData.weeks[planData.weeks.length - 1];
+    }
+    const todaySession = (thisWeekData?.sessions ?? []).find(
+      (s) => s.scheduled_date && String(s.scheduled_date).slice(0, 10) === todayStr,
+    );
+    if (todaySession) {
+      const type = (todaySession.session_type ?? "easy").toLowerCase() as "easy" | "tempo" | "interval" | "long" | "recovery" | "rest";
+      return {
+        type,
+        title: todaySession.description ?? type,
+        distance: todaySession.distance_km ?? 0,
+        description: todaySession.description ?? "",
+        paceRange: todaySession.pace_target ?? "",
+      };
+    }
+    return { ...mockTodaysWorkout, type: "rest" as const, title: "Rest day", description: "Rest day" };
+  }, [planData]);
 
   const hasRealReadiness = readinessRows.length > 0;
   const hasRealActivities = activities.length > 0;
   const isSampleData = !hasRealReadiness && !hasRealActivities;
 
-  const refetchAll = async () => {
+  const refetchAll = useCallback(async () => {
     const promises: Promise<unknown>[] = [
       refetchActivities(),
       refetchReadiness(),
@@ -398,10 +506,13 @@ export function useDashboardData() {
     if (hasRejected) {
       throw new Error("Failed to refresh dashboard data");
     }
-  };
+  }, [refetchActivities, refetchReadiness, refetchAthleteProfile]);
+
+  const lastFetchedAt = Math.max(activitiesUpdatedAt ?? 0, readinessUpdatedAt ?? 0);
 
   return {
     athleteProfile,
+    lastFetchedAt,
     athlete: athleteProfile
       ? {
           name: athleteProfile.name || mockAthlete.name,
@@ -419,7 +530,7 @@ export function useDashboardData() {
         }
       : mockAthlete,
     readiness,
-    todaysWorkout: mockTodaysWorkout,
+    todaysWorkout,
     weekStats,
     lastActivity,
     recoveryMetrics,

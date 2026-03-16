@@ -24,7 +24,7 @@ export const StatsChartCard: FC<Props> = ({ icon, title, description, children, 
     borderRadius: theme.cardRadius,
     padding: theme.cardPadding,
     marginBottom: 8,
-    minHeight: 140,
+    minHeight: 180,
     borderWidth: theme.cardBorderWidth,
     borderColor: theme.cardBorder,
     ...(isDarkPro ? {} : Platform.select({
@@ -62,7 +62,12 @@ export const StatsChartCard: FC<Props> = ({ icon, title, description, children, 
           <View style={[styles.card, cardStyle]}>
             <View style={styles.titleRow}>
               <Ionicons name={icon} size={18} color={titleColor} />
-              <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
+              <Text style={[styles.title, { color: titleColor }]} numberOfLines={2} ellipsizeMode="tail">{title}</Text>
+              {description ? (
+                <TouchableOpacity onPress={flipCard} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.infoBtn}>
+                  <Ionicons name="information-circle-outline" size={20} color={titleColor} />
+                </TouchableOpacity>
+              ) : null}
             </View>
             <TouchableOpacity activeOpacity={0.9} onPress={flipCard}>
               {children}
@@ -77,7 +82,12 @@ export const StatsChartCard: FC<Props> = ({ icon, title, description, children, 
               <View style={[styles.card, cardStyle]}>
                 <View style={styles.titleRow}>
                   <Ionicons name={icon} size={18} color={titleColor} />
-                  <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
+                  <Text style={[styles.title, { color: titleColor }]} numberOfLines={2} ellipsizeMode="tail">{title}</Text>
+                  {description ? (
+                    <TouchableOpacity onPress={flipCard} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.infoBtn}>
+                      <Ionicons name="information-circle-outline" size={20} color={titleColor} />
+                    </TouchableOpacity>
+                  ) : null}
                 </View>
                 <View style={styles.body}>
                   <Text style={[styles.description, { color: descColor }]}>{description}</Text>
@@ -97,7 +107,12 @@ export const StatsChartCard: FC<Props> = ({ icon, title, description, children, 
           <View style={[styles.card, cardStyle]}>
             <View style={styles.titleRow}>
               <Ionicons name={icon} size={18} color={titleColor} />
-              <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
+              <Text style={[styles.title, { color: titleColor }]} numberOfLines={2} ellipsizeMode="tail">{title}</Text>
+              {description ? (
+                <TouchableOpacity onPress={flipCard} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.infoBtn}>
+                  <Ionicons name="information-circle-outline" size={20} color={titleColor} />
+                </TouchableOpacity>
+              ) : null}
             </View>
             {children}
           </View>
@@ -109,7 +124,12 @@ export const StatsChartCard: FC<Props> = ({ icon, title, description, children, 
             <View style={[styles.card, cardStyle]}>
               <View style={styles.titleRow}>
                 <Ionicons name={icon} size={18} color={titleColor} />
-                <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
+                <Text style={[styles.title, { color: titleColor }]} numberOfLines={2} ellipsizeMode="tail">{title}</Text>
+                {description ? (
+                  <TouchableOpacity onPress={flipCard} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.infoBtn}>
+                    <Ionicons name="information-circle-outline" size={20} color={titleColor} />
+                  </TouchableOpacity>
+                ) : null}
               </View>
               <View style={styles.body}>
                 <Text style={[styles.description, { color: descColor }]}>{description}</Text>
@@ -145,8 +165,12 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   title: {
+    flex: 1,
     fontWeight: "700",
     fontSize: 15,
+  },
+  infoBtn: {
+    padding: 4,
   },
   body: {
     marginTop: 4,
