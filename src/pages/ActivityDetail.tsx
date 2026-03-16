@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/AppLayout";
 import { useTheme } from "@/hooks/useTheme";
-import { useActivityDetail, type ActivityStreams } from "@/hooks/useActivityDetail";
+import { useActivityDetail, type ActivityStreams, type EnhancingSupplements } from "@/hooks/useActivityDetail";
 import { useZoneSource } from "@/hooks/useZoneSource";
 import { useAthleteProfile } from "@/hooks/useAthleteProfile";
 import { useAuth } from "@/hooks/use-auth";
@@ -251,13 +251,21 @@ function ZoneSourceBadge() {
   );
 }
 
-function ActivitySocialBar({ activityId }: { activityId: string }) {
+function ActivitySocialBar({
+  activityId,
+  edgeLikes,
+  edgeComments,
+}: {
+  activityId: string;
+  edgeLikes?: { id: string; user_id: string }[];
+  edgeComments?: { id: string; user_id: string; content: string; created_at: string }[];
+}) {
   const { user } = useAuth();
   const qc = useQueryClient();
   const [showComments, setShowComments] = useState(false);
   const [commentText, setCommentText] = useState("");
 
-  const { data: likes, error: likesError, refetch: refetchLikes } = useQuery({
+  const { data: directLikes, error: likesError, refetch: refetchLikes } = useQuery({
     queryKey: ["activity-likes-detail", activityId],
     queryFn: async () => {
       await supabase.auth.refreshSession();
@@ -270,7 +278,7 @@ function ActivitySocialBar({ activityId }: { activityId: string }) {
     staleTime: 30_000,
   });
 
-  const { data: comments, error: commentsError, refetch: refetchComments } = useQuery({
+  const { data: directComments, error: commentsError, refetch: refetchComments } = useQuery({
     queryKey: ["activity-comments-detail", activityId],
     queryFn: async () => {
       await supabase.auth.refreshSession();
@@ -283,6 +291,9 @@ function ActivitySocialBar({ activityId }: { activityId: string }) {
     },
     staleTime: 30_000,
   });
+
+  const likes = (directLikes && directLikes.length > 0) ? directLikes : (edgeLikes ?? directLikes ?? []);
+  const comments = (directComments && directComments.length > 0) ? directComments : (edgeComments ?? directComments ?? []);
 
   const { data: names } = useQuery({
     queryKey: ["social-names", activityId],
@@ -640,7 +651,7 @@ export default function ActivityDetail() {
         </div>
 
         {/* Social bar (likes / comments from friends) */}
-        {activity.id && <ActivitySocialBar activityId={activity.id} />}
+        {activity.id && <ActivitySocialBar activityId={activity.id} edgeLikes={activity.edgeLikes} edgeComments={activity.edgeComments} />}
 
         {/* ── Tab navigation ── */}
         <div className="flex rounded-lg bg-muted/60 p-1">
@@ -999,6 +1010,7 @@ export default function ActivityDetail() {
               userNotes={activity.user_notes}
               nomioDrink={activity.nomio_drink}
               lactateLevels={activity.lactate_levels}
+              enhancingSupplements={activity.enhancing_supplements}
               onUpdate={() => queryClient.invalidateQueries({ queryKey: ["activity-detail", id] })}
             />
           </div>
@@ -1052,29 +1064,79 @@ function GpxDownloadButton({ activityId, activityName, className }: { activityId
   );
 }
 
+function parseSupplements(s: EnhancingSupplements | null | undefined): {
+  beetrootValue: string;
+  beetrootUnit: "ml" | "mg";
+  bicarbValue: string;
+  caffeineValue: string;
+  carbsValue: string;
+} {
+  const empty = { beetrootValue: "", beetrootUnit: "ml" as const, bicarbValue: "", caffeineValue: "", carbsValue: "" };
+  if (!s || typeof s !== "object") return empty;
+  return {
+    beetrootValue: s.beetroot?.value != null ? String(s.beetroot.value) : "",
+    beetrootUnit: s.beetroot?.unit === "mg" ? "mg" : "ml",
+    bicarbValue: s.bicarb?.value != null ? String(s.bicarb.value) : "",
+    caffeineValue: s.caffeine?.value != null ? String(s.caffeine.value) : "",
+    carbsValue: s.carbs?.value != null ? String(s.carbs.value) : "",
+  };
+}
+
+function buildSupplements(p: ReturnType<typeof parseSupplements>): EnhancingSupplements {
+  const out: EnhancingSupplements = {};
+  const beetrootVal = p.beetrootValue.trim() ? Number(p.beetrootValue) : NaN;
+  if (!isNaN(beetrootVal) && beetrootVal > 0) out.beetroot = { value: beetrootVal, unit: p.beetrootUnit };
+  const bicarbVal = p.bicarbValue.trim() ? Number(p.bicarbValue) : NaN;
+  if (!isNaN(bicarbVal) && bicarbVal > 0) out.bicarb = { value: bicarbVal, unit: "g" };
+  const caffeineVal = p.caffeineValue.trim() ? Number(p.caffeineValue) : NaN;
+  if (!isNaN(caffeineVal) && caffeineVal > 0) out.caffeine = { value: caffeineVal, unit: "mg" };
+  const carbsVal = p.carbsValue.trim() ? Number(p.carbsValue) : NaN;
+  if (!isNaN(carbsVal) && carbsVal > 0) out.carbs = { value: carbsVal, unit: "g" };
+  return out;
+}
+
 function ActivityNotes({
   activityId,
   userNotes,
   nomioDrink,
   lactateLevels,
+  enhancingSupplements,
   onUpdate,
 }: {
   activityId: string | undefined;
   userNotes?: string | null;
   nomioDrink?: boolean | null;
   lactateLevels?: string | null;
+  enhancingSupplements?: EnhancingSupplements | null;
   onUpdate: () => void;
 }) {
+  const parsed = parseSupplements(enhancingSupplements);
   const [notes, setNotes] = useState(userNotes ?? "");
   const [nomio, setNomio] = useState(!!nomioDrink);
   const [lactate, setLactate] = useState(lactateLevels ?? "");
+  const [beetrootValue, setBeetrootValue] = useState(parsed.beetrootValue);
+  const [beetrootUnit, setBeetrootUnit] = useState<"ml" | "mg">(parsed.beetrootUnit);
+  const [bicarbValue, setBicarbValue] = useState(parsed.bicarbValue);
+  const [caffeineValue, setCaffeineValue] = useState(parsed.caffeineValue);
+  const [carbsValue, setCarbsValue] = useState(parsed.carbsValue);
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setNotes(userNotes ?? "");
     setNomio(!!nomioDrink);
     setLactate(lactateLevels ?? "");
-  }, [userNotes, nomioDrink, lactateLevels]);
+    const p = parseSupplements(enhancingSupplements);
+    setBeetrootValue(p.beetrootValue);
+    setBeetrootUnit(p.beetrootUnit);
+    setBicarbValue(p.bicarbValue);
+    setCaffeineValue(p.caffeineValue);
+    setCarbsValue(p.carbsValue);
+  }, [userNotes, nomioDrink, lactateLevels, enhancingSupplements]);
+
+  const supplements = useMemo(
+    () => buildSupplements({ beetrootValue, beetrootUnit, bicarbValue, caffeineValue, carbsValue }),
+    [beetrootValue, beetrootUnit, bicarbValue, caffeineValue, carbsValue]
+  );
 
   const save = useCallback(async () => {
     if (!activityId) return;
@@ -1086,7 +1148,12 @@ function ActivityNotes({
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(activityId);
       const query = supabase
         .from("activity")
-        .update({ user_notes: notes || null, nomio_drink: nomio, lactate_levels: lactate || null })
+        .update({
+          user_notes: notes || null,
+          nomio_drink: nomio,
+          lactate_levels: lactate || null,
+          enhancing_supplements: Object.keys(supplements).length ? supplements : {},
+        })
         .eq("user_id", user.id);
       const { error } = isUuid
         ? await query.eq("id", activityId)
@@ -1095,12 +1162,12 @@ function ActivityNotes({
     } finally {
       setSaving(false);
     }
-  }, [activityId, notes, nomio, lactate, onUpdate]);
+  }, [activityId, notes, nomio, lactate, supplements, onUpdate]);
 
   useEffect(() => {
     const t = setTimeout(save, 500);
     return () => clearTimeout(t);
-  }, [notes, nomio, lactate]);
+  }, [notes, nomio, lactate, supplements]);
 
   return (
     <div className="card-standard space-y-4">
@@ -1137,6 +1204,82 @@ function ActivityNotes({
           className="mt-1.5 min-h-[56px] resize-none text-sm"
           rows={2}
         />
+      </div>
+      <div className="border-t border-border pt-4 space-y-3">
+        <span className="text-xs font-medium text-muted-foreground">Enhancing supplements</span>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div className="space-y-1.5">
+            <Label htmlFor="beetroot" className="text-xs text-muted-foreground">Beetroot</Label>
+            <div className="flex gap-2">
+              <Input
+                id="beetroot"
+                type="number"
+                min={0}
+                step={0.1}
+                placeholder="Amount"
+                value={beetrootValue}
+                onChange={(e) => setBeetrootValue(e.target.value)}
+                className="flex-1"
+              />
+              <select
+                value={beetrootUnit}
+                onChange={(e) => setBeetrootUnit(e.target.value as "ml" | "mg")}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <option value="ml">ml</option>
+                <option value="mg">mg</option>
+              </select>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="bicarb" className="text-xs text-muted-foreground">Sodium bicarbonate (BiCarb)</Label>
+            <div className="flex gap-2 items-center">
+              <Input
+                id="bicarb"
+                type="number"
+                min={0}
+                step={0.1}
+                placeholder="g"
+                value={bicarbValue}
+                onChange={(e) => setBicarbValue(e.target.value)}
+                className="flex-1"
+              />
+              <span className="text-xs text-muted-foreground w-6">g</span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="caffeine" className="text-xs text-muted-foreground">Caffeine</Label>
+            <div className="flex gap-2 items-center">
+              <Input
+                id="caffeine"
+                type="number"
+                min={0}
+                step={1}
+                placeholder="mg"
+                value={caffeineValue}
+                onChange={(e) => setCaffeineValue(e.target.value)}
+                className="flex-1"
+              />
+              <span className="text-xs text-muted-foreground w-8">mg</span>
+            </div>
+          </div>
+          <div className="space-y-1.5">
+            <Label htmlFor="carbs" className="text-xs text-muted-foreground">Carbs</Label>
+            <div className="flex gap-2 items-center">
+              <Input
+                id="carbs"
+                type="number"
+                min={0}
+                step={1}
+                placeholder="g"
+                value={carbsValue}
+                onChange={(e) => setCarbsValue(e.target.value)}
+                className="flex-1"
+              />
+              <span className="text-xs text-muted-foreground w-6">g</span>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   );

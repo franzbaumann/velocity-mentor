@@ -27,6 +27,7 @@ import {
   Send,
   Users,
   Dumbbell,
+  Trash2,
 } from "lucide-react";
 import { format, parseISO, addDays } from "date-fns";
 import { toast } from "sonner";
@@ -139,6 +140,24 @@ function useSendInvite() {
         status: "pending",
       });
 
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workout-invites"] });
+      qc.invalidateQueries({ queryKey: ["pending-invites-count"] });
+    },
+  });
+}
+
+function useDeleteInvite() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      const { error } = await supabase
+        .from("workout_invite")
+        .delete()
+        .eq("id", inviteId);
       if (error) throw error;
     },
     onSuccess: () => {
@@ -338,6 +357,7 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
   const { user } = useAuth();
   const { data, isLoading } = useWorkoutInvites();
   const respond = useRespondToInvite();
+  const deleteInvite = useDeleteInvite();
   const [showNewInvite, setShowNewInvite] = useState(false);
   const [expandedInvite, setExpandedInvite] = useState<string | null>(null);
   const [previewInviteId, setPreviewInviteId] = useState<string | null>(null);
@@ -553,55 +573,82 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
                 } | null;
 
                 return (
-                  <button
+                  <div
                     key={invite.id}
-                    onClick={() =>
-                      setExpandedInvite(expandedInvite === invite.id ? null : invite.id)
-                    }
                     className="w-full text-left card-standard p-3 hover:bg-muted/30 transition-colors"
                   >
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <div className="text-sm">
-                          {isSent ? `You invited ${otherName}` : `${otherName} invited you`}
+                    <button
+                      onClick={() =>
+                        setExpandedInvite(expandedInvite === invite.id ? null : invite.id)
+                      }
+                      className="w-full text-left"
+                    >
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <div className="text-sm">
+                            {isSent ? `You invited ${otherName}` : `${otherName} invited you`}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {format(parseISO(invite.proposed_date), "MMM d")} ·{" "}
+                            {invite.invite_type}
+                          </div>
                         </div>
-                        <div className="text-xs text-muted-foreground">
-                          {format(parseISO(invite.proposed_date), "MMM d")} ·{" "}
-                          {invite.invite_type}
+                        <div className="flex items-center gap-2">
+                          <Badge
+                            variant={
+                              invite.status === "accepted"
+                                ? "default"
+                                : invite.status === "pending"
+                                  ? "outline"
+                                  : "secondary"
+                            }
+                            className="text-[10px]"
+                          >
+                            {invite.status}
+                          </Badge>
                         </div>
                       </div>
-                      <Badge
-                        variant={
-                          invite.status === "accepted"
-                            ? "default"
-                            : invite.status === "pending"
-                              ? "outline"
-                              : "secondary"
-                        }
-                        className="text-[10px]"
-                      >
-                        {invite.status}
-                      </Badge>
-                    </div>
-                    {expandedInvite === invite.id && combined?.summary && (
-                      <div className="mt-3 pt-3 border-t border-border/50 text-xs text-muted-foreground">
-                        <p className="font-medium text-foreground mb-1">Kipcoachee&apos;s Plan</p>
-                        <p>{combined.summary}</p>
-                        {combined.athlete_a && (
-                          <p className="mt-1">
-                            <span className="font-medium">{combined.athlete_a.name}:</span>{" "}
-                            {combined.athlete_a.workout}
-                          </p>
+                    </button>
+                    {expandedInvite === invite.id && (
+                      <>
+                        {combined?.summary && (
+                          <div className="mt-3 pt-3 border-t border-border/50 text-xs text-muted-foreground">
+                            <p className="font-medium text-foreground mb-1">Kipcoachee&apos;s Plan</p>
+                            <p>{combined.summary}</p>
+                            {combined.athlete_a && (
+                              <p className="mt-1">
+                                <span className="font-medium">{combined.athlete_a.name}:</span>{" "}
+                                {combined.athlete_a.workout}
+                              </p>
+                            )}
+                            {combined.athlete_b && (
+                              <p>
+                                <span className="font-medium">{combined.athlete_b.name}:</span>{" "}
+                                {combined.athlete_b.workout}
+                              </p>
+                            )}
+                          </div>
                         )}
-                        {combined.athlete_b && (
-                          <p>
-                            <span className="font-medium">{combined.athlete_b.name}:</span>{" "}
-                            {combined.athlete_b.workout}
-                          </p>
-                        )}
-                      </div>
+                        <div className="mt-2 pt-2 border-t border-border/50 flex justify-end">
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() =>
+                              deleteInvite.mutate(invite.id, {
+                                onSuccess: () => toast.success("Invite deleted"),
+                                onError: () => toast.error("Could not delete invite"),
+                              })
+                            }
+                            disabled={deleteInvite.isPending}
+                          >
+                            <Trash2 className="w-3 h-3 mr-1" />
+                            Delete
+                          </Button>
+                        </div>
+                      </>
                     )}
-                  </button>
+                  </div>
                 );
               })}
           </div>

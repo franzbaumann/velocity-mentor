@@ -42,6 +42,7 @@ export interface ActivityDetail {
   user_notes?: string | null;
   nomio_drink?: boolean | null;
   lactate_levels?: string | null;
+  enhancing_supplements?: EnhancingSupplements | null;
   source: string;
   latlng: [number, number][];
   splits: Array<{ km?: number; pace?: string; elapsed_sec?: number; hr?: number; elevation?: number }>;
@@ -49,7 +50,17 @@ export interface ActivityDetail {
   streamFetchError?: string;
   intervals?: Array<{ distance?: number; moving_time?: number; average_heartrate?: number; zone?: number; type?: string }>;
   streams?: ActivityStreams;
+  /** Pre-loaded social data from edge fallback (when direct Supabase queries may be blocked by RLS) */
+  edgeLikes?: { id: string; user_id: string }[];
+  edgeComments?: { id: string; user_id: string; content: string; created_at: string }[];
 }
+
+export type EnhancingSupplements = {
+  beetroot?: { value: number; unit: "ml" | "mg" };
+  bicarb?: { value: number; unit: "g" };
+  caffeine?: { value: number; unit: "mg" };
+  carbs?: { value: number; unit: "g" };
+};
 
 /** Decode Google polyline to [lat,lng][] */
 function decodePolyline(str: string): [number, number][] {
@@ -365,6 +376,7 @@ export function useActivityDetail(activityId: string | undefined) {
           user_notes: dbAct?.user_notes as string | null ?? null,
           nomio_drink: dbAct?.nomio_drink as boolean | null ?? null,
           lactate_levels: dbAct?.lactate_levels as string | null ?? null,
+          enhancing_supplements: (dbAct?.enhancing_supplements as EnhancingSupplements | null) ?? null,
           source: "intervals_icu",
           latlng,
           splits,
@@ -383,25 +395,68 @@ export function useActivityDetail(activityId: string | undefined) {
       const { data: { session: sess3 } } = await supabase.auth.getSession();
       const user = sess3?.user ?? null;
       if (!user) return null;
-      const { data: row, error } = await supabase
+      let row: Record<string, unknown> | null = null;
+      let edgeFallbackStream: unknown = null;
+      let edgeLikes: { id: string; user_id: string }[] | undefined;
+      let edgeComments: { id: string; user_id: string; content: string; created_at: string }[] | undefined;
+
+      const { data: directRow, error } = await supabase
         .from("activity")
-        .select("id, user_id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, cadence, source, splits, polyline, elevation_gain, external_id, garmin_id, coach_note, user_notes, nomio_drink, lactate_levels, icu_training_load, trimp, hr_zone_times, pace_zone_times, perceived_exertion")
+        .select("*")
         .eq("id", id)
-        .single();
+        .maybeSingle();
 
-      if (error || !row) return null;
+      if (directRow) {
+        row = directRow as Record<string, unknown>;
+      } else {
+        if (import.meta.env.DEV && error) {
+          console.warn("[useActivityDetail] Direct query failed, trying edge fallback", error.message);
+        }
+        const baseUrl = import.meta.env.VITE_SUPABASE_URL ?? "";
+        if (baseUrl && session.access_token) {
+          try {
+            const res = await fetch(`${baseUrl}/functions/v1/community-proxy`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+                Authorization: `Bearer ${session.access_token}`,
+                apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
+              },
+              body: JSON.stringify({ __path: "friend-activity-detail", activity_id: id }),
+            });
+            if (res.ok) {
+              const json = await res.json() as {
+                activity?: Record<string, unknown>;
+                stream?: unknown;
+                likes?: { id: string; user_id: string }[];
+                comments?: { id: string; user_id: string; content: string; created_at: string }[];
+              };
+              if (json.activity) {
+                row = json.activity;
+                edgeFallbackStream = json.stream ?? null;
+                edgeLikes = json.likes;
+                edgeComments = json.comments;
+              }
+            } else if (import.meta.env.DEV) {
+              console.warn("[useActivityDetail] friend-activity-detail failed", res.status, await res.text());
+            }
+          } catch (e) {
+            if (import.meta.env.DEV) console.warn("[useActivityDetail] friend-activity-detail request error", e);
+          }
+        }
+      }
 
-      const rowUserId = (row as Record<string, unknown>).user_id as string | undefined;
+      if (!row) return null;
+
+      const rowUserId = row.user_id as string | undefined;
       const isOwner = rowUserId === user.id;
 
-      // Load streams for both owner and friend (RLS allows read for own rows or friends' rows).
-      // activity_streams.activity_id can be: external_id (Intervals), id (uuid), or garmin_${garmin_id} (Garmin).
-      let dbStreams: unknown = null;
-      if (rowUserId) {
-        const r = row as Record<string, unknown>;
-        const extId = r.external_id as string | null;
-        const garminId = r.garmin_id as string | null;
-        // Intervals may store activity_streams.activity_id as numeric string (e.g. "132226879") while activity.external_id has "i" prefix ("i132226879")
+      // Load streams: if the edge fallback already returned streams, use those; otherwise query directly.
+      let dbStreams: unknown = edgeFallbackStream ?? null;
+      let edgeStreamError: string | null = null;
+      if (!dbStreams && rowUserId) {
+        const extId = row.external_id as string | null;
+        const garminId = row.garmin_id as string | null;
         const extIdNumeric = extId != null && extId.startsWith("i") && extId.length > 1 ? extId.slice(1) : null;
         const candidateKeys: string[] = [extId, extIdNumeric, id, garminId != null ? `garmin_${garminId}` : null].filter(
           (k): k is string => k != null && k !== ""
@@ -414,16 +469,13 @@ export function useActivityDetail(activityId: string | undefined) {
         });
         const cols = "time, heartrate, cadence, altitude, pace, distance, latlng, temperature, respiration_rate";
         const base = () => supabase.from("activity_streams").select(cols).eq("user_id", rowUserId);
-        let firstError: unknown = null;
         for (const key of keysToTry) {
           const res = await base().eq("activity_id", key).maybeSingle();
           if (res.data) {
             dbStreams = res.data;
             break;
           }
-          if (res.error && firstError === null) firstError = res.error;
         }
-        let edgeStreamError: string | null = null;
         if (!dbStreams && !isOwner) {
           const baseUrl = import.meta.env.VITE_SUPABASE_URL ?? "";
           const { data: { session: streamSession } } = await supabase.auth.getSession();
@@ -441,12 +493,10 @@ export function useActivityDetail(activityId: string | undefined) {
               if (streamRes.ok) {
                 const json = await streamRes.json() as { stream?: unknown };
                 if (json.stream) dbStreams = json.stream;
-              } else {
+              } else if (import.meta.env.DEV) {
                 const bodyText = await streamRes.text();
-                if (import.meta.env.DEV) {
-                  console.warn("[useActivityDetail] activity-stream failed", streamRes.status, bodyText);
-                  edgeStreamError = `${streamRes.status}: ${bodyText}`;
-                }
+                console.warn("[useActivityDetail] activity-stream failed", streamRes.status, bodyText);
+                edgeStreamError = `${streamRes.status}: ${bodyText}`;
               }
             } catch (e) {
               if (import.meta.env.DEV) {
@@ -455,12 +505,6 @@ export function useActivityDetail(activityId: string | undefined) {
                 edgeStreamError = msg;
               }
             }
-          }
-        }
-        if (import.meta.env.DEV && !dbStreams && keysToTry.length > 0) {
-          console.debug("[useActivityDetail] No stream row found for any key", { activityId: id, keysTried: keysToTry });
-          if (!isOwner) {
-            console.warn("[useActivityDetail] Friend activity has no stream data. If the owner has charts, ensure the RLS migration is applied: run `npx supabase db push` so policy \"Users can read friends' streams\" exists on activity_streams.");
           }
         }
       }
@@ -497,29 +541,30 @@ export function useActivityDetail(activityId: string | undefined) {
       const dbDist = Array.isArray(sRow?.distance) ? sRow.distance : [];
       const hasStreams = dbTime.length > 20 && (dbHr.length > 0 || dbAlt.length > 0 || dbPace.length > 0);
 
-      const r = row as Record<string, unknown>;
       return {
-        id: row.id,
+        id: row.id as string,
         user_id: rowUserId,
-        date: row.date ?? "",
-        type: row.type ?? "Run",
+        date: (row.date as string) ?? "",
+        type: (row.type as string) ?? "Run",
+        name: row.name != null ? String(row.name) : undefined,
         distance_km: Number(row.distance_km ?? 0),
         duration_seconds: durSec,
         elevation_gain: row.elevation_gain != null ? Number(row.elevation_gain) : null,
-        avg_pace: row.avg_pace,
+        avg_pace: (row.avg_pace as string | null) ?? null,
         avg_hr: row.avg_hr != null ? Number(row.avg_hr) : null,
         max_hr: row.max_hr != null ? Number(row.max_hr) : null,
-        cadence: r.cadence != null ? Number(r.cadence) : null,
-        load: r.icu_training_load != null ? Number(r.icu_training_load) : null,
-        trimp: r.trimp != null ? Number(r.trimp) : null,
-        hr_zone_times: Array.isArray(r.hr_zone_times) ? (r.hr_zone_times as number[]).map(Number) : null,
-        pace_zone_times: Array.isArray(r.pace_zone_times) ? (r.pace_zone_times as number[]).map(Number) : null,
-        perceived_exertion: r.perceived_exertion != null ? Number(r.perceived_exertion) : null,
-        source: row.source ?? "garmin",
-        coach_note: isOwner ? (r.coach_note as string | null ?? null) : null,
-        user_notes: isOwner ? (r.user_notes as string | null ?? null) : null,
-        nomio_drink: r.nomio_drink as boolean | null ?? null,
-        lactate_levels: r.lactate_levels as string | null ?? null,
+        cadence: row.cadence != null ? Number(row.cadence) : null,
+        load: row.icu_training_load != null ? Number(row.icu_training_load) : null,
+        trimp: row.trimp != null ? Number(row.trimp) : null,
+        hr_zone_times: Array.isArray(row.hr_zone_times) ? (row.hr_zone_times as number[]).map(Number) : null,
+        pace_zone_times: Array.isArray(row.pace_zone_times) ? (row.pace_zone_times as number[]).map(Number) : null,
+        perceived_exertion: row.perceived_exertion != null ? Number(row.perceived_exertion) : null,
+        source: (row.source as string) ?? "garmin",
+        coach_note: isOwner ? (row.coach_note as string | null ?? null) : null,
+        user_notes: isOwner ? (row.user_notes as string | null ?? null) : null,
+        nomio_drink: row.nomio_drink as boolean | null ?? null,
+        lactate_levels: row.lactate_levels as string | null ?? null,
+        enhancing_supplements: isOwner ? ((row.enhancing_supplements as EnhancingSupplements | null) ?? null) : null,
         latlng,
         splits,
         streams: hasStreams ? {
@@ -536,6 +581,8 @@ export function useActivityDetail(activityId: string | undefined) {
           respiration_rate: Array.isArray(sRow?.respiration_rate) && sRow.respiration_rate.length ? sRow.respiration_rate : undefined,
         } : undefined,
         ...(edgeStreamError ? { streamFetchError: edgeStreamError } : {}),
+        ...(edgeLikes ? { edgeLikes } : {}),
+        ...(edgeComments ? { edgeComments } : {}),
       };
     },
     enabled: !!activityId,

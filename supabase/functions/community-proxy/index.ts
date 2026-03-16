@@ -280,6 +280,62 @@ serve(async (req) => {
     return json({ plan, workouts: workouts ?? [] });
   }
 
+  // POST /friend-activity-detail — full activity row + streams + social for a friend's activity (server-side, bypasses RLS)
+  if (path === "friend-activity-detail" && req.method === "POST") {
+    const activityId = (body.activity_id ?? "").toString().trim();
+    if (!activityId) return json({ error: "activity_id required" }, 400);
+
+    const { data: activityRow } = await admin
+      .from("activity")
+      .select("*")
+      .eq("id", activityId)
+      .maybeSingle();
+
+    if (!activityRow) return json({ activity: null, stream: null });
+    const ownerId = activityRow.user_id as string;
+
+    if (ownerId === user.id) {
+      return json({ activity: activityRow, stream: null });
+    }
+
+    const sorted = [user.id, ownerId].sort();
+    const { data: fs } = await admin
+      .from("friendship")
+      .select("id")
+      .eq("user_a", sorted[0])
+      .eq("user_b", sorted[1])
+      .maybeSingle();
+    if (!fs) {
+      console.log("[friend-activity-detail] 403 Not friends", { activityId, viewerId: user.id, ownerId });
+      return json({ error: "Not friends" }, 403);
+    }
+
+    const safeActivity = { ...activityRow, coach_note: null, user_notes: null, enhancing_supplements: null };
+
+    // Fetch streams
+    const extId = (activityRow.external_id as string) ?? null;
+    const garminId = (activityRow.garmin_id as string) ?? null;
+    const extIdNumeric = extId != null && extId.startsWith("i") && extId.length > 1 ? extId.slice(1) : null;
+    const keys = [extId, extIdNumeric, activityId, garminId != null ? `garmin_${garminId}` : null].filter((k): k is string => k != null && k !== "");
+    const seen = new Set<string>();
+    const keysToTry = keys.filter((k) => { if (seen.has(k)) return false; seen.add(k); return true; });
+    const cols = "time, heartrate, cadence, altitude, pace, distance, latlng, temperature, respiration_rate";
+    let stream: unknown = null;
+    for (const key of keysToTry) {
+      const { data } = await admin.from("activity_streams").select(cols).eq("user_id", ownerId).eq("activity_id", key).maybeSingle();
+      if (data) { stream = data; break; }
+    }
+
+    // Fetch likes and comments (bypasses RLS)
+    const [likesRes, commentsRes] = await Promise.all([
+      admin.from("activity_like").select("id, user_id").eq("activity_id", activityId),
+      admin.from("activity_comment").select("id, user_id, content, created_at").eq("activity_id", activityId).order("created_at", { ascending: true }),
+    ]);
+
+    console.log("[friend-activity-detail]", { activityId, ownerId, hasStream: !!stream });
+    return json({ activity: safeActivity, stream, likes: likesRes.data ?? [], comments: commentsRes.data ?? [] });
+  }
+
   // POST /activity-stream — get stream for a friend's activity (server-side so it works without RLS on activity_streams)
   if (path === "activity-stream" && req.method === "POST") {
     const activityId = (body.activity_id ?? "").toString().trim();

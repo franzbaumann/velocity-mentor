@@ -2,6 +2,7 @@
 -- Does not remove the existing "Users manage own streams" policy.
 -- Apply with: npx supabase db push (or run this migration in Supabase Dashboard SQL).
 
+DROP POLICY IF EXISTS "Users can read friends' streams" ON public.activity_streams;
 CREATE POLICY "Users can read friends' streams" ON public.activity_streams
   FOR SELECT
   USING (
