@@ -14,6 +14,8 @@ import {
   Moon,
   Monitor,
   Plus,
+  Flame,
+  Users,
 } from "lucide-react";
 import { useDailyCheckIn } from "@/components/DailyCheckInContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -22,6 +24,7 @@ import { useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { useTheme, type Theme } from "@/hooks/useTheme";
 import { useSidebar } from "@/components/SidebarContext";
+import { usePendingInvitesCount } from "@/hooks/useFriends";
 
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -30,6 +33,7 @@ const navItems = [
   { title: "Activities", url: "/activities", icon: Activity },
   { title: "Coach Cade", url: "/coach", icon: MessageCircle },
   { title: "Stats", url: "/stats", icon: BarChart3 },
+  { title: "Community", url: "/community", icon: Users },
   { title: "Philosophy", url: "/philosophy", icon: BookOpen },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
@@ -42,10 +46,11 @@ const themeOptions: { value: Theme; icon: typeof Sun; label: string }[] = [
 
 export function AppSidebar() {
   const { collapsed, setCollapsed, hoverExpanded, setHoverExpanded } = useSidebar();
-  const { openCheckIn, hasCheckedInToday } = useDailyCheckIn();
+  const { openCheckIn, hasCheckedInToday, currentStreak, longestStreak } = useDailyCheckIn();
   const { theme, setTheme } = useTheme();
   const location = useLocation();
   const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { data: pendingCount = 0 } = usePendingInvitesCount();
 
   const expanded = !collapsed || hoverExpanded;
 
@@ -101,7 +106,7 @@ export function AppSidebar() {
             to={item.url}
             end={item.url === "/"}
             onClick={handleNavClick}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-secondary transition-colors"
+            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-secondary transition-colors relative"
             activeClassName="bg-primary/10 text-primary font-medium"
           >
             <item.icon className="w-[18px] h-[18px] flex-shrink-0" />
@@ -112,6 +117,11 @@ export function AppSidebar() {
             >
               {item.title}
             </span>
+            {item.url === "/community" && pendingCount > 0 && (
+              <span className="absolute top-1 right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground flex items-center justify-center">
+                {pendingCount}
+              </span>
+            )}
           </NavLink>
         ))}
       </nav>
@@ -129,10 +139,17 @@ export function AppSidebar() {
             {hasCheckedInToday && (
               <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-background" />
             )}
+            {currentStreak > 0 && (
+              <span className="absolute -bottom-0.5 -right-0.5 min-w-[18px] h-[18px] px-1 rounded-full bg-amber-500/90 text-[10px] font-bold text-white flex items-center justify-center gap-0.5">
+                <Flame className="w-2.5 h-2.5" />
+                {currentStreak}
+              </span>
+            )}
           </button>
         </TooltipTrigger>
         <TooltipContent side="right">
           <p>{hasCheckedInToday ? "Check-in done ✓" : "Daily check-in"}</p>
+          {currentStreak > 0 && <p className="text-xs text-muted-foreground mt-0.5">{currentStreak}-day streak{longestStreak > currentStreak ? ` · Best: ${longestStreak}` : ""}</p>}
         </TooltipContent>
       </Tooltip>
 

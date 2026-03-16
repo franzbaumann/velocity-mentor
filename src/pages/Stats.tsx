@@ -256,8 +256,12 @@ function EmptyState({ message, sub, tall }: { message: string; sub?: string; tal
 /** Format pace number (min/km) for chart axis: 5.5 → "5:30/km" */
 function formatPaceTick(val: number): string {
   if (val == null || val < 2 || val > 25) return "";
-  const min = Math.floor(val);
-  const sec = Math.round((val - min) * 60);
+  let min = Math.floor(val);
+  let sec = Math.round((val - min) * 60);
+  if (sec >= 60) {
+    min += 1;
+    sec = 0;
+  }
   return `${min}:${String(sec).padStart(2, "0")}/km`;
 }
 

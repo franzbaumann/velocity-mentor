@@ -14,6 +14,7 @@ import { Step6Injuries } from "./steps/Step6Injuries";
 import { Step7Background } from "./steps/Step7Background";
 import { Step8Philosophy } from "./steps/Step8Philosophy";
 import { Step9PlanGeneration } from "./steps/Step9PlanGeneration";
+import { Step9SeasonCreation } from "./steps/Step9SeasonCreation";
 import type {
   OnboardingV2State,
   OnboardingV2Answers,
@@ -50,7 +51,7 @@ export interface OnboardingV2Props {
   onComplete: (
     finalAnswers: Record<string, unknown>,
     planResult?: { plan_id: string },
-    action?: "view_plan" | "chat"
+    action?: "view_plan" | "chat" | "view_season"
   ) => void;
 }
 
@@ -211,6 +212,7 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
   // ---- Plan Generation API (Step 9) ----
   useEffect(() => {
     if (state.currentStep !== 9 || !state.selectedPhilosophy) return;
+    if (state.answers.goal === "plan_season") return; // season path: no plan generated
     if (state.generatedPlan) return;
 
     setPlanLoading(true);
@@ -336,6 +338,16 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
     );
   }, [onComplete, state.answers, state.generatedPlan, state.selectedPhilosophy, saveProfileToSupabase]);
 
+  const handleGoToSeason = useCallback(async () => {
+    await saveProfileToSupabase(state.answers, state.selectedPhilosophy);
+    localStorage.removeItem(STORAGE_KEY);
+    onComplete(
+      state.answers as unknown as Record<string, unknown>,
+      undefined,
+      "view_season"
+    );
+  }, [onComplete, state.answers, state.selectedPhilosophy, saveProfileToSupabase]);
+
   // ---- Shared step props ----
   const stepProps: StepProps = {
     answers: state.answers,
@@ -374,7 +386,10 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
             onRetry={handleRetryPhilosophy}
           />
         )}
-        {state.currentStep === 9 && (
+        {state.currentStep === 9 && state.answers.goal === "plan_season" && (
+          <Step9SeasonCreation onGoToSeason={handleGoToSeason} onBack={goBack} />
+        )}
+        {state.currentStep === 9 && state.answers.goal !== "plan_season" && (
           <Step9PlanGeneration
             planResult={state.generatedPlan}
             loading={planLoading}

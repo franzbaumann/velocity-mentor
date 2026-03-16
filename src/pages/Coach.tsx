@@ -1270,6 +1270,9 @@ export default function Coach() {
       if (action === "view_plan" && planResult?.plan_id) {
         toast.success("Your plan is ready!");
         navigate("/plan");
+      } else if (action === "view_season") {
+        toast.success("Set up your season — add your races and priorities.");
+        navigate("/season");
       } else {
         toast.success("Welcome! Chat with Coach Cade whenever you're ready.");
       }

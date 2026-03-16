@@ -12,6 +12,7 @@ import { resolveCtlAtlTsb } from "@/hooks/useReadiness";
 import { calculateTLS, type OtherTraining } from "@/lib/totalLoad/calculateTLS";
 import { ChevronRight, Loader2 } from "lucide-react";
 import { toast } from "sonner";
+import { useDailyCheckIn } from "@/components/DailyCheckInContext";
 
 const OTHER_TYPES = [
   { id: "nothing", label: "Nothing" },
@@ -76,6 +77,7 @@ export function DailyCheckIn({ open, onClose }: { open: boolean; onClose: () => 
   const [displayScore, setDisplayScore] = useState(0);
 
   const { checkIn, isCheckingIn } = useDailyLoad();
+  const { currentStreak, invalidateStreak } = useDailyCheckIn();
   const { data: readinessRows } = useMergedReadiness(14);
   const todayStr = new Date().toISOString().slice(0, 10);
   const todayReadiness = readinessRows?.find((r) => r.date?.slice(0, 10) === todayStr) ?? readinessRows?.[readinessRows.length - 1];
@@ -141,7 +143,9 @@ export function DailyCheckIn({ open, onClose }: { open: boolean; onClose: () => 
         life_note: lifeNote.trim() || undefined,
       };
       await checkIn(payload);
-      toast.success("Check-in saved!");
+      invalidateStreak();
+      const newStreak = currentStreak + 1;
+      toast.success(newStreak > 1 ? `Check-in saved! You're on a ${newStreak}-day streak!` : "Check-in saved!");
       onClose();
     } catch {
       toast.error("Failed to save check-in");

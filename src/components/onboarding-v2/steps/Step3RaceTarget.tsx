@@ -24,8 +24,12 @@ const DISTANCE_KM: Record<string, number> = {
 
 function formatPace(totalSeconds: number, distanceKm: number): string {
   const paceSeconds = totalSeconds / distanceKm;
-  const min = Math.floor(paceSeconds / 60);
-  const sec = Math.round(paceSeconds % 60);
+  let min = Math.floor(paceSeconds / 60);
+  let sec = Math.round(paceSeconds % 60);
+  if (sec >= 60) {
+    min += 1;
+    sec = 0;
+  }
   return `${min}:${String(sec).padStart(2, "0")}/km`;
 }
 

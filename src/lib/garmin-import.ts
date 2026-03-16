@@ -234,8 +234,12 @@ function formatPace(distanceKm: number, durationSec: number): string {
   if (!distanceKm || distanceKm < 0.001 || !durationSec) return "";
   const paceMinPerKm = (durationSec / 60) / distanceKm;
   if (paceMinPerKm < 2 || paceMinPerKm > 25) return "";
-  const min = Math.floor(paceMinPerKm);
-  const sec = Math.round((paceMinPerKm - min) * 60);
+  let min = Math.floor(paceMinPerKm);
+  let sec = Math.round((paceMinPerKm - min) * 60);
+  if (sec >= 60) {
+    min += 1;
+    sec = 0;
+  }
   return `${min}:${String(sec).padStart(2, "0")} /km`;
 }
 
@@ -821,8 +825,12 @@ function parseActivityJson(
     const avgPaceMinPerKm = Number(o.AveragePaceInMinutesPerKilometer ?? o.averagePace ?? o.avgPace ?? 0) || null;
     let avgPaceStr: string | null = null;
     if (avgPaceMinPerKm && avgPaceMinPerKm > 0) {
-      const min = Math.floor(avgPaceMinPerKm);
-      const sec = Math.round((avgPaceMinPerKm % 1) * 60);
+      let min = Math.floor(avgPaceMinPerKm);
+      let sec = Math.round((avgPaceMinPerKm % 1) * 60);
+      if (sec >= 60) {
+        min += 1;
+        sec = 0;
+      }
       avgPaceStr = `${min}:${String(sec).padStart(2, "0")} /km`;
     } else if (distanceKm && durationSec) avgPaceStr = formatPace(distanceKm, durationSec);
     const typeStr = activityType === "RUNNING" || /running|run/i.test(activityType) ? "run" : (activityType || "run").toLowerCase().replace(/_/g, " ");

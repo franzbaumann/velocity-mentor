@@ -7,6 +7,16 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
+/** Parse "5:30" or "5:30/km" to min per km. Returns null if invalid or outside 2–25 min/km. */
+function parsePaceToMinPerKm(pace: string | null | undefined): number | null {
+  if (!pace || typeof pace !== "string") return null;
+  const m = pace.match(/(\d+):(\d+)/);
+  if (!m) return null;
+  const min = parseInt(m[1], 10) + parseInt(m[2], 10) / 60;
+  if (min < 2 || min > 25) return null;
+  return min;
+}
+
 const PLAN_PROMPT = `You are Coach Cade — an elite AI running coach built into Cade — building a training plan.
 Return ONLY valid JSON, no markdown, no explanation:
 {
@@ -377,6 +387,11 @@ serve(async (req) => {
         const dow = w.day_of_week ?? 1;
         const workoutDate = new Date(weekStart);
         workoutDate.setDate(workoutDate.getDate() + (dow - 1));
+        let durationMinutes = w.duration_minutes ?? null;
+        if (w.distance_km != null && w.distance_km > 0 && w.target_pace) {
+          const minPerKm = parsePaceToMinPerKm(w.target_pace);
+          if (minPerKm != null) durationMinutes = Math.round(w.distance_km * minPerKm);
+        }
         await supabase.from("training_plan_workout").insert({
           user_id: user.id,
           plan_id: planRow.id,
@@ -389,7 +404,7 @@ serve(async (req) => {
           description: w.description ?? "",
           key_focus: w.key_focus ?? null,
           distance_km: w.distance_km ?? null,
-          duration_minutes: w.duration_minutes ?? null,
+          duration_minutes: durationMinutes,
           target_pace: w.target_pace ?? null,
           target_hr_zone: w.target_hr_zone ?? null,
           tss_estimate: w.tss_estimate ?? null,

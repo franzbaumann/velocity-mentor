@@ -1,17 +1,20 @@
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { AppLayout } from "@/components/AppLayout";
 import { useTheme } from "@/hooks/useTheme";
 import { useActivityDetail, type ActivityStreams } from "@/hooks/useActivityDetail";
 import { useZoneSource } from "@/hooks/useZoneSource";
 import { useAthleteProfile } from "@/hooks/useAthleteProfile";
+import { useAuth } from "@/hooks/use-auth";
 import { getZoneFromBpm, getZoneBounds, computeHrZoneTimesFromStream } from "@/lib/hr-zones";
 import { useParams, useNavigate } from "react-router-dom";
-import { format } from "date-fns";
+import { format, formatDistanceToNow } from "date-fns";
 import { isNonDistanceActivity } from "@/lib/analytics";
-import { formatDistance, formatCadence, formatElevation } from "@/lib/format";
-import { ArrowLeft, BarChart3, Heart, Mountain, MessageCircle, Loader2, FileText, Coffee, Droplets, Download, Trophy } from "lucide-react";
+import { formatDistance, formatCadence, formatElevation, normalizePaceDisplay, cadenceToDisplaySpm } from "@/lib/format";
+import { ArrowLeft, BarChart3, Heart, Mountain, MessageCircle, Loader2, FileText, Coffee, Droplets, Download, Trophy, Send } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { MapContainer, TileLayer, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -49,7 +52,13 @@ function formatDuration(sec: number): string {
 
 function formatPace(val: number): string {
   if (!val || val <= 0 || val > 20) return "--";
-  return `${Math.floor(val)}:${String(Math.round((val % 1) * 60)).padStart(2, "0")}`;
+  let min = Math.floor(val);
+  let sec = Math.round((val % 1) * 60);
+  if (sec >= 60) {
+    min += 1;
+    sec = 0;
+  }
+  return `${min}:${String(sec).padStart(2, "0")}`;
 }
 
 type ChartPoint = {
@@ -141,6 +150,8 @@ function buildChartData(streams: ActivityStreams): ChartPoint[] {
   for (let i = 0; i < n; i++) {
     const t = time[i] ?? 0;
     const km = distArr.length > i ? distArr[i] / 1000 : (streams.distance_km ?? 0) * (i / (n - 1 || 1));
+    const rawCad = smoothedCad[i] ?? 0;
+    const displayCad = rawCad >= 25 && rawCad <= 130 ? rawCad * 2 : rawCad;
     data.push({
       t,
       km: Math.round(km * 100) / 100,
@@ -148,7 +159,7 @@ function buildChartData(streams: ActivityStreams): ChartPoint[] {
       pace: smoothedPace[i] ?? 0,
       hr: smoothedHr[i] ?? 0,
       altitude: altitude[i] ?? 0,
-      cadence: smoothedCad[i] ?? 0,
+      cadence: displayCad,
       temperature: smoothedTemp[i] ?? 0,
       respiration_rate: smoothedResp[i] ?? 0,
     });
@@ -237,6 +248,169 @@ function ZoneSourceBadge() {
     <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
       {zoneSource}
     </span>
+  );
+}
+
+function ActivitySocialBar({ activityId }: { activityId: string }) {
+  const { user } = useAuth();
+  const qc = useQueryClient();
+  const [showComments, setShowComments] = useState(false);
+  const [commentText, setCommentText] = useState("");
+
+  const { data: likes } = useQuery({
+    queryKey: ["activity-likes-detail", activityId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("activity_like")
+        .select("id, user_id")
+        .eq("activity_id", activityId);
+      return data ?? [];
+    },
+    staleTime: 30_000,
+  });
+
+  const { data: comments } = useQuery({
+    queryKey: ["activity-comments-detail", activityId],
+    queryFn: async () => {
+      const { data } = await supabase
+        .from("activity_comment")
+        .select("id, user_id, content, created_at")
+        .eq("activity_id", activityId)
+        .order("created_at", { ascending: true });
+      return data ?? [];
+    },
+    staleTime: 30_000,
+  });
+
+  const { data: names } = useQuery({
+    queryKey: ["social-names", activityId],
+    queryFn: async () => {
+      const allIds = new Set<string>();
+      for (const l of likes ?? []) allIds.add(l.user_id);
+      for (const c of comments ?? []) allIds.add(c.user_id);
+      if (allIds.size === 0) return new Map<string, string>();
+      const { data } = await supabase
+        .from("athlete_profile")
+        .select("user_id, name")
+        .in("user_id", [...allIds]);
+      return new Map((data ?? []).map((p) => [p.user_id, p.name]));
+    },
+    enabled: (likes?.length ?? 0) > 0 || (comments?.length ?? 0) > 0,
+    staleTime: 60_000,
+  });
+
+  const likeCount = likes?.length ?? 0;
+  const userLiked = likes?.some((l) => l.user_id === user?.id) ?? false;
+  const commentCount = comments?.length ?? 0;
+
+  const toggleLike = useMutation({
+    mutationFn: async () => {
+      if (!user) return;
+      if (userLiked) {
+        await supabase.from("activity_like").delete().eq("activity_id", activityId).eq("user_id", user.id);
+      } else {
+        await supabase.from("activity_like").insert({ activity_id: activityId, user_id: user.id });
+      }
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: ["activity-likes-detail", activityId] }),
+  });
+
+  const addComment = useMutation({
+    mutationFn: async (content: string) => {
+      if (!user) return;
+      await supabase.from("activity_comment").insert({ activity_id: activityId, user_id: user.id, content });
+    },
+    onSuccess: () => {
+      setCommentText("");
+      qc.invalidateQueries({ queryKey: ["activity-comments-detail", activityId] });
+      qc.invalidateQueries({ queryKey: ["social-names", activityId] });
+    },
+  });
+
+  if (likeCount === 0 && commentCount === 0 && !showComments) {
+    return (
+      <div className="flex items-center gap-4 px-1">
+        <button
+          onClick={() => toggleLike.mutate()}
+          className={`flex items-center gap-1.5 text-xs transition-colors ${userLiked ? "text-red-500" : "text-muted-foreground hover:text-red-500"}`}
+          disabled={toggleLike.isPending}
+        >
+          <Heart className={`w-4 h-4 ${userLiked ? "fill-current" : ""}`} />
+          Like
+        </button>
+        <button
+          onClick={() => setShowComments(true)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <MessageCircle className="w-4 h-4" />
+          Comment
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="card-standard p-4 space-y-3">
+      <div className="flex items-center gap-4">
+        <button
+          onClick={() => toggleLike.mutate()}
+          className={`flex items-center gap-1.5 text-xs transition-colors ${userLiked ? "text-red-500" : "text-muted-foreground hover:text-red-500"}`}
+          disabled={toggleLike.isPending}
+        >
+          <Heart className={`w-4 h-4 ${userLiked ? "fill-current" : ""}`} />
+          {likeCount > 0 && <span>{likeCount}</span>}
+        </button>
+        <button
+          onClick={() => setShowComments(!showComments)}
+          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+        >
+          <MessageCircle className="w-4 h-4" />
+          {commentCount > 0 && <span>{commentCount}</span>}
+        </button>
+        {likeCount > 0 && names && (
+          <span className="text-xs text-muted-foreground ml-auto">
+            Liked by {likes!.slice(0, 3).map((l) => l.user_id === user?.id ? "you" : names.get(l.user_id) ?? "friend").join(", ")}
+            {likeCount > 3 && ` and ${likeCount - 3} more`}
+          </span>
+        )}
+      </div>
+
+      {(showComments || commentCount > 0) && (
+        <div className="pt-2 border-t border-border/50 space-y-2">
+          {(comments ?? []).map((c) => (
+            <div key={c.id} className="text-xs">
+              <span className="font-medium">
+                {c.user_id === user?.id ? "You" : names?.get(c.user_id) ?? "Friend"}
+              </span>{" "}
+              <span className="text-muted-foreground">{c.content}</span>
+              <span className="text-muted-foreground/60 ml-2">
+                {formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
+              </span>
+            </div>
+          ))}
+          <div className="flex gap-2 mt-1">
+            <Input
+              placeholder="Add a comment..."
+              value={commentText}
+              onChange={(e) => setCommentText(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && commentText.trim()) addComment.mutate(commentText.trim());
+              }}
+              className="text-xs h-8"
+            />
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-2"
+              onClick={() => commentText.trim() && addComment.mutate(commentText.trim())}
+              disabled={!commentText.trim() || addComment.isPending}
+            >
+              <Send className="w-3.5 h-3.5" />
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -397,7 +571,10 @@ export default function ActivityDetail() {
               {!nonDist && activity.avg_pace && (
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">Pace</p>
-                  <p className="text-3xl font-bold tabular-nums text-foreground">{activity.avg_pace}<span className="text-base font-normal text-muted-foreground ml-1">/km</span></p>
+                  <p className="text-3xl font-bold tabular-nums text-foreground">
+                    {normalizePaceDisplay(activity.avg_pace) || activity.avg_pace}
+                    {!(normalizePaceDisplay(activity.avg_pace) || activity.avg_pace).endsWith("/km") && <span className="text-base font-normal text-muted-foreground ml-1">/km</span>}
+                  </p>
                 </div>
               )}
               {activity.avg_hr != null && (
@@ -415,7 +592,7 @@ export default function ActivityDetail() {
               {activity.load != null && <StatChip label="Load" value={`${Math.round(activity.load)}`} />}
               {activity.trimp != null && <StatChip label="TRIMP" value={`${Math.round(activity.trimp)}`} />}
               {activity.perceived_exertion != null && <StatChip label="RPE" value={`${activity.perceived_exertion}/10`} />}
-              {activity.cadence != null && activity.cadence > 0 && <StatChip label="Cadence" value={formatCadence(activity.cadence)} />}
+              {activity.cadence != null && activity.cadence > 0 && <StatChip label="Cadence" value={formatCadence(cadenceToDisplaySpm(activity.cadence) ?? activity.cadence)} />}
               {activity.elevation_gain != null && activity.elevation_gain > 0 && <StatChip label="Climbing" value={formatElevation(activity.elevation_gain)} />}
               {activity.calories != null && activity.calories > 0 && <StatChip label="Calories" value={`${Math.round(activity.calories)}`} />}
             </div>
@@ -432,6 +609,9 @@ export default function ActivityDetail() {
             </div>
           )}
         </div>
+
+        {/* Social bar (likes / comments from friends) */}
+        {activity.id && <ActivitySocialBar activityId={activity.id} />}
 
         {/* ── Tab navigation ── */}
         <div className="flex rounded-lg bg-muted/60 p-1">
@@ -459,7 +639,7 @@ export default function ActivityDetail() {
                       return (
                         <div key={i} className="flex-1 min-w-[72px] border-r border-border last:border-r-0 px-2 py-2 text-center">
                           <p className="text-[10px] text-muted-foreground mb-0.5">{s.elapsed_sec != null ? formatDuration(s.elapsed_sec) : `#${i + 1}`}</p>
-                          <p className="text-xs font-bold tabular-nums text-foreground">{s.pace ?? "—"}</p>
+                          <p className="text-xs font-bold tabular-nums text-foreground">{(normalizePaceDisplay(s.pace) || s.pace) ?? "—"}</p>
                           {s.hr != null && <p className="text-[10px] tabular-nums text-muted-foreground">{s.hr}bpm</p>}
                           <div className="mt-1 h-1.5 rounded-full" style={{ backgroundColor: HR_ZONE_COLORS[zone] }} />
                           <p className="text-[9px] text-muted-foreground mt-0.5">Z{zone + 1}</p>
@@ -567,7 +747,7 @@ export default function ActivityDetail() {
                           <XAxis dataKey="timeLabel" tick={false} tickLine={false} axisLine={false} height={0} />
                           <YAxis domain={["dataMin - 5", "dataMax + 5"]} tick={{ fontSize: 9, fill: ELEV_COLOR }} tickFormatter={(v: number) => String(Math.round(v))} tickLine={false} axisLine={false} width={42} />
                           <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 11 }} formatter={(v: number) => [`${Math.round(v)} m`, "Elevation"]} labelFormatter={(l) => String(l)} />
-                          <Area type="natural" dataKey="altitude" fill="url(#elevGrad)" stroke={ELEV_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} />
+                          <Area type="natural" dataKey="altitude" fill="url(#elevGrad)" stroke={ELEV_COLOR} strokeWidth={1.5} dot={false} activeDot={{ r: 2 }} baseValue="dataMin" />
                         </ComposedChart>
                       </ResponsiveContainer>
                     </div>
@@ -709,7 +889,12 @@ export default function ActivityDetail() {
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
                   {!nonDist && <SummaryItem label="Distance" value={`${formatDistance(activity.distance_km)} km`} />}
                   <SummaryItem label="Duration" value={formatDuration(activity.duration_seconds)} />
-                  {!nonDist && activity.avg_pace && <SummaryItem label="Avg Pace" value={`${activity.avg_pace}/km`} />}
+                  {!nonDist && activity.avg_pace && (
+                    <SummaryItem
+                      label="Avg Pace"
+                      value={`${(normalizePaceDisplay(activity.avg_pace) || activity.avg_pace).replace(/\/km$/i, "")}/km`}
+                    />
+                  )}
                   {activity.avg_hr != null && <SummaryItem label="Avg HR" value={`${activity.avg_hr} bpm`} />}
                   {activity.max_hr != null && <SummaryItem label="Max HR" value={`${activity.max_hr} bpm`} />}
                   {activity.avg_hr != null && activity.max_hr != null && <SummaryItem label="HR %" value={`${Math.round((activity.avg_hr / activity.max_hr) * 100)}%`} />}
@@ -717,7 +902,7 @@ export default function ActivityDetail() {
                   {activity.trimp != null && <SummaryItem label="TRIMP" value={`${Math.round(activity.trimp)}`} />}
                   {activity.intensity != null && <SummaryItem label="Intensity" value={`${Math.round(activity.intensity)}%`} />}
                   {activity.perceived_exertion != null && <SummaryItem label="RPE" value={`${activity.perceived_exertion}/10`} />}
-                  {activity.cadence != null && activity.cadence > 0 && <SummaryItem label="Avg Cadence" value={`${formatCadence(activity.cadence)} spm`} />}
+                  {activity.cadence != null && activity.cadence > 0 && <SummaryItem label="Avg Cadence" value={formatCadence(cadenceToDisplaySpm(activity.cadence) ?? activity.cadence)} />}
                   {activity.elevation_gain != null && activity.elevation_gain > 0 && <SummaryItem label="Climbing" value={`${formatElevation(activity.elevation_gain)} m`} />}
                   {activity.calories != null && activity.calories > 0 && <SummaryItem label="Calories" value={`${Math.round(activity.calories)} kcal`} />}
                 </div>
@@ -749,7 +934,7 @@ export default function ActivityDetail() {
                           <tr key={i} className="border-b border-border/40 hover:bg-muted/20">
                             <td className="py-2 px-4 font-medium tabular-nums text-foreground">{i + 1}</td>
                             <td className="py-2 px-4 text-right tabular-nums">{s.elapsed_sec != null ? formatDuration(s.elapsed_sec) : "—"}</td>
-                            <td className="py-2 px-4 text-right tabular-nums font-medium text-foreground">{s.pace ?? "—"}</td>
+                            <td className="py-2 px-4 text-right tabular-nums font-medium text-foreground">{(normalizePaceDisplay(s.pace) || s.pace) ?? "—"}</td>
                             {activity.splits.some(sp => sp.hr != null) && <td className="py-2 px-4 text-right tabular-nums">{s.hr ?? "—"}</td>}
                             {activity.splits.some(sp => sp.hr != null) && (
                               <td className="py-2 px-4 text-right">

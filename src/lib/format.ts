@@ -1,5 +1,7 @@
 /** Round numbers for display - sensible precision throughout Cade */
 
+import { parsePaceToMinPerKm } from "@/lib/analytics";
+
 export function formatDistance(km: number | null | undefined): string {
   if (km == null || isNaN(km)) return "—";
   if (km < 0.01) return "0 km";
@@ -12,11 +14,37 @@ export function formatCadence(spm: number | null | undefined): string {
   return `${Math.round(spm)} spm`;
 }
 
+/** Convert cadence to display as SPM. Many sources send RPM (one foot); double when in plausible RPM range. */
+export function cadenceToDisplaySpm(cadence: number | null | undefined): number | null {
+  if (cadence == null || typeof cadence !== "number" || isNaN(cadence)) return null;
+  if (cadence >= 25 && cadence <= 130) return Math.round(cadence * 2);
+  return Math.round(cadence);
+}
+
 export function formatPaceFromMinPerKm(minPerKm: number | null | undefined): string {
   if (minPerKm == null || isNaN(minPerKm) || minPerKm <= 0) return "—";
-  const min = Math.floor(minPerKm);
-  const sec = Math.round((minPerKm - min) * 60);
+  let min = Math.floor(minPerKm);
+  let sec = Math.round((minPerKm - min) * 60);
+  if (sec >= 60) {
+    min += 1;
+    sec = 0;
+  }
   return `${min}:${String(sec).padStart(2, "0")}/km`;
+}
+
+/** Normalize a stored pace string so seconds are 0–59 (e.g. "5:60/km" → "6:00/km"). */
+export function normalizePaceDisplay(paceStr: string | null | undefined): string {
+  if (paceStr == null || paceStr === "") return "";
+  const match = paceStr.trim().match(/^(\d+):(\d+)(\/km)?$/i);
+  if (!match) return paceStr;
+  let min = parseInt(match[1], 10);
+  let sec = parseInt(match[2], 10);
+  if (sec >= 60) {
+    min += Math.floor(sec / 60);
+    sec = sec % 60;
+  }
+  const suffix = match[3] ?? "";
+  return `${min}:${String(sec).padStart(2, "0")}${suffix}`;
 }
 
 export function formatDuration(sec: number | null | undefined): string {
@@ -51,6 +79,37 @@ export function formatHr(hr: number | null | undefined): string {
 export function formatNumber(n: number | null | undefined, decimals = 0): string {
   if (n == null || isNaN(n)) return "—";
   return decimals > 0 ? n.toFixed(decimals) : String(Math.round(n));
+}
+
+/** One-line planned workout title: "16 km easy" or "60 min easy" so it never contradicts the numbers. */
+export function plannedWorkoutSummary(w: {
+  session_type?: string;
+  description?: string;
+  distance_km?: number | null;
+  duration_min?: number | null;
+  duration_minutes?: number | null;
+}): string {
+  const type = (w.session_type ?? "easy").toLowerCase();
+  const duration = w.duration_min ?? w.duration_minutes;
+  if (w.distance_km != null && w.distance_km > 0) return `${w.distance_km} km ${type}`;
+  if (duration != null && duration > 0) return `${duration} min ${type}`;
+  return w.description?.trim() || `${type} run`;
+}
+
+/** Duration in minutes for display: derived from distance × pace when both set, else stored duration. */
+export function plannedWorkoutDurationMinutes(w: {
+  distance_km?: number | null;
+  duration_min?: number | null;
+  duration_minutes?: number | null;
+  pace_target?: string | null;
+  target_pace?: string | null;
+}): number | null {
+  const paceStr = w.pace_target ?? w.target_pace;
+  if (w.distance_km != null && w.distance_km > 0 && paceStr) {
+    const minPerKm = parsePaceToMinPerKm(paceStr);
+    if (minPerKm != null) return Math.round(w.distance_km * minPerKm);
+  }
+  return w.duration_min ?? w.duration_minutes ?? null;
 }
 
 /** Parse goal time string (e.g. "2:55:00", "1:25:00", "45:00") to seconds */

@@ -30,3 +30,9 @@ verify_jwt = true
 
 [functions.garmin-import-zip]
 verify_jwt = true
+
+[functions.community-proxy]
+verify_jwt = true
+
+[functions.combined-workout]
+verify_jwt = true

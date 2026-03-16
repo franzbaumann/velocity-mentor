@@ -110,8 +110,12 @@ function buildSplitsFromStreams(
       const splitDurSec = elapsed - prevElapsed;
       prevElapsed = elapsed;
       const paceSecPerKm = splitDurSec / 1;
-      const min = Math.floor(paceSecPerKm / 60);
-      const sec = Math.round(paceSecPerKm % 60);
+      let min = Math.floor(paceSecPerKm / 60);
+      let sec = Math.round(paceSecPerKm % 60);
+      if (sec >= 60) {
+        min += 1;
+        sec = 0;
+      }
       splits.push({
         km: nextKm,
         pace: `${min}:${String(sec).padStart(2, "0")}/km`,

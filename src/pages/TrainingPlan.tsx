@@ -16,6 +16,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { DateWheelPicker } from "@/components/ui/date-wheel-picker";
+import { plannedWorkoutDurationMinutes, plannedWorkoutSummary } from "@/lib/format";
 
 // ── Workout Steps ──────────────────────────────────────────────────────────────
 type WorkoutStep = {
@@ -119,6 +120,7 @@ function SessionCard({
 
   const badgeClass = SESSION_COLORS[session.session_type] || "bg-primary/10 text-primary";
   const isDone = !!session.completed_at;
+  const durationMin = plannedWorkoutDurationMinutes(session);
 
   return (
     <div
@@ -148,10 +150,10 @@ function SessionCard({
             </span>
           )}
         </div>
-        <p className="text-sm font-medium text-foreground mt-1">{session.description}</p>
+        <p className="text-sm font-medium text-foreground mt-1">{plannedWorkoutSummary(session)}</p>
         <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
           {session.distance_km != null && <span>{session.distance_km} km</span>}
-          {session.duration_min != null && <span>{session.duration_min} min</span>}
+          {durationMin != null && <span>{durationMin} min</span>}
           {session.pace_target && <span>@{session.pace_target}</span>}
         </div>
         {editing ? (
@@ -332,6 +334,8 @@ function SessionDetailModal({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [session.id]);
 
+  const durationMin = plannedWorkoutDurationMinutes(session);
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div className="glass-card p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
@@ -346,12 +350,12 @@ function SessionDetailModal({
         </div>
 
         {/* Title */}
-        <p className="text-base font-semibold text-foreground mb-2">{session.description}</p>
+        <p className="text-base font-semibold text-foreground mb-2">{plannedWorkoutSummary(session)}</p>
 
         {/* Metrics summary */}
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mb-2">
           {session.distance_km != null && <span className="font-medium">{session.distance_km} km</span>}
-          {session.duration_min != null && <span>{session.duration_min} min</span>}
+          {durationMin != null && <span>{durationMin} min</span>}
           {session.pace_target && <span>@{session.pace_target}</span>}
           {session.target_hr_zone != null && <span>HR zone {session.target_hr_zone}</span>}
         </div>
@@ -453,13 +457,14 @@ export default function TrainingPlan() {
     const weekNum = sessionWeek?.week_number ?? "?";
     const planName = plan?.plan?.plan_name ?? plan?.plan?.philosophy ?? "training plan";
 
+    const durationMin = plannedWorkoutDurationMinutes(session);
     const details = [
       session.distance_km && `${session.distance_km}km`,
-      session.duration_min && `${session.duration_min}min`,
+      durationMin != null && `${durationMin}min`,
       session.pace_target && `@${session.pace_target}`,
     ].filter(Boolean).join(" · ");
 
-    const visibleMsg = `${session.description}${details ? ` (${details})` : ""}`;
+    const visibleMsg = `${plannedWorkoutSummary(session)}${details ? ` (${details})` : ""}`;
     const hiddenMeta = JSON.stringify({
       fromPlan: true,
       planName,
@@ -467,7 +472,7 @@ export default function TrainingPlan() {
       sessionType: session.session_type,
       description: session.description,
       distanceKm: session.distance_km,
-      durationMin: session.duration_min,
+      durationMin,
       paceTarget: session.pace_target,
       hrZone: session.target_hr_zone,
       adjustmentNotes: session.adjustment_notes ?? null,

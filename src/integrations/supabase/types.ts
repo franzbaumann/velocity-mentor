@@ -1167,6 +1167,159 @@ export type Database = {
         }
         Relationships: []
       }
+      friendship: {
+        Row: {
+          id: string
+          user_a: string
+          user_b: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_a: string
+          user_b: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_a?: string
+          user_b?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      friend_request: {
+        Row: {
+          id: string
+          from_user: string
+          to_user: string
+          status: string
+          created_at: string
+          responded_at: string | null
+        }
+        Insert: {
+          id?: string
+          from_user: string
+          to_user: string
+          status?: string
+          created_at?: string
+          responded_at?: string | null
+        }
+        Update: {
+          id?: string
+          from_user?: string
+          to_user?: string
+          status?: string
+          created_at?: string
+          responded_at?: string | null
+        }
+        Relationships: []
+      }
+      activity_like: {
+        Row: {
+          id: string
+          activity_id: string
+          user_id: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          activity_id: string
+          user_id: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          activity_id?: string
+          user_id?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      activity_comment: {
+        Row: {
+          id: string
+          activity_id: string
+          user_id: string
+          content: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          activity_id: string
+          user_id: string
+          content: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          activity_id?: string
+          user_id?: string
+          content?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      workout_invite: {
+        Row: {
+          id: string
+          from_user: string
+          to_user: string
+          proposed_date: string
+          message: string | null
+          status: string
+          from_workout_id: string | null
+          to_workout_id: string | null
+          combined_workout: Json | null
+          invite_type: string
+          created_at: string
+          responded_at: string | null
+        }
+        Insert: {
+          id?: string
+          from_user: string
+          to_user: string
+          proposed_date: string
+          message?: string | null
+          status?: string
+          from_workout_id?: string | null
+          to_workout_id?: string | null
+          combined_workout?: Json | null
+          invite_type?: string
+          created_at?: string
+          responded_at?: string | null
+        }
+        Update: {
+          id?: string
+          from_user?: string
+          to_user?: string
+          proposed_date?: string
+          message?: string | null
+          status?: string
+          from_workout_id?: string | null
+          to_workout_id?: string | null
+          combined_workout?: Json | null
+          invite_type?: string
+          created_at?: string
+          responded_at?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "workout_invite_from_workout_id_fkey"
+            columns: ["from_workout_id"]
+            isOneToOne: false
+            referencedRelation: "training_plan_workout"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "workout_invite_to_workout_id_fkey"
+            columns: ["to_workout_id"]
+            isOneToOne: false
+            referencedRelation: "training_plan_workout"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       training_plan: {
         Row: {
           created_at: string
@@ -1486,6 +1639,10 @@ export type Database = {
       increment_ai_usage: {
         Args: { p_date: string; p_user_id: string }
         Returns: undefined
+      }
+      is_friend: {
+        Args: { uid1: string; uid2: string }
+        Returns: boolean
       }
     }
     Enums: {

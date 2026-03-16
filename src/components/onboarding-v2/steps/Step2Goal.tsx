@@ -6,6 +6,7 @@ import { ExpandableText } from "../components/ExpandableText";
 const GOALS = [
   { id: "faster_race", label: "Run a faster race", sub: "Train for a PR at any distance", emoji: "🏅" },
   { id: "first_marathon", label: "Finish my first marathon", sub: "From zero to 42.2km", emoji: "🏃" },
+  { id: "plan_season", label: "Plan my season", sub: "Multiple races, one strategy", emoji: "📅" },
   { id: "aerobic_base", label: "Build my aerobic base", sub: "Lay the foundation for speed later", emoji: "📈" },
   { id: "return_injury", label: "Return from injury", sub: "Get back safely and stay there", emoji: "🦵" },
   { id: "shorter_faster", label: "Get faster at short distances", sub: "5K and 10K speed", emoji: "⚡" },

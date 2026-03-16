@@ -24,7 +24,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { formatDistance } from "@/lib/format";
+import { formatDistance, normalizePaceDisplay, plannedWorkoutDurationMinutes, plannedWorkoutSummary } from "@/lib/format";
 import { isNonDistanceActivity } from "@/lib/analytics";
 
 const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
@@ -225,15 +225,21 @@ export function UnifiedCalendar({ defaultView = "plan", onAskCoachCade }: Unifie
 
   const handleAskCoachCade = () => {
     if (!selectedDate) return;
-    onAskCoachCade?.(selectedDate, firstWorkout, firstActivity);
+    onAskCoachCade?.(selectedDate, firstWorkout ?? undefined, firstActivity ?? undefined);
     if (!onAskCoachCade) {
-      const details = [
-        firstWorkout?.description,
-        firstWorkout?.distance_km && `${firstWorkout.distance_km}km planned`,
-        firstActivity && `✓ ${firstActivity.km}km done`,
-      ]
-        .filter(Boolean)
-        .join(" · ");
+      const parts: string[] = [];
+      for (const w of selectedWorkouts) {
+        const desc = [w.session_type, w.description, w.distance_km != null ? `${w.distance_km} km` : ""].filter(Boolean).join(" ");
+        parts.push(`Planned: ${desc}`);
+      }
+      for (const a of selectedActivities) {
+        const paceStr = a.pace ? (normalizePaceDisplay(a.pace) || a.pace) : "";
+        const desc = a.nonDist
+          ? `Done: ${a.name}, ${a.duration}`
+          : `Done: ${a.name}, ${formatDistance(a.km)} km${paceStr ? ` ${paceStr}` : ""}, ${a.duration}`;
+        parts.push(desc);
+      }
+      const details = parts.join(" · ");
       navigate(`/coach?from=calendar&date=${selectedDate}&context=${encodeURIComponent(details)}`);
     }
   };
@@ -362,75 +368,80 @@ export function UnifiedCalendar({ defaultView = "plan", onAskCoachCade }: Unifie
           <div className="space-y-4 mt-4 max-h-[60vh] overflow-y-auto">
             {selectedDate && (
               <>
-                {firstWorkout && (
+                {selectedWorkouts.length > 0 && (
                   <div className="card-standard">
-                    <p className="section-header mb-2">Planned workout</p>
-                    <div className="flex items-center gap-2 mb-2">
-                      <span
-                        className="text-xs font-medium px-2 py-0.5 rounded-full text-white"
-                        style={{ backgroundColor: getWorkoutColor(firstWorkout.session_type).bg }}
-                      >
-                        {firstWorkout.session_type}
-                      </span>
-                    </div>
-                    <p className="text-sm font-medium text-foreground">{firstWorkout.description}</p>
-                    <div className="flex gap-3 text-xs text-[#6B7280] mt-1">
-                      {firstWorkout.distance_km != null && (
-                        <span>{firstWorkout.distance_km} km</span>
-                      )}
-                      {firstWorkout.duration_min != null && (
-                        <span>{firstWorkout.duration_min} min</span>
-                      )}
-                      {firstWorkout.pace_target && (
-                        <span>@{firstWorkout.pace_target}</span>
-                      )}
-                      {firstWorkout.target_hr_zone != null && (
-                        <span>HR zone {firstWorkout.target_hr_zone}</span>
-                      )}
+                    <p className="section-header mb-2">
+                      Planned workout{selectedWorkouts.length > 1 ? "s" : ""}
+                    </p>
+                    <div className="space-y-3">
+                      {selectedWorkouts.map((w) => {
+                        const durationMin = plannedWorkoutDurationMinutes(w);
+                        return (
+                        <div key={w.id} className="border-b border-border/50 last:border-0 pb-3 last:pb-0 mb-3 last:mb-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            <span
+                              className="text-xs font-medium px-2 py-0.5 rounded-full text-white shrink-0"
+                              style={{ backgroundColor: getWorkoutColor(w.session_type).bg }}
+                            >
+                              {w.session_type}
+                            </span>
+                            <p className="text-sm font-medium text-foreground truncate">{plannedWorkoutSummary(w)}</p>
+                          </div>
+                          <div className="flex gap-3 text-xs text-[#6B7280]">
+                            {w.distance_km != null && <span>{w.distance_km} km</span>}
+                            {durationMin != null && <span>{durationMin} min</span>}
+                            {w.pace_target && <span>@{w.pace_target}</span>}
+                            {w.target_hr_zone != null && <span>HR zone {w.target_hr_zone}</span>}
+                          </div>
+                        </div>
+                      ); })}
                     </div>
                   </div>
                 )}
 
-                {firstActivity && (
+                {selectedActivities.length > 0 && (
                   <div className="card-standard">
-                    <p className="section-header mb-2">Completed activity</p>
-                    <button
-                      onClick={() => navigate(`/activities/${firstActivity.detailId}`)}
-                      className="w-full text-left"
-                    >
-                      <p className="text-sm font-medium text-foreground">{firstActivity.name}</p>
-                      <div className="flex gap-3 text-xs text-[#0A84FF] mt-1">
-                        {!firstActivity.nonDist && (
-                          <span>{formatDistance(firstActivity.km)}</span>
-                        )}
-                        {firstActivity.pace && <span>{firstActivity.pace}/km</span>}
-                        {firstActivity.hr != null && <span>{firstActivity.hr} bpm</span>}
-                      </div>
-                    </button>
-                    {firstActivity.hrZones && Object.keys(firstActivity.hrZones).length > 0 && (
-                      <div className="mt-2">
-                        <p className="text-xs text-[#6B7280] mb-1">HR zones</p>
-                        <div className="flex h-2 rounded-full overflow-hidden">
-                          {[1, 2, 3, 4, 5].map((z) => {
-                            const total = Object.values(firstActivity.hrZones!).reduce((a, b) => a + b, 0);
-                            const pct = total > 0
-                              ? ((firstActivity.hrZones![`z${z}`] ?? 0) / total) * 100
-                              : 0;
-                            const colors = ["#94a3b8", "#3b82f6", "#22c55e", "#f97316", "#ef4444"];
-                            return (
-                              <div
-                                key={z}
-                                className="min-w-[2px]"
-                                style={{
-                                  width: `${pct}%`,
-                                  backgroundColor: colors[z - 1],
-                                }}
-                              />
-                            );
-                          })}
+                    <p className="section-header mb-2">
+                      Completed activit{selectedActivities.length > 1 ? "ies" : "y"}
+                    </p>
+                    <div className="space-y-3">
+                      {selectedActivities.map((a) => (
+                        <div key={a.id} className="border-b border-border/50 last:border-0 last:pb-0 pb-3 last:mb-0 mb-3">
+                          <button
+                            onClick={() => navigate(`/activities/${a.detailId}`)}
+                            className="w-full text-left"
+                          >
+                            <p className="text-sm font-medium text-foreground">{a.name}</p>
+                            <div className="flex gap-3 text-xs text-[#0A84FF] mt-1">
+                              {!a.nonDist && <span>{formatDistance(a.km)}</span>}
+                              {a.pace && (
+                                <span>{(normalizePaceDisplay(a.pace) || a.pace).replace(/\/km$/i, "")}/km</span>
+                              )}
+                              {a.hr != null && <span>{a.hr} bpm</span>}
+                              {a.duration && <span>{a.duration}</span>}
+                            </div>
+                          </button>
+                          {a.hrZones && Object.keys(a.hrZones).length > 0 && (
+                            <div className="mt-2">
+                              <div className="flex h-2 rounded-full overflow-hidden">
+                                {[1, 2, 3, 4, 5].map((z) => {
+                                  const total = Object.values(a.hrZones!).reduce((s, v) => s + v, 0);
+                                  const pct = total > 0 ? ((a.hrZones![`z${z}`] ?? 0) / total) * 100 : 0;
+                                  const colors = ["#94a3b8", "#3b82f6", "#22c55e", "#f97316", "#ef4444"];
+                                  return (
+                                    <div
+                                      key={z}
+                                      className="min-w-[2px]"
+                                      style={{ width: `${pct}%`, backgroundColor: colors[z - 1] }}
+                                    />
+                                  );
+                                })}
+                              </div>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    )}
+                      ))}
+                    </div>
                   </div>
                 )}
 
@@ -523,7 +534,12 @@ function DayCell({
             className="text-[10px] truncate font-medium shrink-0"
             style={{ color: COMPLETED_BLUE }}
           >
-            ✓ {firstActivity.nonDist ? firstActivity.duration : `${formatDistance(firstActivity.km)} · ${firstActivity.pace ?? "—"}`}
+            ✓ {firstActivity.nonDist ? firstActivity.duration : `${formatDistance(firstActivity.km)} · ${(normalizePaceDisplay(firstActivity.pace) || firstActivity.pace) ?? "—"}`}
+          </span>
+        )}
+        {(workouts.length > 1 || activities.length > 1) && (
+          <span className="text-[10px] text-[#6B7280] font-medium shrink-0">
+            +{workouts.length + activities.length - 1}
           </span>
         )}
       </div>

@@ -10,7 +10,7 @@ import { useSeason } from "@/hooks/useSeason";
 import { predictRaceTime, formatRaceTime, calculateZonePaces, findBestEffort } from "@/lib/race-prediction";
 import { useZoneSource } from "@/hooks/useZoneSource";
 import { calculateTaperStart, daysUntil } from "@/lib/season/periodisation";
-import { TrendingDown, Moon, Heart, ChevronRight, Loader2, Trophy, AlertTriangle } from "lucide-react";
+import { TrendingDown, Moon, Heart, ChevronRight, Loader2, Trophy, AlertTriangle, Flame } from "lucide-react";
 import { useDailyLoad } from "@/hooks/useDailyLoad";
 import { useDailyCheckIn } from "@/components/DailyCheckInContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -307,8 +307,8 @@ export default function Dashboard() {
   const zoneSource = useZoneSource();
   const { weekStats, lastActivity, recoveryMetrics, readiness, weekPlan, todaysWorkout, athlete, planProgress, isSampleData, activities } = useDashboardData();
   const { isConnected: intervalsConnected } = useIntervalsIntegration();
-  const { todayLoad, hasCheckedInToday } = useDailyLoad();
-  const { openCheckIn } = useDailyCheckIn();
+  const { todayLoad } = useDailyLoad();
+  const { openCheckIn, currentStreak, longestStreak, hasCheckedInToday } = useDailyCheckIn();
   const isCurrentWeekInPlan = weekStats.isCurrentWeekInPlan && weekStats.plannedKm != null && weekStats.plannedKm > 0;
   const progressPct = isCurrentWeekInPlan ? Math.round((weekStats.actualKm / weekStats.plannedKm!) * 100) : 0;
 
@@ -372,6 +372,11 @@ export default function Dashboard() {
                     <Moon className="w-3 h-3" /> {formatSleepHours(readiness.sleepHours)} sleep
                   </span>
                   <span className="mono-text">TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}</span>
+                  {hasCheckedInToday && currentStreak > 0 && (
+                    <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
+                      <Flame className="w-3 h-3" /> {currentStreak}-day streak{longestStreak > currentStreak ? ` · Best: ${longestStreak}` : ""}
+                    </span>
+                  )}
                   {todayLoad?.total_load_score != null && (
                     <button
                       type="button"
@@ -400,7 +405,11 @@ export default function Dashboard() {
           <div className="rounded-xl border border-border bg-card p-4 flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium text-foreground">30-second check-in</p>
-              <p className="text-xs text-muted-foreground">Help Coach Cade understand your full load today</p>
+              <p className="text-xs text-muted-foreground">
+                {currentStreak > 0
+                  ? `You're on a ${currentStreak}-day streak — check in today to keep it going.`
+                  : "Help Coach Cade understand your full load today"}
+              </p>
             </div>
             <Button type="button" size="sm" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openCheckIn(); }}>
               Start <ChevronRight className="w-3.5 h-3.5 ml-0.5" />

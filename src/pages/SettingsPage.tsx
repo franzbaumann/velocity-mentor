@@ -16,8 +16,9 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2, User, Brain, X } from "lucide-react";
+import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2, User, Brain, X, Trophy, ChevronRight } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
+import { useSeason } from "@/hooks/useSeason";
 import { supabase } from "@/integrations/supabase/client";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { format, subDays } from "date-fns";
@@ -271,7 +272,13 @@ function StravaConnectionBlock({ queryClient }: { queryClient: ReturnType<typeof
   );
 }
 
-function TrainingPlanSection({ queryClient }: { queryClient: ReturnType<typeof useQueryClient> }) {
+function TrainingPlanSection({
+  queryClient,
+  activeSeason,
+}: {
+  queryClient: ReturnType<typeof useQueryClient>;
+  activeSeason: { id: string; name: string; start_date: string; end_date: string } | null;
+}) {
   const navigate = useNavigate();
   const { user } = useAuth();
   const { data: plan, isLoading } = useQuery({
@@ -319,6 +326,22 @@ function TrainingPlanSection({ queryClient }: { queryClient: ReturnType<typeof u
 
   if (isLoading) return null;
 
+  if (!plan && activeSeason) {
+    return (
+      <div className="glass-card p-5">
+        <p className="section-header">Training Plan (Cade)</p>
+        <p className="text-sm text-muted-foreground mb-4">
+          You&apos;re planning by season. Manage your races and priorities on the Season page. If you later want a single-race Cade plan instead, create one from Coach.
+        </p>
+        <Button variant="outline" size="sm" className="rounded-full gap-2" asChild>
+          <Link to="/season">
+            Open Season <ChevronRight className="w-4 h-4" />
+          </Link>
+        </Button>
+      </div>
+    );
+  }
+
   if (!plan) {
     return (
       <div className="glass-card p-5">
@@ -341,6 +364,11 @@ function TrainingPlanSection({ queryClient }: { queryClient: ReturnType<typeof u
   return (
     <div className="glass-card p-5">
       <p className="section-header">Training Plan (Cade)</p>
+      {activeSeason && (
+        <p className="text-xs text-amber-600 dark:text-amber-400 mb-2">
+          You have both a season and a Cade plan. Many athletes focus on one — season for multiple races, or a single-race plan.
+        </p>
+      )}
       <p className="text-sm text-muted-foreground mb-4">
         {plan.plan_name ?? "Your plan"} · {plan.start_date && plan.end_date
           ? `${plan.start_date} – ${plan.end_date}`
@@ -598,6 +626,7 @@ function CoachingMemorySection() {
 export default function SettingsPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
+  const { activeSeason } = useSeason();
   const { integration, isConnected, save, isSaving, disconnect } = useIntervalsIntegration();
 
   const { data: activityCount = 0 } = useQuery({
@@ -1113,8 +1142,25 @@ export default function SettingsPage() {
           {/* Lab Test Upload */}
           <LabTestSection />
 
+          {/* Season (when user has one) */}
+          {activeSeason && (
+            <div className="glass-card p-5">
+              <p className="section-header flex items-center gap-2">
+                <Trophy className="w-4 h-4" /> Season
+              </p>
+              <p className="text-sm text-muted-foreground mb-4">
+                {activeSeason.name} · {activeSeason.start_date} – {activeSeason.end_date}
+              </p>
+              <Button variant="outline" size="sm" className="rounded-full gap-2" asChild>
+                <Link to="/season">
+                  Manage season <ChevronRight className="w-4 h-4" />
+                </Link>
+              </Button>
+            </div>
+          )}
+
           {/* Training Plan */}
-          <TrainingPlanSection queryClient={queryClient} />
+          <TrainingPlanSection queryClient={queryClient} activeSeason={activeSeason ?? null} />
 
           {/* Coaching Memory */}
           <CoachingMemorySection />

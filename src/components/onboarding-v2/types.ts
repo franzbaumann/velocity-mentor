@@ -103,12 +103,17 @@ export const DEFAULT_STATE: OnboardingV2State = {
 };
 
 export const GOALS_NEED_RACE = new Set(["faster_race", "first_marathon", "shorter_faster"]);
+export const GOALS_NEED_SEASON = new Set(["plan_season"]);
 
 export const STEP_ORDER_WITH_RACE = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 export const STEP_ORDER_WITHOUT_RACE = [1, 2, 4, 5, 6, 7, 8, 9] as const;
+/** Same as WITHOUT_RACE but step 9 is "Create season" instead of plan generation */
+export const STEP_ORDER_SEASON = [1, 2, 4, 5, 6, 7, 8, 9] as const;
 
 export function getStepOrder(goal: string): readonly number[] {
-  return GOALS_NEED_RACE.has(goal) ? STEP_ORDER_WITH_RACE : STEP_ORDER_WITHOUT_RACE;
+  if (GOALS_NEED_RACE.has(goal)) return STEP_ORDER_WITH_RACE;
+  if (GOALS_NEED_SEASON.has(goal)) return STEP_ORDER_SEASON;
+  return STEP_ORDER_WITHOUT_RACE;
 }
 
 export function getUserStepLabel(internalStep: number, goal: string): { num: number; total: number } | null {

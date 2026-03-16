@@ -26,6 +26,7 @@ const ActivityDetail = lazy(() => import("./pages/ActivityDetail"));
 const Coach = lazy(() => import("./pages/Coach"));
 const Stats = lazy(() => import("./pages/Stats"));
 const Season = lazy(() => import("./pages/Season"));
+const Community = lazy(() => import("./pages/Community"));
 
 const queryClient = new QueryClient();
 
@@ -148,6 +149,14 @@ const App = () => (
             element={
               <AuthGuard>
                 <Season />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/community"
+            element={
+              <AuthGuard>
+                <Community />
               </AuthGuard>
             }
           />
