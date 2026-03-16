@@ -192,7 +192,7 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
     return c;
   }, [races]);
 
-  return (
+          return (
     <div className="max-w-2xl mx-auto py-8">
       {/* Step indicator */}
       <div className="flex items-center gap-2 mb-8">
@@ -207,9 +207,9 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
               {s < step ? <Check className="w-4 h-4" /> : s}
             </button>
             {s < 4 && <div className={`w-8 h-0.5 ${s < step ? "bg-primary/40" : "bg-border"}`} />}
-          </div>
+              </div>
         ))}
-      </div>
+              </div>
 
       {/* STEP 1 — Season Type */}
       {step === 1 && (
@@ -228,10 +228,10 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
                 <span className="text-2xl mb-2 block">{emoji}</span>
                 <span className="font-semibold text-foreground block">{label}</span>
                 <span className="text-xs text-muted-foreground">{SEASON_CONFIGS[type].notes}</span>
-              </button>
+            </button>
             ))}
-          </div>
-          <button
+      </div>
+      <button
             onClick={() => selectType("mixed")}
             className={`mt-3 w-full p-4 rounded-xl border text-left transition-all hover:border-primary/50 ${
               seasonType === "mixed" ? "border-primary bg-primary/5" : "border-border bg-card"
@@ -239,22 +239,22 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
           >
             <span className="font-semibold text-foreground">🔀 Mixed season</span>
             <span className="text-xs text-muted-foreground ml-2">Multiple disciplines or a custom combination</span>
-          </button>
-        </div>
+      </button>
+    </div>
       )}
 
       {/* STEP 2 — Details */}
       {step === 2 && (
-        <div>
+    <div>
           <h2 className="text-xl font-bold text-foreground mb-1">Season details</h2>
           <p className="text-muted-foreground text-sm mb-6">Name your season, set the date range and primary distance.</p>
-          <div className="space-y-4">
-            <div>
+      <div className="space-y-4">
+        <div>
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Season name</label>
               <Input value={name} onChange={(e) => setName(e.target.value)} className="mt-1" />
-            </div>
+        </div>
             <div className="grid grid-cols-2 gap-4">
-              <div>
+          <div>
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Start date</label>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -270,8 +270,8 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
                     />
                   </PopoverContent>
                 </Popover>
-              </div>
-              <div>
+          </div>
+          <div>
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">End date</label>
                 <Popover>
                   <PopoverTrigger asChild>
@@ -287,37 +287,37 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
                     />
                   </PopoverContent>
                 </Popover>
-              </div>
-            </div>
-            <div>
+          </div>
+        </div>
+        <div>
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Primary distance</label>
-              <select
-                value={primaryDistance}
-                onChange={(e) => setPrimaryDistance(e.target.value)}
+          <select
+            value={primaryDistance}
+            onChange={(e) => setPrimaryDistance(e.target.value)}
                 className="mt-1 flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
                 <option value="">Select...</option>
                 {cfg?.primary_distances.map((d) => (
                   <option key={d} value={d}>{d}</option>
-                ))}
-              </select>
-            </div>
-          </div>
+            ))}
+          </select>
+        </div>
+      </div>
           <div className="flex justify-between mt-8">
             <Button variant="ghost" onClick={() => setStep(1)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
             <Button onClick={() => setStep(3)} disabled={!name || !startDate || !endDate}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
-          </div>
+    </div>
         </div>
       )}
 
       {/* STEP 3 — Add Races */}
       {step === 3 && (
-        <div>
+    <div>
           <h2 className="text-xl font-bold text-foreground mb-1">Add your races</h2>
           <p className="text-muted-foreground text-sm mb-6">Add as many or as few as you know. You can always add more later.</p>
 
           <div className="p-4 rounded-xl border border-border bg-card space-y-3 mb-4">
-            <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-2 gap-3">
               <Input placeholder="Race name" value={rName} onChange={(e) => setRName(e.target.value)} />
               <div>
                 <Popover>
@@ -334,25 +334,25 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
                     />
                   </PopoverContent>
                 </Popover>
-              </div>
-            </div>
+        </div>
+        </div>
             <div className="grid grid-cols-2 gap-3">
               <Input placeholder="Distance (e.g. 1500m)" value={rDistance} onChange={(e) => setRDistance(e.target.value)} />
               <Input placeholder="Venue" value={rVenue} onChange={(e) => setRVenue(e.target.value)} />
             </div>
             <div className="flex gap-3 items-center">
               <div className="flex gap-1.5">
-                {(["A", "B", "C"] as RacePriority[]).map((p) => (
-                  <button
-                    key={p}
+          {(["A", "B", "C"] as RacePriority[]).map((p) => (
+            <button
+              key={p}
                     onClick={() => setRPriority(p)}
                     className={`w-9 h-9 rounded-lg text-xs font-bold transition-all ${
                       rPriority === p ? PRIORITY_COLORS[p] : "bg-muted/50 text-muted-foreground"
                     }`}
                   >
                     {p}
-                  </button>
-                ))}
+            </button>
+          ))}
               </div>
               <Popover>
                 <PopoverTrigger asChild>
@@ -364,46 +364,46 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
                   <TimeWheelPicker
                     value={parseGoalTimeToSeconds(rGoal)}
                     onChange={(sec) => setRGoal(formatSecondsToGoalTime(sec))}
-                    size="sm"
+            size="sm"
                   />
                 </PopoverContent>
               </Popover>
               <Button size="sm" onClick={addRace} disabled={!rName || !rDate || !rDistance}>
                 <Plus className="w-4 h-4" />
-              </Button>
-            </div>
+          </Button>
+        </div>
             <p className="text-[10px] text-muted-foreground">
               <span className="font-medium text-primary">A</span> = {PRIORITY_LABELS.A} · <span className="font-medium text-yellow-500">B</span> = {PRIORITY_LABELS.B} · <span className="font-medium">C</span> = {PRIORITY_LABELS.C}
             </p>
-          </div>
+      </div>
 
           {sortedRaces.length > 0 && (
             <div className="space-y-2 mb-6">
               {sortedRaces.map((r, i) => (
                 <div key={i} className="flex items-center gap-3 px-3 py-2 rounded-lg border border-border bg-card">
                   <span className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center ${PRIORITY_COLORS[r.priority]}`}>{r.priority}</span>
-                  <div className="flex-1 min-w-0">
+              <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-foreground truncate">{r.name}</p>
                     <p className="text-xs text-muted-foreground">{r.distance} · {formatDateShort(r.date)}{r.goal_time ? ` · Goal: ${r.goal_time}` : ""}</p>
-                  </div>
+                </div>
                   <button onClick={() => removeRace(races.indexOf(r))} className="text-muted-foreground hover:text-destructive transition-colors">
                     <X className="w-4 h-4" />
-                  </button>
-                </div>
-              ))}
+              </button>
             </div>
-          )}
+          ))}
+        </div>
+      )}
 
           <div className="flex justify-between mt-8">
             <Button variant="ghost" onClick={() => setStep(2)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
             <Button onClick={() => setStep(4)}>Review <ChevronRight className="w-4 h-4 ml-1" /></Button>
-          </div>
+    </div>
         </div>
       )}
 
       {/* STEP 4 — Confirmation */}
       {step === 4 && (
-        <div>
+    <div>
           <h2 className="text-xl font-bold text-foreground mb-4">Review your season</h2>
           <div className="rounded-xl border border-border bg-card p-5 mb-6">
             <h3 className="text-lg font-bold text-foreground mb-1">{name}</h3>
@@ -422,29 +422,29 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
                 {sortedRaces.map((r, i) => {
                   const total = new Date(endDate).getTime() - new Date(startDate).getTime();
                   const pos = total > 0 ? ((new Date(r.date).getTime() - new Date(startDate).getTime()) / total) * 100 : 0;
-                  return (
-                    <div
-                      key={i}
+            return (
+              <div
+                key={i}
                       className={`absolute w-3 h-3 rounded-full top-1/2 -translate-y-1/2 -translate-x-1/2 border-2 border-background ${PRIORITY_DOT[r.priority]}`}
                       style={{ left: `${Math.min(100, Math.max(0, pos))}%` }}
-                      title={`${r.name} (${r.priority})`}
-                    />
-                  );
-                })}
-              </div>
+                title={`${r.name} (${r.priority})`}
+              />
+            );
+          })}
+        </div>
             )}
-          </div>
+      </div>
 
           <div className="flex justify-between">
             <Button variant="ghost" onClick={() => setStep(3)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
             <Button onClick={handleCreate} disabled={isCreating}>
               {isCreating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trophy className="w-4 h-4 mr-2" />}
-              Create season
-            </Button>
-          </div>
-        </div>
-      )}
+            Create season
+          </Button>
+      </div>
     </div>
+            )}
+          </div>
   );
 }
 
@@ -509,7 +509,7 @@ function RaceDetailSheet({
             <span>{race.distance}</span>
             {race.venue && <span className="flex items-center gap-1"><MapPin className="w-3.5 h-3.5" /> {race.venue}</span>}
             {!isPast && <span className="flex items-center gap-1"><Clock className="w-3.5 h-3.5" /> {days} days away</span>}
-          </div>
+            </div>
 
           {/* Priority selector */}
           {editing && (
@@ -525,8 +525,8 @@ function RaceDetailSheet({
                     {p}
                   </button>
                 ))}
-              </div>
             </div>
+          </div>
           )}
 
           {/* Goal time */}
@@ -534,7 +534,7 @@ function RaceDetailSheet({
             <div>
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Goal time</label>
               <Input value={gTime} onChange={(e) => setGTime(e.target.value)} className="mt-1" placeholder="e.g. 3:58.0" />
-            </div>
+              </div>
           ) : race.goal_time ? (
             <p className="text-sm"><span className="text-muted-foreground">Goal:</span> <span className="font-medium text-foreground">{race.goal_time}</span></p>
           ) : null}
@@ -544,7 +544,7 @@ function RaceDetailSheet({
             <div>
               <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Notes</label>
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={3} className="mt-1 flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none" />
-            </div>
+                    </div>
           ) : race.notes ? (
             <p className="text-sm text-muted-foreground">{race.notes}</p>
           ) : null}
@@ -560,7 +560,7 @@ function RaceDetailSheet({
               ) : (
                 <Button size="sm" variant="outline" onClick={() => setEditing(true)}><Pencil className="w-4 h-4 mr-1" /> Edit</Button>
               )}
-            </div>
+                    </div>
           )}
 
           {/* Taper Plan */}
@@ -589,7 +589,7 @@ function RaceDetailSheet({
               <Input placeholder="Place (optional)" type="number" value={actualPlace} onChange={(e) => setActualPlace(e.target.value)} />
               <textarea value={notes} onChange={(e) => setNotes(e.target.value)} rows={2} placeholder="Notes..." className="flex w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring resize-none" />
               <Button size="sm" onClick={logResult}>Log result</Button>
-            </div>
+              </div>
           )}
 
           {/* Completed race result display */}
@@ -605,7 +605,7 @@ function RaceDetailSheet({
           {/* Delete */}
           <Button size="sm" variant="ghost" className="text-destructive hover:text-destructive" onClick={() => { onDelete(race.id); onClose(); }}>
             Delete race
-          </Button>
+            </Button>
         </div>
       </SheetContent>
     </Sheet>
@@ -680,12 +680,12 @@ function SeasonView({ onCreateNewSeason }: { onCreateNewSeason: () => void }) {
       {/* Header */}
       <div className="mb-6">
         <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
+      <div>
             <h1 className="text-2xl font-bold text-foreground">{activeSeason.name}</h1>
             <p className="text-sm text-muted-foreground mt-1">
               {formatDate(activeSeason.start_date)} — {formatDate(activeSeason.end_date)} · {wk} weeks remaining
             </p>
-          </div>
+        </div>
           <div className="flex gap-2 shrink-0">
             <Button variant="outline" size="sm" className="rounded-full" onClick={handleCreateNewSeason} disabled={deleting}>
               {deleting ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <PlusCircle className="w-4 h-4 mr-1" />}
@@ -695,7 +695,7 @@ function SeasonView({ onCreateNewSeason }: { onCreateNewSeason: () => void }) {
               {deleting ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Trash2 className="w-4 h-4 mr-1" />}
               Delete season
             </Button>
-          </div>
+        </div>
         </div>
         <div className="flex gap-2 mt-3">
           <span className="px-2.5 py-1 rounded-md text-xs font-bold bg-primary/15 text-primary">{raceCounts.A} A-race{raceCounts.A !== 1 ? "s" : ""}</span>
@@ -746,12 +746,12 @@ function SeasonView({ onCreateNewSeason }: { onCreateNewSeason: () => void }) {
                       <span className="text-xs font-medium text-primary">Log result →</span>
                     )
                   ) : (
-                    <div>
+      <div>
                       <p className="text-xs font-medium text-foreground">{days} days</p>
                       {taperStart && <p className="text-[10px] text-muted-foreground">Taper {formatDateShort(taperStart)}</p>}
-                    </div>
+        </div>
                   )}
-                </div>
+        </div>
               </div>
             </button>
           );
@@ -760,11 +760,11 @@ function SeasonView({ onCreateNewSeason }: { onCreateNewSeason: () => void }) {
 
       {selectedRace && (
         <RaceDetailSheet
-          race={selectedRace}
-          onClose={() => setSelectedRace(null)}
+        race={selectedRace}
+        onClose={() => setSelectedRace(null)}
           onUpdate={(id, fields) => { updateRace({ id, ...fields } as Parameters<typeof updateRace>[0]); setSelectedRace(null); }}
           onDelete={deleteRace}
-        />
+      />
       )}
     </div>
   );
@@ -777,17 +777,17 @@ export default function Season() {
 
   return (
     <AppLayout>
-      {loading ? (
+        {loading ? (
         <div className="flex items-center justify-center py-32">
-          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
-        </div>
-      ) : showWizard ? (
-        <CreationWizard onDone={() => setShowWizard(false)} />
-      ) : activeSeason ? (
+            <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : showWizard ? (
+          <CreationWizard onDone={() => setShowWizard(false)} />
+        ) : activeSeason ? (
         <SeasonView onCreateNewSeason={() => setShowWizard(true)} />
-      ) : (
+        ) : (
         <EmptyState onCreate={() => setShowWizard(true)} />
-      )}
+        )}
     </AppLayout>
   );
 }

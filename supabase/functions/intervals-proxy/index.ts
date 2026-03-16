@@ -79,6 +79,17 @@ function avg(arr: number[]): number {
   return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
 
+function formatEnhancingSupplements(raw: unknown): string {
+  if (!raw || typeof raw !== "object") return "";
+  const s = raw as Record<string, { value?: number; unit?: string }>;
+  const parts: string[] = [];
+  if (s.beetroot?.value != null) parts.push(`Beetroot ${s.beetroot.value}${s.beetroot.unit ?? "ml"}`);
+  if (s.bicarb?.value != null) parts.push(`BiCarb ${s.bicarb.value}g`);
+  if (s.caffeine?.value != null) parts.push(`Caffeine ${s.caffeine.value}mg`);
+  if (s.carbs?.value != null) parts.push(`Carbs ${s.carbs.value}g`);
+  return parts.length ? `Enhancing supplements: ${parts.join(", ")}` : "";
+}
+
 function stdDev(arr: number[]): number {
   if (arr.length < 2) return 0;
   const m = avg(arr);
@@ -426,8 +437,8 @@ ${trkpts}
       const { data: activities } = await supabaseAdmin.from("activity").select("external_id, type").eq("user_id", user.id).not("external_id", "is", null);
       const { data: existingStreams } = await supabaseAdmin.from("activity_streams").select("activity_id").eq("user_id", user.id);
       const existingIds = new Set((existingStreams ?? []).map((r: { activity_id: string }) => r.activity_id));
-      const hasGps = (t: string) => ["run", "ride", "walk", "hike"].some((x) => t.toLowerCase().includes(x));
-      const toFetch = (activities ?? []).filter((a: { external_id: string; type: string }) => a.external_id && !existingIds.has(a.external_id) && hasGps(a.type ?? ""));
+      const hasStreamableData = (t: string) => ["run", "ride", "walk", "hike", "cycl", "indoor", "virtual", "swim", "elliptical", "row"].some((x) => t.toLowerCase().includes(x));
+      const toFetch = (activities ?? []).filter((a: { external_id: string; type: string }) => a.external_id && !existingIds.has(a.external_id) && hasStreamableData(a.type ?? ""));
       let ok = 0;
       let fail = 0;
       for (let i = 0; i < toFetch.length; i += STREAM_BATCH_SIZE) {
@@ -1039,13 +1050,13 @@ ${trkpts}
         .eq("user_id", user.id);
       const existingIds = new Set((existingStreams ?? []).map((r: { activity_id: string }) => r.activity_id));
 
-      const hasGps = (a: Record<string, unknown>) => {
+      const hasStreamableData = (a: Record<string, unknown>) => {
         const t = String(a.type ?? "").toLowerCase();
-        return t === "run" || t.includes("run") || t === "ride" || t === "walk" || t === "hike";
+        return ["run", "ride", "walk", "hike", "cycl", "indoor", "virtual", "swim", "elliptical", "row"].some((x) => t.includes(x));
       };
       const toFetch = allRuns.filter(r => {
         const id = String((r as Record<string, unknown>).id ?? "");
-        return id && !existingIds.has(id) && hasGps(r as Record<string, unknown>);
+        return id && !existingIds.has(id) && hasStreamableData(r as Record<string, unknown>);
       });
 
       log.push(`Streams to fetch: ${toFetch.length} (${existingIds.size} already exist)`);
@@ -1507,7 +1518,7 @@ ${trkpts}
 
       // activityId can be: intervals external_id (e.g. "i130714268") or Supabase activity id (uuid)
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(activityId);
-      const baseQuery = supabaseAdmin.from("activity").select("id, date, coach_note, type, name, description, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, cadence, icu_training_load, trimp, hr_zone_times, user_notes, nomio_drink, lactate_levels").eq("user_id", user.id);
+      const baseQuery = supabaseAdmin.from("activity").select("id, date, coach_note, type, name, description, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, cadence, icu_training_load, trimp, hr_zone_times, user_notes, nomio_drink, lactate_levels, enhancing_supplements").eq("user_id", user.id);
 
       const { data: existing } = isUuid
         ? await baseQuery.eq("id", activityId).maybeSingle()
@@ -1641,6 +1652,7 @@ Distance: ${a.distance_km ? `${a.distance_km} km` : "?"} | Pace: ${a.avg_pace ??
 ${a.user_notes ? `Athlete notes: ${a.user_notes}` : ""}
 ${a.nomio_drink ? "Nomio drink used before session." : ""}
 ${a.lactate_levels ? `Lactate levels: ${a.lactate_levels}` : ""}
+${formatEnhancingSupplements(a.enhancing_supplements)}
 Duration: ${a.duration_seconds ? `${Math.floor(a.duration_seconds / 60)}:${String(Math.floor(a.duration_seconds % 60)).padStart(2, "0")}` : "?"}
 Avg HR: ${a.avg_hr ?? "?"} bpm | Max HR: ${a.max_hr ?? "?"} bpm | Elevation: ${a.elevation_gain ?? 0}m | Cadence: ${a.cadence ?? "?"} spm
 Load: ${a.icu_training_load ?? "?"} | TRIMP: ${a.trimp ?? "?"} | HR zones: ${zoneDistribution}

@@ -299,8 +299,8 @@ export default function LandingPage() {
                 </div>
                 <h3 className="text-lg font-semibold text-foreground">{title}</h3>
                 <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
-              </div>
-            ))}
+                </div>
+              ))}
           </div>
         </div>
       </section>

@@ -539,7 +539,7 @@ export function useActivityDetail(activityId: string | undefined) {
       const dbPace = Array.isArray(sRow?.pace) ? sRow.pace : [];
       const dbCad = Array.isArray(sRow?.cadence) ? sRow.cadence : [];
       const dbDist = Array.isArray(sRow?.distance) ? sRow.distance : [];
-      const hasStreams = dbTime.length > 20 && (dbHr.length > 0 || dbAlt.length > 0 || dbPace.length > 0);
+      const hasStreams = dbTime.length > 20 && (dbHr.length > 0 || dbAlt.length > 0 || dbPace.length > 0 || dbCad.length > 0);
 
       return {
         id: row.id as string,

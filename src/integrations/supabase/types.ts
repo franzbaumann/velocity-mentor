@@ -80,6 +80,7 @@ export type Database = {
           distance_km?: number | null
           duration_seconds?: number | null
           elevation_gain?: number | null
+          enhancing_supplements?: Json | null
           external_id?: string | null
           gap?: number | null
           garmin_id?: string | null
@@ -130,6 +131,7 @@ export type Database = {
           distance_km?: number | null
           duration_seconds?: number | null
           elevation_gain?: number | null
+          enhancing_supplements?: Json | null
           external_id?: string | null
           gap?: number | null
           garmin_id?: string | null

@@ -491,6 +491,7 @@ export default function ActivityDetail() {
       (activity.streams.altitude?.length ?? 0) > 0 ||
       (activity.streams.pace?.length ?? 0) > 0 ||
       (activity.streams.velocity_smooth?.length ?? 0) > 0 ||
+      (activity.streams.cadence?.length ?? 0) > 0 ||
       (activity.streams.temperature?.length ?? 0) > 0 ||
       (activity.streams.respiration_rate?.length ?? 0) > 0;
     if (!hasAny) return [];
@@ -534,8 +535,8 @@ export default function ActivityDetail() {
     return (
       <AppLayout>
         <div className="animate-fade-in space-y-6">
-          <button onClick={() => navigate("/activities")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-            <ArrowLeft className="w-4 h-4" /> Back to Activities
+          <button onClick={() => navigate("/community")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="w-4 h-4" /> Back to Feed
           </button>
           <div className="h-[200px] rounded-2xl bg-secondary/30 animate-pulse" />
           <div className="h-24 rounded-xl bg-secondary/30 animate-pulse" />
@@ -548,8 +549,8 @@ export default function ActivityDetail() {
     return (
       <AppLayout>
         <div className="animate-fade-in space-y-6">
-          <button onClick={() => navigate("/activities")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
-            <ArrowLeft className="w-4 h-4" /> Back to Activities
+          <button onClick={() => navigate("/community")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground">
+            <ArrowLeft className="w-4 h-4" /> Back to Feed
           </button>
           <div className="glass-card p-12 text-center">
             <p className="text-muted-foreground">Activity not found or unable to load.</p>
@@ -568,8 +569,8 @@ export default function ActivityDetail() {
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-4 max-w-5xl mx-auto">
-        <button onClick={() => navigate("/activities")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground -ml-1">
-          <ArrowLeft className="w-4 h-4" /> Back to Activities
+        <button onClick={() => navigate("/community")} className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground -ml-1">
+          <ArrowLeft className="w-4 h-4" /> Back to Feed
         </button>
 
         {/* ── Hero header — big readable stats ── */}

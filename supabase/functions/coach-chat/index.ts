@@ -1261,19 +1261,19 @@ ${conversationText}`;
         }
       }
       if (!text) {
-        for (const GROQ_API_KEY of groqKeys) {
+      for (const GROQ_API_KEY of groqKeys) {
           const groqUrl = "https://api.groq.com/openai/v1/chat/completions";
           const groqInit: RequestInit = {
-            method: "POST",
-            headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+          method: "POST",
+          headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
             body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: chatMessages, temperature: 0.6, max_tokens: AI_LIMITS.coachingChat.max_tokens }),
           };
           const groqRes = await fetchWith429Retry(groqUrl, groqInit);
-          if (groqRes.status === 429) any429 = true;
-          else if (groqRes.ok) {
-            const groqJson = await groqRes.json();
-            text = groqJson.choices?.[0]?.message?.content?.trim() ?? null;
-            if (text) break;
+        if (groqRes.status === 429) any429 = true;
+        else if (groqRes.ok) {
+          const groqJson = await groqRes.json();
+          text = groqJson.choices?.[0]?.message?.content?.trim() ?? null;
+          if (text) break;
           }
         }
       }
@@ -1284,13 +1284,13 @@ ${conversationText}`;
             .map((m) => ({ role: m.role === "assistant" ? "model" : "user", parts: [{ text: m.content }] }));
           const gemUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${GEMINI_API_KEY}`;
           const gemInit: RequestInit = {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              contents,
-              systemInstruction: { parts: [{ text: systemPrompt }] },
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents,
+                systemInstruction: { parts: [{ text: systemPrompt }] },
               generationConfig: { temperature: 0.6, maxOutputTokens: AI_LIMITS.coachingChat.max_tokens },
-            }),
+              }),
           };
           const gemRes = await fetchWith429Retry(gemUrl, gemInit);
           if (gemRes.status === 429) any429 = true;
