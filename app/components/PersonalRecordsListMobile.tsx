@@ -73,7 +73,7 @@ export const PersonalRecordsListMobile: FC<Props> = ({ prs, onSelectPr }) => {
                   <Text style={styles.badgeText}>Latest</Text>
                 </View>
               )}
-              {onSelectPr && <Text style={{ color: colors.mutedForeground, fontSize: 12 }}>→</Text>}
+              {onSelectPr && <Text style={{ color: colors.mutedForeground, fontSize: 14, fontWeight: "500" }}>›</Text>}
             </View>
           </RowWrapper>
         );

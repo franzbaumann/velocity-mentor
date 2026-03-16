@@ -4,9 +4,8 @@ import { GestureHandlerRootView } from "react-native-gesture-handler";
 import Toast, { BaseToast, SuccessToast } from "react-native-toast-message";
 import { ThemeProvider } from "./context/ThemeContext";
 import { SupabaseProvider } from "./SupabaseProvider";
+import { OnboardingProvider } from "./hooks/useOnboardingStatus";
 import { RootNavigator } from "./navigation/RootNavigator";
-import { TutorialModal } from "./components/TutorialModal";
-import { useTutorial } from "./hooks/useTutorial";
 
 const queryClient = new QueryClient();
 
@@ -28,18 +27,15 @@ const toastConfig = {
 };
 
 export default function App() {
-  const { shouldShow, complete } = useTutorial();
-
   return (
     <QueryClientProvider client={queryClient}>
       <GestureHandlerRootView style={{ flex: 1 }}>
         <SafeAreaProvider>
           <ThemeProvider>
             <SupabaseProvider>
-              <>
+              <OnboardingProvider>
                 <RootNavigator />
-                {shouldShow && <TutorialModal onComplete={complete} />}
-              </>
+              </OnboardingProvider>
               <Toast position="bottom" config={toastConfig} />
             </SupabaseProvider>
           </ThemeProvider>

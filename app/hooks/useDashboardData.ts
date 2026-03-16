@@ -114,7 +114,10 @@ function formatDuration(sec: number | null): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function useDashboardData() {
+export function useDashboardData(selectedDate?: string) {
+  const anchorDate = selectedDate ? new Date(`${selectedDate}T12:00:00`) : new Date();
+  const anchorDateStr = selectedDate ?? getLocalDateString(anchorDate);
+  const todayStr = getLocalDateString();
   const {
     data: activities = [],
     isLoading: activitiesLoading,
@@ -223,6 +226,7 @@ export function useDashboardData() {
     const runs = activities.filter(
       (a) =>
         isRunningActivity(a.type) &&
+        a.date <= anchorDateStr &&
         (a.distance_km ?? 0) >= 0.01 &&
         (a.distance_km ?? 0) <= 150,
     );
@@ -246,7 +250,7 @@ export function useDashboardData() {
       hrZones: z,
       detailId,
     };
-  }, [activities]);
+  }, [activities, anchorDateStr]);
 
   const weekStats = useMemo(() => {
     const runningActivities = activities.filter(
@@ -255,7 +259,7 @@ export function useDashboardData() {
         (a.distance_km ?? 0) > 0 &&
         (a.distance_km ?? 0) <= 150,
     );
-    const mon = startOfWeekMonday(new Date());
+    const mon = startOfWeekMonday(anchorDate);
     const monStr = getLocalDateString(mon);
     const sun = addDays(mon, 6);
     const sunStr = getLocalDateString(sun);
@@ -266,7 +270,7 @@ export function useDashboardData() {
     let plannedKm = 81;
     let qualityPlanned = 3;
     if (planData?.weeks?.length) {
-      const today = new Date();
+      const today = new Date(anchorDate);
       const planStart = planData.plan?.start_date ? parseISO(planData.plan.start_date) : mon;
       const weekStart = startOfWeekFns(planStart, { weekStartsOn: 1 });
       const currentWeekNum = Math.floor((today.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
@@ -312,14 +316,15 @@ export function useDashboardData() {
       };
     }
     return { ...mockWeekStats, plannedKm, qualityPlanned, tssData: tssData.some((v) => v > 0) ? tssData : mockWeekStats.tssData };
-  }, [weekStatsReal, activities, planData]);
+  }, [weekStatsReal, activities, planData, anchorDate]);
 
   const recoveryMetrics = useMemo(() => {
     // Match web: use latest row (most recent), same as src/hooks/useDashboardData.ts
-    const latest = readinessRows.length > 0 ? readinessRows[readinessRows.length - 1] : null;
+    const rowsUpToAnchor = readinessRows.filter((r) => r.date <= anchorDateStr);
+    const latest = rowsUpToAnchor.length > 0 ? rowsUpToAnchor[rowsUpToAnchor.length - 1] : null;
     if (!latest) return mockRecoveryMetrics;
-    const hrvVals = readinessRows.map((r) => r.hrv ?? 0).filter(Boolean).reverse();
-    const rhrVals = readinessRows.map((r) => r.resting_hr ?? 0).filter(Boolean).reverse();
+    const hrvVals = rowsUpToAnchor.map((r) => r.hrv ?? 0).filter(Boolean).reverse();
+    const rhrVals = rowsUpToAnchor.map((r) => r.resting_hr ?? 0).filter(Boolean).reverse();
     const avgHrv = hrvVals.length
       ? Math.round(hrvVals.reduce((a, b) => a + b, 0) / hrvVals.length)
       : mockRecoveryMetrics.hrv7dayAvg;
@@ -335,11 +340,12 @@ export function useDashboardData() {
           ? rhrVals.slice(-7)
           : mockRecoveryMetrics.restingHrTrend,
     };
-  }, [readinessRows]);
+  }, [readinessRows, anchorDateStr]);
 
   const readiness = useMemo(() => {
     // Match web: use latest row (most recent), same as src/hooks/useDashboardData.ts
-    const latest = readinessRows.length > 0 ? readinessRows[readinessRows.length - 1] : null;
+    const rowsUpToAnchor = readinessRows.filter((r) => r.date <= anchorDateStr);
+    const latest = rowsUpToAnchor.length > 0 ? rowsUpToAnchor[rowsUpToAnchor.length - 1] : null;
     if (!latest) return mockReadiness;
     const hasReal =
       latest.hrv != null ||
@@ -370,7 +376,6 @@ export function useDashboardData() {
       (tsb != null || hrv != null || sleep != null
         ? "Synced from intervals.icu"
         : mockReadiness.aiSummary);
-    const todayStr = getLocalDateString();
     const isToday = latest.date === todayStr;
     return {
       score,
@@ -388,13 +393,13 @@ export function useDashboardData() {
       date: latest.date,
       isToday,
     };
-  }, [readinessRows]);
+  }, [readinessRows, anchorDateStr, todayStr]);
 
   const weekPlan = useMemo(() => {
-    const mon = startOfWeekMonday(new Date());
+    const mon = startOfWeekMonday(anchorDate);
     const monStr = getLocalDateString(mon);
     const sunStr = getLocalDateString(addDays(mon, 6));
-    const todayStr = getLocalDateString();
+    const activeDayStr = anchorDateStr;
     const planSessionsByDate = new Map<string, { type: string; description: string; distance_km?: number; pace_target?: string }[]>();
     if (planData?.weeks?.length) {
       for (const week of planData.weeks) {
@@ -426,7 +431,7 @@ export function useDashboardData() {
       );
       const act = dayActs[0];
       const planned = planSessionsByDate.get(dateStr)?.[0];
-      const today = todayStr === dateStr;
+      const today = activeDayStr === dateStr;
       const mock = mockWeekPlan[i] ?? mockWeekPlan[0];
       const hasReal = activities.length > 0;
       const hasPlan = planSessionsByDate.size > 0;
@@ -456,27 +461,27 @@ export function useDashboardData() {
         detailId,
       };
     });
-  }, [activities, planData]);
+  }, [activities, planData, anchorDate, anchorDateStr]);
 
   const todaysWorkout = useMemo(() => {
-    const todayStr = getLocalDateString();
+    const targetDayStr = anchorDateStr;
     if (!planData?.weeks?.length) return mockTodaysWorkout;
-    const today = new Date();
+    const day = new Date(anchorDate);
     let thisWeekData = planData.weeks.find((w) => {
       const start = w.start_date ? parseISO(w.start_date) : null;
       if (!start) return false;
       const end = addDaysFns(start, 6);
-      return isWithinInterval(today, { start, end });
+      return isWithinInterval(day, { start, end });
     });
     if (!thisWeekData) {
       const planStart = planData.plan?.start_date ? parseISO(planData.plan.start_date) : startOfWeekFns(new Date(), { weekStartsOn: 1 });
       const weekStart = startOfWeekFns(planStart, { weekStartsOn: 1 });
-      const currentWeekNum = Math.floor((today.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
+      const currentWeekNum = Math.floor((day.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1;
       thisWeekData = planData.weeks.find((w) => w.week_number === currentWeekNum)
         ?? planData.weeks[planData.weeks.length - 1];
     }
     const todaySession = (thisWeekData?.sessions ?? []).find(
-      (s) => s.scheduled_date && String(s.scheduled_date).slice(0, 10) === todayStr,
+      (s) => s.scheduled_date && String(s.scheduled_date).slice(0, 10) === targetDayStr,
     );
     if (todaySession) {
       const type = (todaySession.session_type ?? "easy").toLowerCase() as "easy" | "tempo" | "interval" | "long" | "recovery" | "rest";
@@ -489,7 +494,7 @@ export function useDashboardData() {
       };
     }
     return { ...mockTodaysWorkout, type: "rest" as const, title: "Rest day", description: "Rest day" };
-  }, [planData]);
+  }, [planData, anchorDate, anchorDateStr]);
 
   const hasRealReadiness = readinessRows.length > 0;
   const hasRealActivities = activities.length > 0;
@@ -511,6 +516,7 @@ export function useDashboardData() {
   const lastFetchedAt = Math.max(activitiesUpdatedAt ?? 0, readinessUpdatedAt ?? 0);
 
   return {
+    trainingPlan: planData,
     athleteProfile,
     lastFetchedAt,
     athlete: athleteProfile

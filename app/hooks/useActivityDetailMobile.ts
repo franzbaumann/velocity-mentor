@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { smoothPace, rollingAvg, downsample } from "../lib/streamProcessing";
 import { supabase, callEdgeFunctionWithRetry } from "../shared/supabase";
 
 export interface ActivityStreams {
@@ -47,6 +48,8 @@ export interface ActivityDetailData {
   calories?: number | null;
   /** Subjective RPE 1-10 if available */
   perceivedExertion?: number | null;
+  /** User-uploaded activity photos (web parity) */
+  photos?: { url: string; path?: string }[];
   laps: LapData[];
   streams?: ActivityStreams;
   latlng: [number, number][];
@@ -57,23 +60,6 @@ export interface ActivityDetailData {
   /** Pace zone distribution in seconds, if available */
   paceZoneTimes?: number[] | null;
   coachNote: string | null;
-}
-
-const ZONE_COLORS: Record<string, string> = {
-  z1: "#90CAF9",
-  z2: "#2196F3",
-  z3: "#4CAF50",
-  z4: "#FF9800",
-  z5: "#e91e63",
-};
-
-function hrToZone(hr: number, maxHr: number): { zone: string; color: string } {
-  const pct = hr / maxHr;
-  if (pct < 0.6) return { zone: "z1", color: ZONE_COLORS.z1 };
-  if (pct < 0.7) return { zone: "z2", color: ZONE_COLORS.z2 };
-  if (pct < 0.8) return { zone: "z3", color: ZONE_COLORS.z3 };
-  if (pct < 0.9) return { zone: "z4", color: ZONE_COLORS.z4 };
-  return { zone: "z5", color: ZONE_COLORS.z5 };
 }
 
 function formatDur(sec: number): string {
@@ -100,16 +86,6 @@ function parseLaps(
   });
 }
 
-function downsample(arr: number[], target: number): number[] {
-  if (arr.length <= target) return arr;
-  const step = arr.length / target;
-  const out: number[] = [];
-  for (let i = 0; i < target; i++) {
-    out.push(arr[Math.round(i * step)]);
-  }
-  return out;
-}
-
 /** Safely extract a number[] from proxy data that may be wrapped in { data: [...] } */
 function toArray(s: unknown): number[] {
   if (Array.isArray(s)) return s.map((x) => Number(x)).filter((n) => !isNaN(n));
@@ -120,7 +96,103 @@ function toArray(s: unknown): number[] {
   return [];
 }
 
+function parsePhotos(raw: unknown): { url: string; path?: string }[] {
+  if (!raw || !Array.isArray(raw)) return [];
+  return raw
+    .filter((p): p is Record<string, unknown> => p != null && typeof p === "object")
+    .map((p) => ({
+      url: String(p.url ?? ""),
+      path: p.path != null ? String(p.path) : undefined,
+    }))
+    .filter((p) => p.url.length > 0);
+}
+
 const MAX_POINTS = 300;
+
+export type ChartPoint = {
+  index: number;
+  km: number;
+  time: number;
+  pace: number;
+  hr: number;
+  altitude: number;
+  cadence: number;
+  temperature?: number;
+  respiration?: number;
+};
+
+export function buildChartData(
+  streams: ActivityStreams & { distance?: number[]; distance_km?: number },
+): ChartPoint[] {
+  const { time, heartrate, cadence, altitude, pace, temperature, respiration_rate } =
+    streams;
+  const n = Math.max(
+    time.length,
+    heartrate.length,
+    cadence.length,
+    altitude.length,
+    pace.length,
+    temperature?.length ?? 0,
+    respiration_rate?.length ?? 0,
+    0,
+  );
+  if (n === 0) return [];
+
+  const rawPace: number[] = [];
+  for (let i = 0; i < n; i++) {
+    const v = pace[i];
+    rawPace.push(Number.isFinite(v) ? v : NaN);
+  }
+
+  const smoothedPace = smoothPace(rawPace, 5);
+  const smoothedHr = rollingAvg(
+    heartrate.map((v) => Number(v) || 0),
+    5,
+  );
+  const smoothedCad = rollingAvg(
+    cadence.map((v) => Number(v) || 0),
+    5,
+  );
+  const smoothedAlt = rollingAvg(
+    altitude.map((v) => Number(v) || 0),
+    3,
+  );
+  const smoothedTemp = temperature
+    ? rollingAvg(temperature.map((v) => Number(v) || 0), 5)
+    : [];
+  const smoothedResp = respiration_rate
+    ? rollingAvg(respiration_rate.map((v) => Number(v) || 0), 5)
+    : [];
+
+  const distArr = (streams as { distance?: number[] }).distance ?? [];
+  const totalKm =
+    streams.distance_km ??
+    (distArr.length ? (distArr[distArr.length - 1] ?? 0) / 1000 : 0);
+
+  const points: ChartPoint[] = [];
+  for (let i = 0; i < n; i++) {
+    const t = time[i] ?? 0;
+    const km =
+      distArr.length > i && Number.isFinite(distArr[i])
+        ? (distArr[i] ?? 0) / 1000
+        : totalKm > 0
+        ? (totalKm * i) / Math.max(1, n - 1)
+        : 0;
+    points.push({
+      index: i,
+      km,
+      time: t,
+      pace: smoothedPace[i] ?? 0,
+      hr: smoothedHr[i] ?? 0,
+      altitude: smoothedAlt[i] ?? 0,
+      cadence: smoothedCad[i] ?? 0,
+      temperature: smoothedTemp[i],
+      respiration: smoothedResp[i],
+    });
+  }
+
+  return downsample(points, MAX_POINTS);
+}
 
 export function useActivityDetailMobile(
   activityId: string | undefined,
@@ -468,6 +540,7 @@ export function useActivityDetailMobile(
             return null;
           })(),
           coachNote: (dbAct?.coach_note as string | null) ?? null,
+          photos: parsePhotos(dbAct?.photos),
         };
       }
 
@@ -609,6 +682,7 @@ export function useActivityDetailMobile(
         hrZoneTimes: (r.hr_zone_times as number[] | null) ?? null,
         paceZoneTimes: (r.pace_zone_times as number[] | null) ?? null,
         coachNote: (r.coach_note as string | null) ?? null,
+        photos: parsePhotos((r as { photos?: unknown }).photos),
       };
     },
     enabled: !!activityId,

@@ -2,7 +2,7 @@ import { FC, useEffect, useMemo, useRef, useState } from "react";
 import { Animated, Easing, Modal, Pressable, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Ionicons } from "@expo/vector-icons";
-import { useNavigation } from "@react-navigation/native";
+import { RouteProp, useNavigation, useRoute } from "@react-navigation/native";
 import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
 import { ReadinessRing } from "../components/ReadinessRing";
@@ -10,14 +10,16 @@ import { WorkoutBadge } from "../components/WorkoutBadge";
 import { Sparkline } from "../components/Sparkline";
 import { SkeletonCard, SkeletonLine } from "../components/Skeleton";
 import { useTheme } from "../context/ThemeContext";
-import { useGreeting } from "../hooks/useGreeting";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useIntervalsAutoSync } from "../hooks/useIntervalsAutoSync";
 import { useRacePredictions } from "../hooks/useRacePredictions";
+import { useDailyStreak } from "../hooks/useDailyStreak";
 import { getLocalDateString } from "../lib/date";
 import { formatDuration, formatSleepHours } from "../lib/format";
 import { spacing, typography } from "../theme/theme";
 import { formatRaceTime, formatPace } from "../lib/race-prediction";
+import type { AppTabsParamList } from "../navigation/RootNavigator";
+import { addDays as addDaysFns, isWithinInterval, parseISO, startOfWeek as startOfWeekFns } from "date-fns";
 
 const RACE_DISTANCES: { km: number; label: string }[] = [
   { km: 5, label: "5K" },
@@ -50,15 +52,23 @@ function formatReadinessDate(dateStr: string): string {
 }
 
 export const HomeScreen: FC = () => {
+  const route = useRoute<RouteProp<AppTabsParamList, "Dashboard">>();
   const { themeName, theme, colors } = useTheme();
   const insets = useSafeAreaInsets();
-  const greeting = useGreeting();
+  const selectedDate = route.params?.selectedDate;
+  const activeDateStr = selectedDate ?? getLocalDateString();
+  const headerDateText = useMemo(
+    () => new Date(`${activeDateStr}T12:00:00`).toLocaleDateString(undefined, { weekday: "long", day: "numeric", month: "long" }),
+    [activeDateStr],
+  );
   const navigation = useNavigation();
-  const dashboard = useDashboardData();
+  const dashboard = useDashboardData(activeDateStr);
 
   // Silent quick sync on app open when intervals.icu connected (once per 24h)
   useIntervalsAutoSync();
   const {
+    trainingPlan,
+    athleteProfile,
     athlete,
     readiness,
     todaysWorkout,
@@ -74,8 +84,8 @@ export const HomeScreen: FC = () => {
 
   // No refetch on focus — reduces unnecessary API load. Use pull-to-refresh to refresh.
 
-  const todayStr = getLocalDateString();
-  const todaysActual = activities?.filter((a) => a.date === todayStr)?.[0] ?? null;
+  const todayStr = activeDateStr;
+  const todaysActual = activities?.filter((a) => a.date === activeDateStr)?.[0] ?? null;
   const todaysPlan = weekPlan?.find((d) => d.isToday) ?? null;
   const readinessTitle =
     readiness?.isToday === true || (readiness as { date?: string })?.date === todayStr
@@ -87,6 +97,10 @@ export const HomeScreen: FC = () => {
   const flipAnim = useRef(new Animated.Value(0)).current;
   const refreshSpin = useRef(new Animated.Value(0)).current;
   const [isFlipped, setIsFlipped] = useState(false);
+  const [showStreakCelebration, setShowStreakCelebration] = useState(false);
+  const streak = useDailyStreak();
+  const raceDaysAnim = useRef(new Animated.Value(0)).current;
+  const [raceDaysDisplay, setRaceDaysDisplay] = useState<number | null>(null);
 
   const frontRotation = flipAnim.interpolate({
     inputRange: [0, 1],
@@ -128,6 +142,73 @@ export const HomeScreen: FC = () => {
     return () => loop.stop();
   }, [isRefetching, refreshSpin]);
 
+  useEffect(() => {
+    if (streak.isMilestone && streak.milestoneDay != null) {
+      setShowStreakCelebration(true);
+    }
+  }, [streak.isMilestone, streak.milestoneDay]);
+
+  // Days to race (based on athlete_profile.goal_race_date)
+  const goalRaceDateStr = athleteProfile?.goal_race_date ?? null;
+  let raceDays: number | null = null;
+  let raceState: "none" | "future" | "today" | "past" = "none";
+  if (goalRaceDateStr) {
+    const raceDate = new Date(goalRaceDateStr + "T00:00:00");
+    const today = new Date();
+    const todayMidnight = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      today.getDate(),
+    );
+    const diffMs = raceDate.getTime() - todayMidnight.getTime();
+    const diffDays = Math.ceil(diffMs / 86400000);
+    if (diffDays > 0) {
+      raceDays = diffDays;
+      raceState = "future";
+    } else if (diffDays === 0) {
+      raceDays = 0;
+      raceState = "today";
+    } else {
+      raceDays = diffDays;
+      raceState = "past";
+    }
+  }
+
+  useEffect(() => {
+    if (raceState !== "future" || raceDays == null || raceDays <= 0) {
+      setRaceDaysDisplay(null);
+      return;
+    }
+    const start = raceDays + 7;
+    raceDaysAnim.setValue(start);
+    setRaceDaysDisplay(start);
+    const id = raceDaysAnim.addListener(({ value }) => {
+      setRaceDaysDisplay(Math.round(value));
+    });
+    Animated.timing(raceDaysAnim, {
+      toValue: raceDays,
+      duration: 600,
+      easing: Easing.out(Easing.cubic),
+      useNativeDriver: false,
+    }).start(() => {
+      raceDaysAnim.removeListener(id);
+      setRaceDaysDisplay(raceDays);
+    });
+    return () => {
+      raceDaysAnim.removeListener(id);
+    };
+  }, [raceState, raceDays, raceDaysAnim]);
+
+  const progressPct = useMemo(() => {
+    if (!weekStats?.plannedKm || weekStats.plannedKm <= 0) return 0;
+    return Math.round(
+      Math.max(
+        0,
+        Math.min(100, (Number(weekStats.actualKm ?? 0) / Number(weekStats.plannedKm)) * 100),
+      ),
+    );
+  }, [weekStats]);
+
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -138,21 +219,72 @@ export const HomeScreen: FC = () => {
           justifyContent: "space-between",
           gap: 12,
         },
-        headerSettingsBtn: {
-          padding: 8,
-          marginRight: -8,
-        },
-        headerPlanTrack: {
+        headerMetaRow: {
           marginTop: 8,
-          height: 4,
-          borderRadius: 999,
-          overflow: "hidden",
-          backgroundColor: theme.cardBorder,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "center",
+          gap: 10,
+          marginLeft: 12,
         },
-        headerPlanFill: {
-          height: "100%",
+        streakPill: {
+          flexDirection: "column",
+          paddingHorizontal: 12,
+          paddingVertical: 6,
           borderRadius: 999,
-          backgroundColor: theme.accentBlue,
+          backgroundColor: "#F3F4F6",
+          shadowColor: "#000",
+          shadowOpacity: 0.06,
+          shadowOffset: { width: 0, height: 2 },
+          shadowRadius: 4,
+          elevation: 1,
+          width: 110,
+        },
+        weekPill: {
+          flexDirection: "column",
+          paddingHorizontal: 16,
+          paddingVertical: 6,
+          borderRadius: 999,
+          backgroundColor: "#F3F4F6",
+          shadowColor: "#000",
+          shadowOpacity: 0.06,
+          shadowOffset: { width: 0, height: 2 },
+          shadowRadius: 4,
+          elevation: 1,
+          width: 150,
+        },
+        racePill: {
+          flexDirection: "column",
+          paddingHorizontal: 16,
+          paddingVertical: 6,
+          borderRadius: 999,
+          backgroundColor: "#F3F4F6",
+          shadowColor: "#000",
+          shadowOpacity: 0.06,
+          shadowOffset: { width: 0, height: 2 },
+          shadowRadius: 4,
+          elevation: 1,
+          width: 90,
+        },
+        streakPillTopRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+        },
+        streakCountText: {
+          fontSize: 20,
+          fontWeight: "700",
+          color: theme.textPrimary,
+        },
+        weekCountText: {
+          fontSize: 20,
+          fontWeight: "700",
+          color: theme.textPrimary,
+        },
+        streakLabelText: {
+          marginTop: 2,
+          fontSize: 11,
+          color: theme.textMuted,
         },
         // Dark Pro specific layout
         topRow: {
@@ -224,7 +356,13 @@ export const HomeScreen: FC = () => {
           color: theme.accentBlue,
         },
         header: { gap: 4 },
-        title: { fontSize: 22, fontWeight: "600", color: theme.textPrimary },
+        title: {
+          fontSize: 30,
+          fontWeight: "800",
+          color: themeName === "darkPro" ? theme.textPrimary : "#111111",
+          letterSpacing: -0.5,
+        },
+        titlePressable: { alignSelf: "flex-start" },
         subtitle: { fontSize: 13, color: theme.textSecondary },
         sectionHeader: { color: theme.textLabel, letterSpacing: 1.5 },
         readinessCard: { padding: 24 },
@@ -235,11 +373,6 @@ export const HomeScreen: FC = () => {
         readinessTrend: { fontSize: 12, color: theme.accentGreen, marginBottom: 6 },
         readinessSummary: { fontSize: 13, color: theme.textSecondary, lineHeight: 20 },
         readinessMeta: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
-        readinessChip: {
-          borderRadius: 999,
-          paddingHorizontal: 10,
-          paddingVertical: 5,
-        },
         metaText: { fontSize: 11, color: theme.textMuted },
         flipContainer: {
           position: "relative",
@@ -290,9 +423,9 @@ export const HomeScreen: FC = () => {
         weekSessionsText: { fontSize: 11, color: theme.textMuted, marginBottom: 12 },
         qualityRow: { flexDirection: "row", justifyContent: "space-between", alignItems: "center" },
         dotsRow: { flexDirection: "row", gap: 6 },
-        dot: { width: 10, height: 10, borderRadius: 999 },
-        dotDone: { backgroundColor: theme.accentBlue },
-        dotPlanned: { backgroundColor: theme.cardBorder },
+        dot: { width: 10, height: 10, borderRadius: 999, borderWidth: 1 },
+        dotDone: { },
+        dotPlanned: { },
         sparklineBlock: { marginTop: 12 },
         sparklineLabel: { fontSize: 11, color: theme.textMuted, marginBottom: 4 },
         lastActivityHeader: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", marginBottom: 12 },
@@ -322,9 +455,10 @@ export const HomeScreen: FC = () => {
         raceSubtitle: { fontSize: 12, color: theme.textSecondary },
         raceTime: { fontSize: 28, fontWeight: "700", color: theme.textPrimary, marginBottom: 8 },
         racePaces: { gap: 2 },
-        racePillsRow: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 8 },
-        racePill: { borderRadius: 999, paddingHorizontal: 10, paddingVertical: 4 },
-        racePillText: { fontSize: 11, fontWeight: "600" },
+        racePillsRow: { flexDirection: "row", flexWrap: "wrap", gap: 4, marginTop: 8 },
+        raceMetaPill: { },
+        racePillText: { fontSize: 12, color: theme.textMuted },
+        racePillSep: { fontSize: 12, color: theme.textMuted },
         raceFootnote: { fontSize: 10, color: theme.textMuted, marginTop: 12 },
         raceViewAllBtn: { marginTop: 10, flexDirection: "row", alignItems: "center", gap: 4, alignSelf: "flex-start" },
         raceViewAll: { fontSize: 12 },
@@ -373,6 +507,7 @@ export const HomeScreen: FC = () => {
         daysRow: { gap: 12, paddingBottom: 8 },
         dayCard: {
           width: 140,
+          minHeight: 160,
           padding: 16,
           borderRadius: 16,
           backgroundColor: theme.appBackground,
@@ -389,7 +524,7 @@ export const HomeScreen: FC = () => {
         dayCardDetail: { fontSize: 11, color: theme.textMuted, marginTop: 4 },
         dayZoneBar: { marginTop: 10, height: 4, borderRadius: 999, backgroundColor: theme.cardBorder },
         dayZoneFill: { height: "100%", borderRadius: 999 },
-        dayRestCentered: { marginTop: 18, textAlign: "center", fontSize: 13, color: theme.textMuted },
+        dayRestCentered: { marginTop: 18, textAlign: "center", fontSize: 13, color: theme.textMuted, opacity: 0.6 },
         lastUpdatedBlock: { marginTop: 8, gap: 2 },
         lastUpdatedText: { fontSize: 10, color: theme.textMuted },
         updatedInlineRow: { marginTop: 8, flexDirection: "row", alignItems: "center", gap: 6 },
@@ -405,8 +540,109 @@ export const HomeScreen: FC = () => {
         recoveryHeaderDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: theme.accentGreen },
         recoveryTrendNegative: { fontSize: 11, color: theme.accentOrange },
         recoveryTrendPositive: { fontSize: 11, color: theme.accentGreen },
+        recoveryStatsContainer: {
+          marginTop: 12,
+          paddingTop: 12,
+          borderTopWidth: StyleSheet.hairlineWidth,
+          borderTopColor: "#F3F4F6",
+        },
+        recoveryStatsRow: {
+          flexDirection: "row",
+        },
+        recoveryStatColumn: {
+          flex: 1,
+          alignItems: "center",
+        },
+        recoveryStatLabel: {
+          fontSize: 10,
+          textTransform: "uppercase",
+          letterSpacing: 1,
+          color: "#9CA3AF",
+        },
+        recoveryStatValue: {
+          marginTop: 4,
+          fontSize: 16,
+          fontWeight: "700",
+          color: "#111111",
+        },
+        recoveryStatStatus: {
+          marginTop: 2,
+          fontSize: 11,
+        },
+        restBadge: {
+          paddingHorizontal: 8,
+          paddingVertical: 3,
+          borderRadius: 999,
+          backgroundColor: "#F3F4F6",
+        },
+        restBadgeText: {
+          fontSize: 11,
+          fontWeight: "500",
+          color: "#6B7280",
+        },
+        restDayText: {
+          fontSize: 12,
+          color: "#9CA3AF",
+        },
+        restContent: {
+          marginTop: 12,
+          alignItems: "center",
+        },
+        restEmoji: { fontSize: 48, marginBottom: 8 },
+        restTitle: {
+          fontSize: 18,
+          fontWeight: "700",
+          color: theme.textPrimary,
+          textAlign: "center",
+        },
+        restSubtitle: {
+          marginTop: 4,
+          fontSize: 13,
+          color: theme.textSecondary,
+          textAlign: "center",
+        },
+        restTipsRow: {
+          marginTop: 16,
+          flexDirection: "row",
+          justifyContent: "space-between",
+          gap: 8,
+        },
+        restTipCard: {
+          flex: 1,
+          backgroundColor: colors.card,
+          borderRadius: 16,
+          paddingVertical: 10,
+          paddingHorizontal: 8,
+          shadowColor: "#000",
+          shadowOpacity: 0.06,
+          shadowOffset: { width: 0, height: 2 },
+          shadowRadius: 4,
+          elevation: 1,
+          alignItems: "center",
+        },
+        restTipEmoji: { fontSize: 20, marginBottom: 4 },
+        restTipTitle: {
+          fontSize: 12,
+          fontWeight: "600",
+          color: theme.textPrimary,
+        },
+        restTipSubtitle: {
+          fontSize: 11,
+          color: theme.textSecondary,
+        },
+        restInfoCard: {
+          marginTop: 16,
+          padding: 12,
+          borderRadius: 12,
+          backgroundColor: "#FFF8E1",
+        },
+        restInfoText: {
+          fontSize: 12,
+          color: "#4B5563",
+          fontStyle: "italic",
+        },
       }),
-    [colors, theme, insets]
+    [colors, theme, insets, themeName]
   );
 
   const goalRaceType = athlete.goalRace?.type ?? "Half Marathon";
@@ -446,6 +682,46 @@ export const HomeScreen: FC = () => {
 
   const [raceModalVisible, setRaceModalVisible] = useState(false);
 
+  const planWeeks = trainingPlan?.weeks ?? [];
+  const hasTrainingPlan = !!trainingPlan?.plan && planWeeks.length > 0;
+
+  const { planWeekCurrent, planWeekTotal } = useMemo(() => {
+    if (!hasTrainingPlan) {
+      return { planWeekCurrent: null as number | null, planWeekTotal: null as number | null };
+    }
+    const total = Math.max(...planWeeks.map((w) => w.week_number || 0));
+    const today = new Date(`${activeDateStr}T12:00:00`);
+
+    let current: number | null = null;
+
+    // First try: find week where today is within [start_date, start_date+6]
+    for (const w of planWeeks) {
+      if (!w.start_date) continue;
+      const start = parseISO(w.start_date);
+      const end = addDaysFns(start, 6);
+      if (isWithinInterval(today, { start, end })) {
+        current = w.week_number;
+        break;
+      }
+    }
+
+    // Fallback: compute offset from plan start week
+    if (current == null) {
+      const planStartRaw = trainingPlan?.plan?.start_date;
+      if (planStartRaw) {
+        const planStart = parseISO(planStartRaw);
+        const weekStart = startOfWeekFns(planStart, { weekStartsOn: 1 });
+        const diffMs = today.getTime() - weekStart.getTime();
+        const weekIdx = Math.floor(diffMs / (7 * 24 * 60 * 60 * 1000)) + 1;
+        current = Math.max(1, Math.min(total, weekIdx));
+      } else {
+        current = total;
+      }
+    }
+
+    return { planWeekCurrent: current, planWeekTotal: total };
+  }, [hasTrainingPlan, planWeeks, activeDateStr, trainingPlan]);
+
   if (!readiness || !weekStats) {
     return (
       <ScreenContainer contentContainerStyle={styles.content}>
@@ -463,13 +739,37 @@ export const HomeScreen: FC = () => {
     );
   }
 
-  const progressPct = Math.round((weekStats.actualKm / weekStats.plannedKm) * 100);
-  const planWeekProgressPct = Math.round((6 / 14) * 100);
   const refreshRotation = refreshSpin.interpolate({
     inputRange: [0, 1],
     outputRange: ["0deg", "360deg"],
   });
   const hrvDelta = (recoveryMetrics.hrv ?? 0) - (recoveryMetrics.hrv7dayAvg ?? 0);
+  const hrvStatus =
+    recoveryMetrics.hrv == null || recoveryMetrics.hrv === 0
+      ? { label: "—", color: colors.mutedForeground }
+      : hrvDelta >= 0
+        ? { label: "↑ good", color: "#22C55E" }
+        : { label: "↓ below", color: "#F59E0B" };
+  const sleepHoursNum = readiness.sleepHours ?? 0;
+  const sleepStatus =
+    sleepHoursNum <= 0
+      ? { label: "—", color: colors.mutedForeground }
+      : sleepHoursNum < 6
+        ? { label: "very low", color: "#EF4444" }
+        : sleepHoursNum < 7
+          ? { label: "low", color: "#F59E0B" }
+          : { label: "ok", color: "#22C55E" };
+  const tsbVal = readiness.tsb ?? 0;
+  const tsbStatus =
+    tsbVal < -15
+      ? { label: "fatigued", color: "#EF4444" }
+      : tsbVal < -5
+        ? { label: "tired", color: "#F59E0B" }
+        : { label: "ready", color: "#22C55E" };
+  const isRestDay =
+    (todaysPlan && (todaysPlan.type === "recovery" || /rest/i.test(todaysPlan.title ?? ""))) ||
+    (todaysActual &&
+      /rest|recovery/i.test(String(todaysActual.name ?? todaysActual.type ?? "")));
   const workoutBorderColor = workoutAccent(todaysWorkout?.type, theme);
   const sessionsDone = Math.max(0, Math.min(7, Math.round((weekStats.actualKm / Math.max(weekStats.plannedKm, 1)) * 7)));
   const lastActivityDetailId =
@@ -480,6 +780,119 @@ export const HomeScreen: FC = () => {
     navigation.navigate(
       "ActivitiesStack" as never,
       { screen: "ActivityDetail", params: { id: lastActivityDetailId } } as never,
+    );
+  };
+
+  const goToPlanOnboardingRace = () => {
+    navigation.navigate("Plan" as never);
+  };
+
+  const renderRacePill = () => {
+    if (raceState === "none") {
+      return (
+        <TouchableOpacity
+          style={styles.racePill}
+          activeOpacity={0.8}
+          onPress={goToPlanOnboardingRace}
+        >
+          <View style={styles.streakPillTopRow}>
+            <Ionicons name="flag-outline" size={18} color="#1C1C1E" />
+            <Text
+              style={styles.streakCountText}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              adjustsFontSizeToFit
+            >
+              —
+            </Text>
+          </View>
+          <Text
+            style={styles.streakLabelText}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            set race
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+    if (raceState === "today") {
+      return (
+        <View style={styles.racePill}>
+          <View style={styles.streakPillTopRow}>
+            <Ionicons name="flag-outline" size={18} color="#1C1C1E" />
+            <Text
+              style={[styles.streakCountText, { color: theme.accentGreen }]}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              adjustsFontSizeToFit
+            >
+              Race day!
+            </Text>
+          </View>
+          <Text
+            style={styles.streakLabelText}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            Good luck
+          </Text>
+        </View>
+      );
+    }
+    if (raceState === "past") {
+      return (
+        <TouchableOpacity
+          style={styles.racePill}
+          activeOpacity={0.8}
+          onPress={goToPlanOnboardingRace}
+        >
+          <View style={styles.streakPillTopRow}>
+            <Ionicons name="flag-outline" size={18} color="#1C1C1E" />
+            <Text
+              style={styles.streakCountText}
+              numberOfLines={1}
+              ellipsizeMode="tail"
+              adjustsFontSizeToFit
+            >
+              —
+            </Text>
+          </View>
+          <Text
+            style={styles.streakLabelText}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+          >
+            set race
+          </Text>
+        </TouchableOpacity>
+      );
+    }
+    const display =
+      raceDaysDisplay != null && raceDaysDisplay > 0
+        ? raceDaysDisplay
+        : raceDays ?? 0;
+    return (
+      <View style={styles.racePill}>
+        <View style={styles.streakPillTopRow}>
+          <Ionicons name="flag-outline" size={18} color="#1C1C1E" />
+          <Text
+            style={styles.streakCountText}
+            numberOfLines={1}
+            ellipsizeMode="tail"
+            adjustsFontSizeToFit
+          >
+            {display}
+          </Text>
+        </View>
+        <Text
+          style={styles.streakLabelText}
+          numberOfLines={1}
+          ellipsizeMode="tail"
+        >
+          to race
+        </Text>
+      </View>
     );
   };
 
@@ -500,25 +913,40 @@ export const HomeScreen: FC = () => {
           {/* Header: title + settings top-right */}
           <View style={styles.headerRow}>
             <View style={styles.header}>
-              <Text style={styles.title}>{greeting}</Text>
-              <Text style={styles.subtitle}>
-                Week 6 of 14 · {athlete.currentPhase} Phase · {athlete.goalRace.type} in{" "}
-                {athlete.goalRace.weeksRemaining} weeks
-              </Text>
-              <View style={styles.headerPlanTrack}>
-                <View style={[styles.headerPlanFill, { width: `${planWeekProgressPct}%` }]} />
+              <TouchableOpacity
+                style={styles.titlePressable}
+                activeOpacity={0.8}
+                onPress={() => navigation.navigate("Calendar" as never, { selectedDate: activeDateStr } as never)}
+              >
+                <Text style={styles.title}>{headerDateText}</Text>
+              </TouchableOpacity>
+              <View style={styles.headerMetaRow}>
+                <View style={styles.streakPill}>
+                  <View style={styles.streakPillTopRow}>
+                    <Ionicons name="flame-outline" size={14} color="#1C1C1E" />
+                    <Text style={styles.streakCountText}>{streak.currentStreak}</Text>
+                  </View>
+                  <Text style={styles.streakLabelText}>day streak</Text>
+                </View>
+                <View style={styles.weekPill}>
+                  <View style={styles.streakPillTopRow}>
+                    <Ionicons name="calendar-outline" size={14} color="#1C1C1E" />
+                    <Text style={styles.weekCountText}>
+                      {planWeekCurrent != null ? `Week ${planWeekCurrent}` : "Week —"}
+                    </Text>
+                  </View>
+                  <Text style={styles.streakLabelText}>
+                    {planWeekTotal != null && hasTrainingPlan
+                      ? `of ${planWeekTotal} · ${athlete.currentPhase} Phase`
+                      : "no plan"}
+                  </Text>
+                </View>
+                {renderRacePill()}
               </View>
             </View>
-            <TouchableOpacity
-              style={styles.headerSettingsBtn}
-              onPress={() => navigation.navigate("Settings" as never)}
-              accessibilityLabel="Settings"
-            >
-              <Ionicons name="settings" size={22} color={theme.textSecondary} />
-            </TouchableOpacity>
           </View>
 
-        {/* Readiness card */}
+        {/* Readiness Card */}
         <TouchableOpacity activeOpacity={0.9} onPress={flipCard}>
           <View style={styles.flipContainer}>
             <Animated.View style={[styles.flipCard, { transform: [{ rotateY: frontRotation }] }]}>
@@ -527,8 +955,24 @@ export const HomeScreen: FC = () => {
                   <ReadinessRing
                     score={readiness.score}
                     size={80}
-                    statusLabel={statusLabel}
-                    statusColor={statusColor}
+                    statusLabel={
+                      readiness.tsb != null
+                        ? Number(readiness.tsb) > 5
+                          ? "READY"
+                          : Number(readiness.tsb) <= -10
+                            ? "FATIGUED"
+                            : "NEUTRAL"
+                        : undefined
+                    }
+                    statusColor={
+                      readiness.tsb != null
+                        ? Number(readiness.tsb) > 5
+                          ? theme.positive
+                          : Number(readiness.tsb) <= -10
+                            ? theme.negative
+                            : theme.warning
+                        : undefined
+                    }
                   />
                   <View style={styles.readinessBody}>
                     <View style={styles.readinessTitleRow}>
@@ -537,33 +981,51 @@ export const HomeScreen: FC = () => {
                     </View>
                     <Text style={styles.readinessTrend}>↑ +3 from yesterday</Text>
                     <Text style={styles.readinessSummary}>{readiness.aiSummary}</Text>
-                    <View style={styles.readinessMeta}>
-                      <View style={[styles.readinessChip, { backgroundColor: theme.accentGreen + "22" }]}>
-                        <Text style={styles.metaText}>
-                          HRV {readiness.hrv != null && readiness.hrv !== 0 ? `${readiness.hrv}ms` : "—"}
-                        </Text>
-                      </View>
-                      <View style={[styles.readinessChip, { backgroundColor: theme.accentBlue + "20" }]}>
-                        <Text style={styles.metaText}>{formatSleepHours(readiness.sleepHours)} sleep</Text>
-                      </View>
-                      <View style={[styles.readinessChip, { backgroundColor: theme.accentOrange + "24" }]}>
-                        <Text style={[styles.metaText, typography.mono]}>
-                          TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}
-                        </Text>
-                      </View>
+                    <View style={styles.recoveryStatsContainer}>
+                      <TouchableOpacity
+                        activeOpacity={0.8}
+                        onPress={() => navigation.navigate("Stats" as never)}
+                      >
+                        <View style={styles.recoveryStatsRow}>
+                          <View style={styles.recoveryStatColumn}>
+                            <Text style={styles.recoveryStatLabel}>HRV</Text>
+                            <Text style={[styles.recoveryStatValue, typography.mono]}>
+                              {readiness.hrv != null && readiness.hrv !== 0 ? `${readiness.hrv}ms` : "—"}
+                            </Text>
+                            <Text style={[styles.recoveryStatStatus, { color: hrvStatus.color }]}>
+                              {hrvStatus.label}
+                            </Text>
+                          </View>
+                          <View style={styles.recoveryStatColumn}>
+                            <Text style={styles.recoveryStatLabel}>Sleep</Text>
+                            <Text style={[styles.recoveryStatValue, typography.mono]}>
+                              {formatSleepHours(readiness.sleepHours)}
+                            </Text>
+                            <Text style={[styles.recoveryStatStatus, { color: sleepStatus.color }]}>
+                              {sleepStatus.label}
+                            </Text>
+                          </View>
+                          <View style={styles.recoveryStatColumn}>
+                            <Text style={styles.recoveryStatLabel}>TSB</Text>
+                            <Text style={[styles.recoveryStatValue, typography.mono]}>
+                              {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}
+                            </Text>
+                            <Text style={[styles.recoveryStatStatus, { color: tsbStatus.color }]}>
+                              {tsbStatus.label}
+                            </Text>
+                          </View>
+                        </View>
+                      </TouchableOpacity>
                     </View>
                   </View>
                 </View>
+                <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 12 }}>
+                  {relativeMinsLabel(lastFetchedAt)}
+                </Text>
               </GlassCard>
             </Animated.View>
           </View>
         </TouchableOpacity>
-        <View style={styles.updatedInlineRow}>
-          <Text style={styles.lastUpdatedText}>{relativeMinsLabel(lastFetchedAt)} ·</Text>
-          <Animated.View style={{ transform: [{ rotate: refreshRotation }] }}>
-            <Ionicons name="refresh" size={12} color={theme.textMuted} />
-          </Animated.View>
-        </View>
 
         {/* SECTION 2 – Three-column widget row */}
         <View style={styles.widgetRow}>
@@ -572,36 +1034,52 @@ export const HomeScreen: FC = () => {
             <Text style={styles.widgetHeader}>This Week</Text>
             <View style={styles.widgetTitleRow}>
               <Text style={styles.widgetMainValue}>
-                {weekStats.actualKm} / {weekStats.plannedKm} km
+                {Number(weekStats.actualKm ?? 0).toFixed(1)} /{" "}
+                {Number(weekStats.plannedKm ?? 0).toFixed(0)} km
               </Text>
             </View>
             <View style={styles.progressTrack}>
-              <View style={[styles.progressFill, { width: `${progressPct}%` }]} />
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    width: `${progressPct}%`,
+                    backgroundColor:
+                      progressPct >= 90 ? theme.accentGreen : theme.accentBlue,
+                  },
+                ]}
+              />
             </View>
-            <Text style={styles.weekSessionsText}>Sessions: {sessionsDone}/7 complete</Text>
+            <Text style={styles.weekSessionsText}>
+              Sessions: {sessionsDone}/7 complete
+            </Text>
             <Text style={styles.metaText}>🏃 Quality sessions</Text>
             <Text style={styles.metaText}>
-              {weekStats.qualityDone} of {weekStats.qualityPlanned} done
+              {weekStats.qualityDone} / {weekStats.qualityPlanned} quality sessions
             </Text>
             <View style={styles.dotsRow}>
-              {Array.from({ length: weekStats.qualityPlanned }).map((_, i) => (
-                <View
-                  key={i}
-                  style={[
-                    styles.dot,
-                    {
-                      backgroundColor:
-                        i < weekStats.qualityDone
-                          ? i % 3 === 0
-                            ? theme.accentGreen
-                            : i % 3 === 1
-                            ? theme.accentRed
-                            : theme.accentBlue
-                          : theme.cardBorder,
-                    },
-                  ]}
-                />
-              ))}
+              {Array.from({ length: weekStats.qualityPlanned }).map((_, i) => {
+                const isDone = i < weekStats.qualityDone;
+                const typeIndex = i % 3;
+                const color =
+                  typeIndex === 0
+                    ? theme.accentRed
+                    : typeIndex === 1
+                    ? theme.accentBlue
+                    : theme.accentOrange;
+                return (
+                  <View
+                    key={i}
+                    style={[
+                      styles.dot,
+                      {
+                        borderColor: color,
+                        backgroundColor: isDone ? color : "transparent",
+                      },
+                    ]}
+                  />
+                );
+              })}
             </View>
             <View style={styles.sparklineBlock}>
               <Text style={styles.sparklineLabel}>Load trend</Text>
@@ -829,17 +1307,9 @@ export const HomeScreen: FC = () => {
                 </View>
               </View>
               <Text style={[styles.raceTime, typography.mono]}>{racePrediction.time}</Text>
-              <View style={styles.racePillsRow}>
-                <View style={[styles.racePill, { backgroundColor: theme.accentGreen + "22" }]}>
-                  <Text style={[styles.racePillText, { color: theme.accentGreen }]}>Z2 {racePrediction.zone2}</Text>
-                </View>
-                <View style={[styles.racePill, { backgroundColor: theme.accentBlue + "22" }]}>
-                  <Text style={[styles.racePillText, { color: theme.accentBlue }]}>Threshold {racePrediction.threshold}</Text>
-                </View>
-                <View style={[styles.racePill, { backgroundColor: theme.accentRed + "22" }]}>
-                  <Text style={[styles.racePillText, { color: theme.accentRed }]}>VO2max {racePrediction.vo2max}</Text>
-                </View>
-              </View>
+              <Text style={styles.racePillText}>
+                Z2 {racePrediction.zone2} · Threshold {racePrediction.threshold} · VO2max {racePrediction.vo2max}
+              </Text>
               <Text style={styles.raceFootnote}>
                 Based on best effort · CTL {Math.round(racePrediction.ctl)}
               </Text>
@@ -918,7 +1388,7 @@ export const HomeScreen: FC = () => {
                 <Text style={styles.dayCardDate}>{day.date}</Text>
               </View>
               <WorkoutBadge type={day.type} />
-              <Text style={styles.dayCardTitle}>{day.title}</Text>
+              <Text style={styles.dayCardTitle} numberOfLines={2}>{day.title}</Text>
               {day.distance > 0 ? (
                 <>
                   <Text style={[styles.dayCardDistance, typography.mono]}>{day.distance} km</Text>
@@ -926,7 +1396,7 @@ export const HomeScreen: FC = () => {
                   <Text style={styles.dayCardDetail}>{day.detail}</Text>
                 </>
               ) : (
-                <Text style={styles.dayRestCentered}>Rest 💤</Text>
+                <Text style={styles.dayRestCentered}>💤{"\n"}Rest</Text>
               )}
               <View style={styles.dayZoneBar}>
                 <View
@@ -964,21 +1434,37 @@ export const HomeScreen: FC = () => {
         {/* Page header – title + settings top-right */}
         <View style={styles.headerRow}>
           <View style={styles.header}>
-            <Text style={styles.title}>{greeting}</Text>
-            <Text style={styles.subtitle}>
-              Week 6 of 14 · {athlete.currentPhase} Phase · {athlete.goalRace.type} in {athlete.goalRace.weeksRemaining} weeks
-            </Text>
-            <View style={styles.headerPlanTrack}>
-              <View style={[styles.headerPlanFill, { width: `${planWeekProgressPct}%` }]} />
+            <TouchableOpacity
+              style={styles.titlePressable}
+              activeOpacity={0.8}
+              onPress={() => navigation.navigate("Calendar" as never, { selectedDate: activeDateStr } as never)}
+            >
+              <Text style={styles.title}>{headerDateText}</Text>
+            </TouchableOpacity>
+            <View style={styles.headerMetaRow}>
+              <View style={styles.streakPill}>
+                <View style={styles.streakPillTopRow}>
+                  <Ionicons name="flame-outline" size={14} color="#1C1C1E" />
+                  <Text style={styles.streakCountText}>{streak.currentStreak}</Text>
+                </View>
+                <Text style={styles.streakLabelText}>day streak</Text>
+              </View>
+              <View style={styles.weekPill}>
+                <View style={styles.streakPillTopRow}>
+                  <Ionicons name="calendar-outline" size={14} color="#1C1C1E" />
+                  <Text style={styles.weekCountText}>
+                    {planWeekCurrent != null ? `Week ${planWeekCurrent}` : "Week —"}
+                  </Text>
+                </View>
+                <Text style={styles.streakLabelText}>
+                  {planWeekTotal != null && hasTrainingPlan
+                    ? `of ${planWeekTotal} · ${athlete.currentPhase} Phase`
+                    : "no plan"}
+                </Text>
+              </View>
+              {renderRacePill()}
             </View>
           </View>
-          <TouchableOpacity
-            style={styles.headerSettingsBtn}
-            onPress={() => navigation.navigate("Settings" as never)}
-            accessibilityLabel="Settings"
-          >
-            <Ionicons name="settings" size={22} color={theme.textSecondary} />
-          </TouchableOpacity>
         </View>
 
       {/* Readiness Card */}
@@ -1016,33 +1502,64 @@ export const HomeScreen: FC = () => {
                   </View>
                   <Text style={styles.readinessTrend}>↑ +3 from yesterday</Text>
                   <Text style={styles.readinessSummary}>{readiness.aiSummary}</Text>
-                  <View style={styles.readinessMeta}>
-                    <View style={[styles.readinessChip, { backgroundColor: theme.accentGreen + "22" }]}>
-                      <Text style={styles.metaText}>
-                        HRV {readiness.hrv != null && readiness.hrv !== 0 ? `${readiness.hrv}ms` : "—"}
-                      </Text>
-                    </View>
-                    <View style={[styles.readinessChip, { backgroundColor: theme.accentBlue + "20" }]}>
-                      <Text style={styles.metaText}>{formatSleepHours(readiness.sleepHours)} sleep</Text>
-                    </View>
-                    <View style={[styles.readinessChip, { backgroundColor: theme.accentOrange + "24" }]}>
-                      <Text style={[styles.metaText, typography.mono]}>
-                        TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}
-                      </Text>
-                    </View>
+                  <View style={styles.recoveryStatsContainer}>
+                    <TouchableOpacity
+                      activeOpacity={0.8}
+                      onPress={() => navigation.navigate("Stats" as never)}
+                    >
+                      <View style={styles.recoveryStatsRow}>
+                        <View style={styles.recoveryStatColumn}>
+                          <Text style={styles.recoveryStatLabel}>HRV</Text>
+                          <Text style={[styles.recoveryStatValue, typography.mono]}>
+                            {readiness.hrv != null && readiness.hrv !== 0 ? `${readiness.hrv}ms` : "—"}
+                          </Text>
+                          <Text style={[styles.recoveryStatStatus, { color: hrvStatus.color }]}>
+                            {hrvStatus.label}
+                          </Text>
+                        </View>
+                        <View style={styles.recoveryStatColumn}>
+                          <Text style={styles.recoveryStatLabel}>Sleep</Text>
+                          <Text style={[styles.recoveryStatValue, typography.mono]}>
+                            {formatSleepHours(readiness.sleepHours)}
+                          </Text>
+                          <Text style={[styles.recoveryStatStatus, { color: sleepStatus.color }]}>
+                            {sleepStatus.label}
+                          </Text>
+                        </View>
+                        <View style={styles.recoveryStatColumn}>
+                          <Text style={styles.recoveryStatLabel}>TSB</Text>
+                          <Text style={[styles.recoveryStatValue, typography.mono]}>
+                            {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}
+                          </Text>
+                          <Text style={[styles.recoveryStatStatus, { color: tsbStatus.color }]}>
+                            {tsbStatus.label}
+                          </Text>
+                        </View>
+                      </View>
+                    </TouchableOpacity>
                   </View>
+                  <TouchableOpacity
+                    activeOpacity={0.8}
+                    onPress={() => navigation.navigate("Stats" as never)}
+                  >
+                    <Text
+                      style={{
+                        marginTop: 8,
+                        fontSize: 12,
+                        color: theme.textSecondary,
+                        textDecorationLine: "underline",
+                      }}
+                    >
+                      View details →
+                    </Text>
+                  </TouchableOpacity>
                 </View>
               </View>
+              <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 12 }}>{relativeMinsLabel(lastFetchedAt)}</Text>
             </GlassCard>
           </Animated.View>
         </View>
       </TouchableOpacity>
-      <View style={styles.updatedInlineRow}>
-        <Text style={styles.lastUpdatedText}>{relativeMinsLabel(lastFetchedAt)} ·</Text>
-        <Animated.View style={{ transform: [{ rotate: refreshRotation }] }}>
-          <Ionicons name="refresh" size={12} color={theme.textMuted} />
-        </Animated.View>
-      </View>
 
       {/* Today's Activity – planned or completed */}
       <View style={[styles.activityCardWrap, { borderLeftColor: workoutBorderColor }]}>
@@ -1276,17 +1793,9 @@ export const HomeScreen: FC = () => {
               </View>
             </View>
             <Text style={[styles.raceTime, typography.mono]}>{racePrediction.time}</Text>
-            <View style={styles.racePillsRow}>
-              <View style={[styles.racePill, { backgroundColor: theme.accentGreen + "22" }]}>
-                <Text style={[styles.racePillText, { color: theme.accentGreen }]}>Z2 {racePrediction.zone2}</Text>
-              </View>
-              <View style={[styles.racePill, { backgroundColor: theme.accentBlue + "22" }]}>
-                <Text style={[styles.racePillText, { color: theme.accentBlue }]}>Threshold {racePrediction.threshold}</Text>
-              </View>
-              <View style={[styles.racePill, { backgroundColor: theme.accentRed + "22" }]}>
-                <Text style={[styles.racePillText, { color: theme.accentRed }]}>VO2max {racePrediction.vo2max}</Text>
-              </View>
-            </View>
+              <Text style={styles.racePillText}>
+              Z2 {racePrediction.zone2} · Threshold {racePrediction.threshold} · VO2max {racePrediction.vo2max}
+            </Text>
             <Text style={styles.raceFootnote}>
               Based on best effort · CTL {Math.round(racePrediction.ctl)}
             </Text>
@@ -1366,7 +1875,7 @@ export const HomeScreen: FC = () => {
               <Text style={styles.dayCardDate}>{day.date}</Text>
             </View>
             <WorkoutBadge type={day.type} />
-            <Text style={styles.dayCardTitle}>{day.title}</Text>
+            <Text style={styles.dayCardTitle} numberOfLines={2}>{day.title}</Text>
             {day.distance > 0 ? (
               <>
                 <Text style={[styles.dayCardDistance, typography.mono]}>{day.distance} km</Text>
@@ -1374,7 +1883,7 @@ export const HomeScreen: FC = () => {
                 <Text style={styles.dayCardDetail}>{day.detail}</Text>
               </>
             ) : (
-              <Text style={styles.dayRestCentered}>Rest 💤</Text>
+              <Text style={styles.dayRestCentered}>💤{"\n"}Rest</Text>
             )}
             <View style={styles.dayZoneBar}>
               <View

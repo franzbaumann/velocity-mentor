@@ -1,11 +1,13 @@
-import { NavigationContainer } from "@react-navigation/native";
+import { NavigationContainer, useNavigationContainerRef } from "@react-navigation/native";
 import { createNativeStackNavigator } from "@react-navigation/native-stack";
 import { StatusBar } from "expo-status-bar";
 import { ActivityIndicator, StyleSheet, Text, View, TouchableOpacity } from "react-native";
+import { useCallback, useRef } from "react";
 import { useTheme } from "../context/ThemeContext";
 import { AuthScreen } from "../screens/AuthScreen";
 import { PricingScreen } from "../screens/PricingScreen";
 import { DashboardScreen } from "../screens/DashboardScreen";
+import { CalendarScreen } from "../screens/CalendarScreen";
 import { ActivitiesScreen } from "../screens/ActivitiesScreen";
 import { ActivityDetailScreen } from "../screens/ActivityDetailScreen";
 import { TrainingPlanScreen } from "../screens/TrainingPlanScreen";
@@ -20,6 +22,12 @@ import { SeasonScreen } from "../screens/SeasonScreen";
 import { SeasonWizardScreen } from "../screens/SeasonWizardScreen";
 import { SeasonViewScreen } from "../screens/SeasonViewScreen";
 import { useSupabaseAuth } from "../SupabaseProvider";
+import { useOnboardingStatus } from "../hooks/useOnboardingStatus";
+import { TutorialNavigator } from "../tutorial/TutorialNavigator";
+import { CommunityScreen, COMMUNITY_ENABLED } from "../screens/CommunityScreen";
+import { FriendActivityDetailScreen, type FriendActivityParams } from "../screens/FriendActivityDetailScreen";
+import { ActivityPostScreen, type ActivityPostParams } from "../screens/ActivityPostScreen";
+import { useDailyStreak } from "../hooks/useDailyStreak";
 
 export type AuthStackParamList = {
   Auth: undefined;
@@ -29,11 +37,11 @@ export type AuthStackParamList = {
 
 export type ActivitiesStackParamList = {
   ActivitiesList: undefined;
-  ActivityDetail: { id: string };
+  ActivityDetail: { id: string; openEditSheet?: boolean };
 };
 
 export type PlanStackParamList = {
-  PlanOnboarding: undefined;
+  PlanOnboarding: { mode?: "rebuild" } | undefined;
   PlanReady: undefined;
   PlanMain: undefined;
   Season: undefined;
@@ -42,10 +50,11 @@ export type PlanStackParamList = {
 };
 
 export type AppTabsParamList = {
-  Dashboard: undefined;
+  Dashboard: { selectedDate?: string } | undefined;
   Plan: undefined;
-  ActivitiesStack: undefined;
   Coach: undefined;
+  Community: undefined;
+  ActivitiesStack: undefined;
   Stats: undefined;
   Settings: undefined;
   Philosophy: undefined;
@@ -54,6 +63,9 @@ export type AppTabsParamList = {
 export type RootStackParamList = {
   AuthStack: undefined;
   AppTabs: undefined;
+  Calendar: { selectedDate?: string } | undefined;
+  FriendActivityDetail: FriendActivityParams;
+  ActivityPost: ActivityPostParams;
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
@@ -115,7 +127,7 @@ function PlanStackNavigator() {
       screenOptions={{
         headerShown: false,
       }}
-      initialRouteName="PlanOnboarding"
+      initialRouteName="PlanMain"
     >
       <PlanStack.Screen name="PlanOnboarding" component={PlanOnboardingScreen} />
       <PlanStack.Screen name="PlanReady" component={PlanReadyScreen} />
@@ -131,7 +143,7 @@ import { createBottomTabNavigator } from "@react-navigation/bottom-tabs";
 import { Ionicons } from "@expo/vector-icons";
 import { getFocusedRouteNameFromRoute } from "@react-navigation/native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LiquidTabBar } from "../components/LiquidTabBar";
+import { FloatingTabBar } from "../components/FloatingTabBar";
 
 const Tabs = createBottomTabNavigator<AppTabsParamList>();
 const TAB_BAR_HEIGHT = 56;
@@ -139,13 +151,14 @@ const TAB_BAR_HEIGHT = 56;
 function AppTabsNavigator() {
   const { theme } = useTheme();
   const insets = useSafeAreaInsets();
+  const streak = useDailyStreak();
   return (
     <Tabs.Navigator
-      tabBar={(props) => <LiquidTabBar {...props} />}
+      tabBar={(props) => <FloatingTabBar {...props} />}
       screenOptions={({ route }) => {
         let nestedRouteName = getFocusedRouteNameFromRoute(route);
         if (route.name === "Plan" && !nestedRouteName) {
-          nestedRouteName = "PlanOnboarding";
+          nestedRouteName = "PlanMain";
         }
         const hideTabBar = route.name === "Plan" && nestedRouteName === "PlanOnboarding";
         return {
@@ -161,8 +174,6 @@ function AppTabsNavigator() {
           sceneContainerStyle: {
             paddingBottom: hideTabBar ? 0 : insets.bottom + TAB_BAR_HEIGHT,
           },
-          tabBarActiveTintColor: theme.navIconActive,
-          tabBarInactiveTintColor: theme.navIconInactive,
           tabBarShowLabel: true,
         };
       }}
@@ -185,20 +196,48 @@ function AppTabsNavigator() {
         }}
       />
       <Tabs.Screen
+        name="Coach"
+        component={CoachScreen}
+        options={{
+          title: "Coach",
+          tabBarIcon: ({ color, size }) => (
+            <View style={{ position: "relative" }}>
+              <Ionicons name="chatbubble-ellipses" size={size} color={color} />
+              {streak.currentStreak > 7 && (
+                <View
+                  style={{
+                    position: "absolute",
+                    top: -2,
+                    right: -6,
+                    backgroundColor: theme.appBackground,
+                    borderRadius: 999,
+                    paddingHorizontal: 2,
+                  }}
+                >
+                  <Ionicons name="flame-outline" size={10} color="#1C1C1E" />
+                </View>
+              )}
+            </View>
+          ),
+        }}
+      />
+      {COMMUNITY_ENABLED && (
+        <Tabs.Screen
+          name="Community"
+          component={CommunityScreen}
+          options={{
+            title: "Community",
+            tabBarIcon: ({ color, size }) => <Ionicons name="globe-outline" size={size} color={color} />,
+          }}
+        />
+      )}
+      <Tabs.Screen
         name="ActivitiesStack"
         component={ActivitiesStackNavigator}
         options={{
           title: "Activities",
           tabBarLabel: "Activities",
           tabBarIcon: ({ color, size }) => <Ionicons name="fitness" size={size} color={color} />,
-        }}
-      />
-      <Tabs.Screen
-        name="Coach"
-        component={CoachScreen}
-        options={{
-          title: "Coach",
-          tabBarIcon: ({ color, size }) => <Ionicons name="chatbubble-ellipses" size={size} color={color} />,
         }}
       />
       <Tabs.Screen
@@ -230,11 +269,35 @@ function AppTabsNavigator() {
 }
 
 export function RootNavigator() {
-  const { user, loading, devBypass } = useSupabaseAuth();
-  const { theme, colors, resolved } = useTheme();
+  const { user, loading: authLoading, devBypass } = useSupabaseAuth();
+  const { theme, resolved } = useTheme();
   const isAuthenticated = !!user || devBypass;
+  const { status: onboardingStatus, completeTutorial } = useOnboardingStatus();
 
-  if (loading) {
+  const navRef = useNavigationContainerRef<any>();
+  const pendingNavRef = useRef<"settings" | "plan" | null>(null);
+
+  const handleNavigateAfter = useCallback(
+    (target: "settings" | "plan" | "explore") => {
+      if (target === "settings" || target === "plan") {
+        pendingNavRef.current = target;
+      }
+    },
+    [],
+  );
+
+  const onNavReady = useCallback(() => {
+    const target = pendingNavRef.current;
+    if (!target || !navRef.current) return;
+    pendingNavRef.current = null;
+    if (target === "settings") {
+      navRef.current.navigate("Settings" as never);
+    } else if (target === "plan") {
+      navRef.current.navigate("Plan" as never);
+    }
+  }, [navRef]);
+
+  if (authLoading) {
     return (
       <View style={[styles.loadingRoot, { backgroundColor: theme.appBackground }]}>
         <ActivityIndicator size="small" color={theme.accentBlue} />
@@ -243,20 +306,79 @@ export function RootNavigator() {
     );
   }
 
+  if (!isAuthenticated) {
+    return (
+      <View style={[styles.root, { backgroundColor: theme.appBackground }]}>
+        <NavigationContainer>
+          <StatusBar style={resolved === "dark" ? "light" : "dark"} />
+          <RootStack.Navigator screenOptions={{ headerShown: false }}>
+            <RootStack.Screen name="AuthStack" component={AuthStackNavigator} />
+          </RootStack.Navigator>
+        </NavigationContainer>
+      </View>
+    );
+  }
+
+  if (onboardingStatus === "loading") {
+    return (
+      <View style={[styles.loadingRoot, { backgroundColor: theme.appBackground }]}>
+        <StatusBar style={resolved === "dark" ? "light" : "dark"} />
+        <ActivityIndicator size="small" color={theme.accentBlue} />
+      </View>
+    );
+  }
+
+  if (onboardingStatus === "new_user") {
+    return (
+      <View style={[styles.root, { backgroundColor: theme.appBackground }]}>
+        <StatusBar style={resolved === "dark" ? "light" : "dark"} />
+        <TutorialNavigator
+          onComplete={completeTutorial}
+          onNavigateAfter={handleNavigateAfter}
+        />
+      </View>
+    );
+  }
+
   return (
     <View style={[styles.root, { backgroundColor: theme.appBackground }]}>
-      <NavigationContainer>
+      <NavigationContainer ref={navRef} onReady={onNavReady}>
         <StatusBar style={resolved === "dark" ? "light" : "dark"} />
-        <RootStack.Navigator
-          screenOptions={{
-            headerShown: false,
-          }}
-        >
-          {!isAuthenticated ? (
-            <RootStack.Screen name="AuthStack" component={AuthStackNavigator} />
-          ) : (
-            <RootStack.Screen name="AppTabs" component={AppTabsNavigator} />
-          )}
+        <RootStack.Navigator screenOptions={{ headerShown: false }}>
+          <RootStack.Screen name="AppTabs" component={AppTabsNavigator} />
+          <RootStack.Screen
+            name="Calendar"
+            component={CalendarScreen}
+            options={{
+              headerShown: true,
+              headerTitle: "Calendar",
+              presentation: "card",
+            }}
+          />
+          <RootStack.Screen
+            name="FriendActivityDetail"
+            component={FriendActivityDetailScreen}
+            options={{
+              headerShown: true,
+              headerTitle: "Activity",
+              presentation: "card",
+              headerStyle: { backgroundColor: theme.appBackground },
+              headerTintColor: theme.textPrimary,
+              headerShadowVisible: false,
+            }}
+          />
+          <RootStack.Screen
+            name="ActivityPost"
+            component={ActivityPostScreen}
+            options={{
+              headerShown: true,
+              headerTitle: "Your Post",
+              presentation: "card",
+              headerStyle: { backgroundColor: theme.appBackground },
+              headerTintColor: theme.textPrimary,
+              headerShadowVisible: false,
+            }}
+          />
         </RootStack.Navigator>
       </NavigationContainer>
     </View>
@@ -268,4 +390,3 @@ const styles = StyleSheet.create({
   loadingRoot: { flex: 1, alignItems: "center", justifyContent: "center" },
   loadingText: { marginTop: 8, fontSize: 13 },
 });
-

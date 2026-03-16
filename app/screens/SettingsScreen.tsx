@@ -29,6 +29,9 @@ import { callEdgeFunctionWithRetry as callEdgeFetchWithRetry } from "../lib/edge
 import type { AppTabsParamList } from "../navigation/RootNavigator";
 import { useQueryClient } from "@tanstack/react-query";
 import Toast from "react-native-toast-message";
+import { useOnboardingStatus } from "../hooks/useOnboardingStatus";
+import { useDailyStreak } from "../hooks/useDailyStreak";
+import { getLocalDateString } from "../lib/date";
 
 const APPEARANCE_OPTIONS: { name: "light" | "darkPro"; label: string; emoji: string; previewTheme: typeof lightTheme }[] = [
   { name: "light", label: "Light", emoji: "☀️", previewTheme: lightTheme },
@@ -51,6 +54,8 @@ export const SettingsScreen: FC = () => {
   } = useIntervalsIntegration();
 
   const { runSync, runQuickSync, syncing: isSyncing, progress: syncProgress } = useIntervalsSync();
+  const { resetForTesting: resetTutorial } = useOnboardingStatus();
+  const streak = useDailyStreak();
 
   const [athleteId, setAthleteId] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -617,12 +622,12 @@ export const SettingsScreen: FC = () => {
         rowTitle: { fontSize: 14, fontWeight: "500", color: colors.foreground },
         rowSubtitle: { fontSize: 12, color: colors.mutedForeground },
         connectBtn: {
-          paddingHorizontal: 14,
-          paddingVertical: 8,
+          paddingHorizontal: 16,
+          paddingVertical: 9,
           borderRadius: 999,
-          backgroundColor: theme.accentOrange,
+          backgroundColor: "#FC4C02",
         },
-        connectBtnText: { fontSize: 13, fontWeight: "600", color: theme.textPrimary },
+        connectBtnText: { fontSize: 13, fontWeight: "600", color: "#ffffff" },
         divider: { height: 1, backgroundColor: colors.border, marginVertical: 12 },
         hint: { fontSize: 12, color: colors.mutedForeground, lineHeight: 18 },
         body: { fontSize: 14, color: colors.mutedForeground, lineHeight: 20 },
@@ -668,6 +673,10 @@ export const SettingsScreen: FC = () => {
           alignItems: "center",
           justifyContent: "space-between",
           marginTop: 10,
+          backgroundColor: colors.muted,
+          borderRadius: 999,
+          paddingHorizontal: 14,
+          paddingVertical: 10,
         },
         advancedToggleText: { fontSize: 12, color: colors.mutedForeground, fontWeight: "500" },
         advancedGrid: {
@@ -820,6 +829,41 @@ export const SettingsScreen: FC = () => {
         },
         sheetBtnText: { fontSize: 13, fontWeight: "500", color: colors.foreground },
         sheetBtnTextDanger: { color: theme.textOnNegative },
+        streakRow: {
+          marginTop: 8,
+          flexDirection: "row",
+          alignItems: "center",
+          justifyContent: "space-between",
+        },
+        streakTextBlock: {
+          flex: 1,
+          marginRight: 12,
+        },
+        streakTitle: { fontSize: 14, fontWeight: "500", color: colors.foreground },
+        streakSubtitle: { fontSize: 12, color: colors.mutedForeground, marginTop: 2 },
+        streakCalendarRow: {
+          marginTop: 12,
+          flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "flex-end",
+        },
+        streakCalendarDay: { alignItems: "center", flex: 1 },
+        streakCalendarLabel: { fontSize: 10, color: colors.mutedForeground, marginBottom: 4 },
+        streakCalendarDot: {
+          width: 10,
+          height: 10,
+          borderRadius: 999,
+          backgroundColor: "#E5E7EB",
+        },
+        streakCalendarDotActive: {
+          backgroundColor: "#1C1C1E",
+        },
+        streakCalendarDotTodayWrapper: {
+          borderWidth: 1,
+          borderColor: colors.mutedForeground,
+          borderRadius: 999,
+          padding: 2,
+        },
       }),
     [colors, theme]
   );
@@ -827,6 +871,51 @@ export const SettingsScreen: FC = () => {
   return (
     <ScreenContainer contentContainerStyle={{ ...styles.content, paddingBottom: spacing.screenBottom + 120 }}>
       <Text style={styles.title}>Settings</Text>
+
+      <GlassCard>
+        <Text style={[styles.sectionHeader, typography.sectionHeader, { color: colors.mutedForeground }]}>
+          Streak
+        </Text>
+        <View style={styles.streakRow}>
+          <View style={styles.streakTextBlock}>
+            <Text style={styles.streakTitle}>
+              Current streak: {streak.currentStreak} day{streak.currentStreak === 1 ? "" : "s"}
+            </Text>
+            <Text style={styles.streakSubtitle}>
+              Longest streak: {streak.longestStreak} day{streak.longestStreak === 1 ? "" : "s"}
+            </Text>
+          </View>
+        </View>
+        <View style={styles.streakCalendarRow}>
+          {Array.from({ length: 7 }).map((_, idx) => {
+            const offset = 6 - idx;
+            const labelDate = new Date();
+            labelDate.setDate(labelDate.getDate() - offset);
+            const label = labelDate.toLocaleDateString(undefined, { weekday: "short" }).slice(0, 3);
+            const dateKey = getLocalDateString(labelDate);
+            const todayKey = getLocalDateString();
+            const diffDays = Math.round(
+              (new Date(`${todayKey}T00:00:00`).getTime() - new Date(`${dateKey}T00:00:00`).getTime()) / 86400000,
+            );
+            const isActive = diffDays >= 0 && diffDays < streak.currentStreak;
+            const isToday = dateKey === todayKey;
+            const dot = (
+              <View
+                style={[
+                  styles.streakCalendarDot,
+                  isActive && styles.streakCalendarDotActive,
+                ]}
+              />
+            );
+            return (
+              <View key={dateKey} style={styles.streakCalendarDay}>
+                <Text style={styles.streakCalendarLabel}>{label}</Text>
+                {isToday ? <View style={styles.streakCalendarDotTodayWrapper}>{dot}</View> : dot}
+              </View>
+            );
+          })}
+        </View>
+      </GlassCard>
 
       <GlassCard>
         <Text style={[styles.sectionHeader, typography.sectionHeader, { color: theme.textLabel }]}>
@@ -884,8 +973,9 @@ export const SettingsScreen: FC = () => {
           </View>
         ) : coachingMemories.length === 0 ? (
           <View style={styles.memoryEmptyWrap}>
-            <Ionicons name="book-outline" size={24} color={colors.mutedForeground} />
-            <Text style={styles.body}>No coaching memories yet</Text>
+            <Text style={{ fontSize: 24 }}>🧠</Text>
+            <Text style={[styles.body, { fontWeight: "600", color: colors.foreground }]}>No memories yet</Text>
+            <Text style={[styles.hint, { textAlign: "center" }]}>Kipcoachee will remember important things about your training here</Text>
           </View>
         ) : (
           <View>
@@ -971,8 +1061,8 @@ export const SettingsScreen: FC = () => {
         </View>
         <View style={styles.intervalForm}>
           <Text style={styles.hint}>
-            Klistra in din API‑nyckel från intervals.icu → Settings → API. Athlete ID är valfri
-            (siffror, används bara för visning – lämna tomt om du är osäker).
+            Paste your API key from intervals.icu → Settings → API. Athlete ID is optional
+            (numbers only, used for display – leave blank if unsure).
           </Text>
           {errorMessage && (
             <Text style={styles.errorText}>
@@ -981,7 +1071,7 @@ export const SettingsScreen: FC = () => {
           )}
           <TextInput
             style={styles.input}
-            placeholder="Athlete ID (t.ex. 123456, valfri)"
+            placeholder="Athlete ID (e.g. 123456, optional)"
             placeholderTextColor={colors.mutedForeground}
             value={athleteId}
             onChangeText={setAthleteId}
@@ -1333,6 +1423,18 @@ export const SettingsScreen: FC = () => {
           <Ionicons name="log-out-outline" size={18} color={colors.foreground} />
           <Text style={styles.signOutText}>Sign out</Text>
         </TouchableOpacity>
+        {__DEV__ && (
+          <TouchableOpacity
+            style={styles.signOutBtn}
+            onPress={() => {
+              resetTutorial();
+            }}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="refresh-outline" size={18} color={colors.foreground} />
+            <Text style={styles.signOutText}>Reset tutorial (dev only)</Text>
+          </TouchableOpacity>
+        )}
       </GlassCard>
       <Modal
         visible={clearAllVisible}

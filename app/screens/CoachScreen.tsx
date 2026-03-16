@@ -917,10 +917,10 @@ export const CoachScreen: FC = () => {
         },
         tabSelected: {
           borderBottomWidth: 2,
-          borderBottomColor: colors.primary,
+          borderBottomColor: "#1C1C1E",
         },
         tabLabel: { fontSize: 14, fontWeight: "500" },
-        tabLabelSelected: { color: colors.primary },
+        tabLabelSelected: { color: "#1C1C1E", fontWeight: "600" },
         tabLabelUnselected: { color: colors.mutedForeground },
         title: { fontSize: 22, fontWeight: "600", color: colors.foreground },
         headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -1095,19 +1095,22 @@ export const CoachScreen: FC = () => {
         loadingTitle: { fontSize: 13, fontWeight: "600", color: colors.foreground },
         loadingTip: { marginTop: 4, fontSize: 12, color: colors.mutedForeground },
         promptCard: {
+          flexDirection: "row",
+          alignItems: "center",
           borderRadius: 12,
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
           backgroundColor: colors.card,
           paddingHorizontal: 12,
-          paddingVertical: 10,
+          height: 52,
           shadowColor: "#000",
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.08,
-          shadowRadius: 8,
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.06,
+          shadowRadius: 4,
           elevation: 2,
         },
-        promptCardText: { fontSize: 13, color: colors.foreground },
+        promptCardText: { flex: 1, fontSize: 13, color: colors.foreground, textAlign: "left" },
+        promptCardChevron: { fontSize: 14, color: colors.mutedForeground, marginLeft: 8 },
         inputRow: {
           flexDirection: "row",
           alignItems: "center",
@@ -1258,13 +1261,20 @@ export const CoachScreen: FC = () => {
                         {d.today ? "Today" : d.dayLabel} {d.dateLabel}
                       </Text>
                       <Text
-                        numberOfLines={2}
+                        numberOfLines={1}
                         style={[
                           styles.weekDayTitle,
                           !d.hasSession && styles.weekDayTitleMuted,
                         ]}
                       >
-                        {d.hasSession ? d.title : "Rest"}
+                        {d.hasSession
+                          ? d.type === "interval" || d.type === "intervals" ? "Interval"
+                            : d.type === "tempo" || d.type === "threshold" ? "Tempo"
+                            : d.type === "long" ? "Long"
+                            : d.type === "recovery" ? "Easy"
+                            : d.type === "easy" ? "Easy"
+                            : d.type.charAt(0).toUpperCase() + d.type.slice(1)
+                          : "Rest"}
                       </Text>
                       {d.hasSession && (
                         <View
@@ -1325,27 +1335,21 @@ export const CoachScreen: FC = () => {
                 <GlassCard>
                   {openingLoading ? (
                     <View style={styles.loadingCard}>
-                      <Text style={styles.loadingTitle}>Kipcoachee is reading your data...</Text>
-                      <Text style={styles.loadingTip}>
-                        {"●●●".split("").map((dot, idx) => {
-                          const opacity = thinkingDots.interpolate({
-                            inputRange: [0, 1],
-                            outputRange: [0.3 + idx * 0.15, 1 - idx * 0.1],
-                          });
-                          return (
-                            <Animated.Text key={idx} style={{ opacity, color: colors.mutedForeground }}>
-                              {dot}
-                            </Animated.Text>
-                          );
-                        })}
-                      </Text>
-                      <Text style={styles.loadingTip}>
-                        {[
-                          "Reading your recent runs...",
-                          "Checking your recovery data...",
-                          "Reviewing your training plan...",
-                        ][loadingTipIdx]}
-                      </Text>
+                      <Animated.View style={{
+                        height: 14, borderRadius: 7, width: "70%", marginBottom: 8,
+                        backgroundColor: colors.muted,
+                        opacity: onlinePulse.interpolate({ inputRange: [0, 1], outputRange: [0.4, 0.8] }),
+                      }} />
+                      <Animated.View style={{
+                        height: 12, borderRadius: 6, width: "90%", marginBottom: 6,
+                        backgroundColor: colors.muted,
+                        opacity: onlinePulse.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.7] }),
+                      }} />
+                      <Animated.View style={{
+                        height: 12, borderRadius: 6, width: "50%",
+                        backgroundColor: colors.muted,
+                        opacity: onlinePulse.interpolate({ inputRange: [0, 1], outputRange: [0.2, 0.6] }),
+                      }} />
                     </View>
                   ) : (
                     <Text style={styles.welcomeText}>{openingMessage || contextAwareOpener || WELCOME}</Text>
@@ -1619,14 +1623,16 @@ export const CoachScreen: FC = () => {
                 </View>
                 <GlassCard>
                   <View style={styles.loadingCard}>
-                    <Text style={styles.loadingTitle}>Kipcoachee is reading your data...</Text>
-                    <Text style={styles.loadingTip}>
-                      {[
-                        "Reading your recent runs...",
-                        "Checking your recovery data...",
-                        "Reviewing your training plan...",
-                      ][loadingTipIdx]}
-                    </Text>
+                    <Animated.View style={{
+                      height: 12, borderRadius: 6, width: "65%", marginBottom: 6,
+                      backgroundColor: colors.muted,
+                      opacity: onlinePulse.interpolate({ inputRange: [0, 1], outputRange: [0.4, 0.8] }),
+                    }} />
+                    <Animated.View style={{
+                      height: 12, borderRadius: 6, width: "80%",
+                      backgroundColor: colors.muted,
+                      opacity: onlinePulse.interpolate({ inputRange: [0, 1], outputRange: [0.3, 0.7] }),
+                    }} />
                   </View>
                 </GlassCard>
               </View>
@@ -1640,11 +1646,12 @@ export const CoachScreen: FC = () => {
                   key={p}
                   style={styles.promptCard}
                   onPress={() => handleQuickPrompt(p)}
-                  activeOpacity={0.8}
+                  activeOpacity={0.7}
                 >
                   <Text style={styles.promptCardText} numberOfLines={2}>
                     {p}
                   </Text>
+                  <Text style={styles.promptCardChevron}>›</Text>
                 </TouchableOpacity>
               ))}
             </View>

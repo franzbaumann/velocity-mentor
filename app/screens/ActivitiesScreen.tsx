@@ -6,6 +6,7 @@ import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
 import { useTheme } from "../context/ThemeContext";
 import { useActivitiesList, type ActivityListItem } from "../hooks/useActivities";
+import { useMergedActivities } from "../hooks/useMergedActivities";
 import { useActivityStreamsSync } from "../hooks/useActivityStreamsSync";
 import { useIntervalsIntegration } from "../hooks/useIntervalsIntegration";
 import { dailyTSSFromActivities, getRunTypeLabelForDisplay, isRunningActivity } from "../lib/analytics";
@@ -49,7 +50,7 @@ function activityTypeToColor(
 export const ActivitiesScreen: FC = () => {
   const { theme } = useTheme();
   const { isConnected } = useIntervalsIntegration();
-  const { items, isLoading, isEmpty, isRefetching, refetch } = useActivitiesList(730);
+  const { data: items = [], isLoading, isEmpty, isRefetching, refetch } = useMergedActivities(730);
   const { plan } = useTrainingPlan();
 
   // Background sync of activity streams (intervals.icu), rate-limited to once per hour
@@ -60,48 +61,19 @@ export const ActivitiesScreen: FC = () => {
 
   const activitiesByDate = useMemo(() => {
     const map = new Map<string, ActivityListItem[]>();
-    for (const a of items ?? []) {
+    for (const a of items) {
       const key = format(a.date ?? new Date(), "yyyy-MM-dd");
       const list = map.get(key) ?? [];
       list.push(a);
       map.set(key, list);
     }
 
-    // #region agent log
-    try {
-      const keys = Array.from(map.keys()).sort();
-      fetch("http://127.0.0.1:7366/ingest/5b97c06c-e471-46b5-bc67-9d7185c26d89", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "X-Debug-Session-Id": "b47595",
-        },
-        body: JSON.stringify({
-          sessionId: "b47595",
-          runId: "pre-fix",
-          hypothesisId: "C",
-          location: "app/screens/ActivitiesScreen.tsx:57",
-          message: "activitiesByDate distribution",
-          data: {
-            totalItems: items?.length ?? 0,
-            uniqueDays: keys.length,
-            firstDay: keys[0] ?? null,
-            lastDay: keys[keys.length - 1] ?? null,
-          },
-          timestamp: Date.now(),
-        }),
-      }).catch(() => {});
-    } catch {
-      // ignore logging failures
-    }
-    // #endregion
-
     return map;
   }, [items]);
 
   const statsActivities = useMemo(
     () =>
-      (items ?? []).map((a) => ({
+      items.map((a) => ({
         id: a.id,
         date: format(a.date ?? new Date(), "yyyy-MM-dd"),
         type: a.type,
@@ -109,6 +81,8 @@ export const ActivitiesScreen: FC = () => {
         duration_seconds: a.durationSeconds,
         avg_hr: a.hr,
         avg_pace: a.pace,
+        icu_training_load: a.icuTrainingLoad,
+        trimp: a.trimp,
       })),
     [items],
   );
@@ -135,28 +109,6 @@ export const ActivitiesScreen: FC = () => {
       }
       weeks.push(week);
     }
-
-    // #region agent log
-    fetch("http://127.0.0.1:7366/ingest/5b97c06c-e471-46b5-bc67-9d7185c26d89", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Debug-Session-Id": "b47595",
-      },
-      body: JSON.stringify({
-        sessionId: "b47595",
-        runId: "pre-fix",
-        hypothesisId: "A",
-        location: "app/screens/ActivitiesScreen.tsx:90",
-        message: "calendarWeeks computed",
-        data: {
-          viewMonth: viewMonth.toISOString(),
-          weeksCount: weeks.length,
-        },
-        timestamp: Date.now(),
-      }),
-    }).catch(() => {});
-    // #endregion
 
     return weeks;
   }, [viewMonth]);
@@ -245,7 +197,7 @@ export const ActivitiesScreen: FC = () => {
           borderColor: "transparent",
         },
         dayLabel: { fontSize: 13, marginBottom: 4 },
-        dayLabelToday: { color: theme.accentBlue, fontWeight: "600" },
+        dayLabelToday: { color: "#1C1C1E", fontWeight: "600" },
         dayLabelMuted: { color: theme.textSecondary },
         dotRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 2 },
         dayHint: {
@@ -271,6 +223,7 @@ export const ActivitiesScreen: FC = () => {
           borderRadius: 999,
           paddingHorizontal: 6,
           paddingVertical: 2,
+          opacity: 0.6,
         },
         planPillText: {
           fontSize: 9,
@@ -326,31 +279,6 @@ export const ActivitiesScreen: FC = () => {
     [theme],
   );
 
-  // #region agent log
-  fetch("http://127.0.0.1:7366/ingest/5b97c06c-e471-46b5-bc67-9d7185c26d89", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      "X-Debug-Session-Id": "b47595",
-    },
-    body: JSON.stringify({
-      sessionId: "b47595",
-      runId: "pre-fix",
-      hypothesisId: "B",
-      location: "app/screens/ActivitiesScreen.tsx:120",
-      message: "ActivitiesScreen render state",
-      data: {
-        itemsCount: items?.length ?? 0,
-        isConnected,
-        isEmpty,
-        isLoading,
-        hasCalendarWeeks: calendarWeeks.length > 0,
-      },
-      timestamp: Date.now(),
-    }),
-  }).catch(() => {});
-  // #endregion
-
   if (!isConnected && isEmpty && !isLoading) {
     return (
       <ScreenContainer contentContainerStyle={styles.loadingContent}>
@@ -358,12 +286,9 @@ export const ActivitiesScreen: FC = () => {
         <GlassCard>
           <View style={styles.emptyCard}>
             <Text style={{ fontSize: 48, color: theme.textMuted }}>🧭</Text>
-            <Text style={styles.emptyTitle}>Add your activities</Text>
-            <Text style={[styles.body, { textAlign: "center" }]}>
-              Connect intervals.icu in Settings to sync your activities.
-            </Text>
+            <Text style={styles.emptyTitle}>Connect intervals.icu to see your activities</Text>
             <TouchableOpacity style={styles.btnPrimary} onPress={goToSettings} activeOpacity={0.85}>
-              <Text style={styles.btnPrimaryText}>Go to Settings</Text>
+              <Text style={styles.btnPrimaryText}>Go to Settings →</Text>
             </TouchableOpacity>
           </View>
         </GlassCard>
@@ -390,20 +315,10 @@ export const ActivitiesScreen: FC = () => {
         <GlassCard>
           <View style={styles.emptyCard}>
             <Text style={{ fontSize: 48, color: theme.textMuted }}>🏃</Text>
-            <Text style={styles.emptyTitle}>No activities yet</Text>
-            <Text style={[styles.body, { textAlign: "center" }]}>
-              {isConnected
-                ? "Connected to intervals.icu — if you have activities there, they should sync. Try refreshing or check Settings."
-                : "Connect intervals.icu in Settings to sync your activities."}
-            </Text>
-            <View style={styles.emptyActions}>
-              <TouchableOpacity style={styles.btnPrimary} onPress={() => refetch()} activeOpacity={0.85}>
-                <Text style={styles.btnPrimaryText}>Refresh</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.btnOutline} onPress={goToSettings} activeOpacity={0.85}>
-                <Text style={styles.btnOutlineText}>Go to Settings</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.emptyTitle}>No activities yet · Try syncing in Settings</Text>
+            <TouchableOpacity style={styles.btnPrimary} onPress={() => refetch()} activeOpacity={0.85}>
+              <Text style={styles.btnPrimaryText}>Sync now →</Text>
+            </TouchableOpacity>
           </View>
         </GlassCard>
       </ScreenContainer>
@@ -465,34 +380,6 @@ export const ActivitiesScreen: FC = () => {
                   const hasPlan = planSessions.length > 0;
                   const hasAny = hasActivities || hasPlan;
 
-                  // #region agent log
-                  if (idx === 0 && key.endsWith("-01")) {
-                    fetch("http://127.0.0.1:7366/ingest/5b97c06c-e471-46b5-bc67-9d7185c26d89", {
-                      method: "POST",
-                      headers: {
-                        "Content-Type": "application/json",
-                        "X-Debug-Session-Id": "b47595",
-                      },
-                      body: JSON.stringify({
-                        sessionId: "b47595",
-                        runId: "pre-fix",
-                        hypothesisId: "D",
-                        location: "app/screens/ActivitiesScreen.tsx:368",
-                        message: "calendar day cell rendered",
-                        data: {
-                          key,
-                          inMonth,
-                          today,
-                          hasActivities,
-                          hasPlan,
-                          hasAny,
-                        },
-                        timestamp: Date.now(),
-                      }),
-                    }).catch(() => {});
-                  }
-                  // #endregion
-
                   return (
                     <TouchableOpacity
                       key={key}
@@ -501,9 +388,12 @@ export const ActivitiesScreen: FC = () => {
                         {
                           backgroundColor:
                             hasActivities && inMonth
-                              ? theme.accentBlue + Math.round(0x12 * (0.4 + 0.6 * intensity)).toString(16).padStart(2, "0")
+                              ? "#1C1C1E" +
+                                Math.round(0x12 * (0.4 + 0.6 * intensity))
+                                  .toString(16)
+                                  .padStart(2, "0")
                               : "transparent",
-                          borderColor: today ? theme.accentBlue : "transparent",
+                          borderColor: today ? "#1C1C1E" : "transparent",
                           opacity: inMonth ? 1 : 0.4,
                         },
                       ]}
@@ -528,9 +418,9 @@ export const ActivitiesScreen: FC = () => {
                               <View
                                 key={a.id}
                                 style={{
-                                  width: 6,
-                                  height: 6,
-                                  borderRadius: 999,
+                                  width: 8,
+                                  height: 8,
+                                  borderRadius: 2,
                                   backgroundColor: activityTypeToColor(displayType, a.name, theme),
                                   opacity: 0.6 + intensity * 0.4,
                                 }}
@@ -548,7 +438,7 @@ export const ActivitiesScreen: FC = () => {
                             const st = s.session_type?.toLowerCase() ?? "";
                             let bg = theme.cardBorder;
                             if (st.includes("easy") || st.includes("recovery")) bg = theme.accentGreen;
-                            else if (st.includes("tempo") || st.includes("threshold")) bg = theme.accentBlue;
+                            else if (st.includes("tempo") || st.includes("threshold")) bg = "#1C1C1E";
                             else if (st.includes("interval") || st.includes("vo2")) bg = theme.negative;
                             else if (st.includes("long")) bg = theme.warning;
                             return (
@@ -587,8 +477,8 @@ export const ActivitiesScreen: FC = () => {
             ))}
           </ScrollView>
 
-          <Text style={styles.dayHint}>
-            Tap a day to see activities · Tap an activity to view details
+          <Text style={[styles.dayHint, { textAlign: "center" }]}>
+            Tap a date to view activities
           </Text>
         </View>
       </GlassCard>
@@ -616,8 +506,18 @@ export const ActivitiesScreen: FC = () => {
                     {format(new Date(selectedDayKey), "EEEE, MMMM d")}
                   </Text>
                   <Text style={styles.dayModalSubtitle}>
-                    {(activitiesByDate.get(selectedDayKey)?.length ?? 0)}{" "}
-                    {(activitiesByDate.get(selectedDayKey)?.length ?? 0) === 1 ? "activity" : "activities"}
+                    {(() => {
+                      const actCount = activitiesByDate.get(selectedDayKey)?.length ?? 0;
+                      const planCount = planSessionsByDate.get(selectedDayKey)?.length ?? 0;
+                      const parts: string[] = [];
+                      if (actCount > 0) {
+                        parts.push(`${actCount} ${actCount === 1 ? "activity" : "activities"}`);
+                      }
+                      if (planCount > 0) {
+                        parts.push(`${planCount} planned`);
+                      }
+                      return parts.length > 0 ? parts.join(" · ") : "No data";
+                    })()}
                   </Text>
                 </View>
                 <ScrollView style={styles.dayModalList} keyboardShouldPersistTaps="handled">
@@ -656,6 +556,30 @@ export const ActivitiesScreen: FC = () => {
                         </Text>
                       </View>
                     </TouchableOpacity>
+                  ))}
+                  {(planSessionsByDate.get(selectedDayKey) ?? []).map((s) => (
+                    <View key={s.id} style={styles.dayModalListItem}>
+                      <View style={styles.dayModalLeft}>
+                        <Text style={styles.dayModalName} numberOfLines={1}>
+                          {s.description || s.session_type || "Planned session"}
+                        </Text>
+                        <Text style={styles.dayModalMeta} numberOfLines={1}>
+                          {[s.session_type, s.pace_target]
+                            .filter(Boolean)
+                            .join(" · ")}
+                        </Text>
+                      </View>
+                      <View style={styles.dayModalRight}>
+                        <Text style={styles.dayModalDistance}>
+                          {s.distance_km != null
+                            ? `${s.distance_km} km`
+                            : s.duration_min != null
+                              ? `${Math.round(s.duration_min)} min`
+                              : ""}
+                        </Text>
+                        <Text style={styles.dayModalType}>Planned</Text>
+                      </View>
+                    </View>
                   ))}
                 </ScrollView>
                 <TouchableOpacity

@@ -9,22 +9,26 @@ type Props = {
   /** Explanation shown on card back when tapped */
   description?: string;
   children: ReactNode;
+  /** When true, use a more compact height for empty/summary cards */
+  compact?: boolean;
   /** If true, only the body area flips (header is non-pressable). Used for charts with interactive controls in the header. */
   bodyPressOnly?: boolean;
 };
 
-export const StatsChartCard: FC<Props> = ({ icon, title, description, children, bodyPressOnly }) => {
+export const StatsChartCard: FC<Props> = ({ icon, title, description, children, compact, bodyPressOnly }) => {
   const { themeName, theme } = useTheme();
   const isDarkPro = themeName === "darkPro";
   const flipAnim = useRef(new Animated.Value(0)).current;
   const [isFlipped, setIsFlipped] = useState(false);
+
+  const minHeight = compact ? 80 : 180;
 
   const cardStyle = {
     backgroundColor: theme.cardBackground,
     borderRadius: theme.cardRadius,
     padding: theme.cardPadding,
     marginBottom: 8,
-    minHeight: 180,
+    minHeight,
     borderWidth: theme.cardBorderWidth,
     borderColor: theme.cardBorder,
     ...(isDarkPro ? {} : Platform.select({

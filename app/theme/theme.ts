@@ -22,14 +22,18 @@ export const lightColors: ColorPalette = {
   background: "hsl(0, 0%, 96.5%)",
   foreground: "hsl(0, 0%, 11.4%)",
   card: "hsl(0, 0%, 100%)",
-  primary: "hsl(211, 100%, 52%)",
+  // electric blue, still readable on white
+  primary: "hsl(211, 100%, 55%)",
   primaryForeground: "hsl(0, 0%, 100%)",
   secondary: "hsl(0, 0%, 94%)",
   muted: "hsl(0, 0%, 94%)",
   mutedForeground: "hsl(0, 0%, 45%)",
-  accent: "hsl(141, 72%, 50%)",
-  destructive: "hsl(0, 84%, 60%)",
-  warning: "hsl(36, 100%, 52%)",
+  // neon lime
+  accent: "hsl(141, 100%, 50%)",
+  // neon red
+  destructive: "hsl(0, 100%, 60%)",
+  // bright neon orange/yellow
+  warning: "hsl(36, 100%, 55%)",
   border: "hsla(0, 0%, 0%, 0.06)",
   surface: "rgba(255, 255, 255, 0.95)",
   glassBg: "rgba(255, 255, 255, 0.8)",
@@ -41,14 +45,18 @@ export const darkColors: ColorPalette = {
   background: "hsl(0, 0%, 7%)",
   foreground: "hsl(0, 0%, 96%)",
   card: "hsl(0, 0%, 10%)",
-  primary: "hsl(211, 100%, 52%)",
-  primaryForeground: "hsl(0, 0%, 100%)",
+  // full-on neon electric blue
+  primary: "hsl(211, 100%, 70%)",
+  primaryForeground: "hsl(0, 0%, 0%)",
   secondary: "hsl(0, 0%, 15%)",
   muted: "hsl(0, 0%, 15%)",
   mutedForeground: "hsl(0, 0%, 60%)",
-  accent: "hsl(141, 72%, 50%)",
-  destructive: "hsl(0, 62.8%, 30.6%)",
-  warning: "hsl(36, 100%, 52%)",
+  // neon lime
+  accent: "hsl(141, 100%, 60%)",
+  // hot neon red / pink
+  destructive: "hsl(350, 100%, 65%)",
+  // neon amber
+  warning: "hsl(45, 100%, 60%)",
   border: "hsla(0, 0%, 100%, 0.08)",
   surface: "rgba(31, 41, 55, 0.95)",
   glassBg: "rgba(31, 41, 55, 0.8)",
@@ -73,9 +81,10 @@ export const typography = {
   sectionHeader: {
     fontSize: 11,
     fontWeight: "600" as const,
-    letterSpacing: 1,
+    color: "#9CA3AF",
+    letterSpacing: 0.8,
     textTransform: "uppercase" as const,
-    marginTop: 16,
+    marginTop: 20,
     marginBottom: 8,
   },
   mono: {

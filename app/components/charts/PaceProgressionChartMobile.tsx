@@ -159,14 +159,16 @@ export const PaceProgressionChartMobile: FC<Props> = ({ points, trendline }) => 
               style={[
                 styles.chip,
                 selected
-                  ? { backgroundColor: theme.accentBlue }
+                  ? { backgroundColor: "#1C1C1E" }
                   : { backgroundColor: theme.navBackground, borderWidth: 1, borderColor: theme.cardBorder },
               ]}
             >
               <Text
                 style={[
                   styles.chipLabel,
-                  selected ? { fontWeight: "700", color: theme.textPrimary } : { fontWeight: "500", color: theme.textSecondary },
+                  selected
+                    ? { fontWeight: "700", color: "#FFFFFF" }
+                    : { fontWeight: "500", color: theme.textSecondary },
                 ]}
               >
                 {label}

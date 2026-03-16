@@ -227,7 +227,6 @@ function buildHREfficiencySeries(
 
 function buildHRVSeries(readiness: ReadinessRow[]): HRVPoint[] {
   return readiness
-    .filter((r) => r.date >= oldest2m && r.date <= fmt(now))
     .map((r) => {
       // Prefer true HRV, then baseline from intervals.icu, then fall back to resting HR
       const val = r.hrv ?? r.hrv_baseline ?? r.resting_hr;
@@ -240,7 +239,6 @@ function buildHRVSeries(readiness: ReadinessRow[]): HRVPoint[] {
 
 function buildReadinessScoreSeries(readiness: ReadinessRow[]): ReadinessScorePoint[] {
   return readiness
-    .filter((r) => r.date >= oldest2m && r.date <= fmt(now))
     .map((r) => {
       const explicit = r.score;
       const { ctl, tsb } = resolveCtlAtlTsb(r);
@@ -279,7 +277,7 @@ function buildRampRateSeries(readiness: ReadinessRow[]): RampRatePoint[] {
 
 function buildSleepRestingSeries(readiness: ReadinessRow[]): SleepRestingPoint[] {
   return readiness
-    .filter((r) => (r.sleep_hours != null || r.resting_hr != null) && r.date >= oldest2m && r.date <= fmt(now))
+    .filter((r) => r.sleep_hours != null || r.resting_hr != null)
     .map<SleepRestingPoint>((r) => ({
       date: r.date,
       sleep: r.sleep_hours,
@@ -291,7 +289,7 @@ function buildSleepRestingSeries(readiness: ReadinessRow[]): SleepRestingPoint[]
 
 function buildSleepScoreSeries(readiness: ReadinessRow[]): SleepScorePoint[] {
   return readiness
-    .filter((r) => r.sleep_score != null && r.date >= oldest2m && r.date <= fmt(now))
+    .filter((r) => r.sleep_score != null)
     .map<SleepScorePoint>((r) => ({
       date: r.date,
       score: r.sleep_score ?? 0,
@@ -302,7 +300,7 @@ function buildSleepScoreSeries(readiness: ReadinessRow[]): SleepScorePoint[] {
 
 function buildStepsSeries(readiness: ReadinessRow[]): StepsPoint[] {
   return readiness
-    .filter((r) => (r.steps ?? 0) > 0 && r.date >= oldest2m && r.date <= fmt(now))
+    .filter((r) => (r.steps ?? 0) > 0)
     .map<StepsPoint>((r) => ({
       date: r.date,
       steps: r.steps ?? 0,
@@ -313,7 +311,7 @@ function buildStepsSeries(readiness: ReadinessRow[]): StepsPoint[] {
 
 function buildWeightSeries(readiness: ReadinessRow[]): WeightPoint[] {
   return readiness
-    .filter((r) => r.weight != null && r.date >= oldest2m && r.date <= fmt(now))
+    .filter((r) => r.weight != null)
     .map<WeightPoint>((r) => ({
       date: r.date,
       weight: r.weight ?? 0,
@@ -324,7 +322,7 @@ function buildWeightSeries(readiness: ReadinessRow[]): WeightPoint[] {
 
 function buildWellnessSeries(readiness: ReadinessRow[], field: WellnessField): WellnessCheckPoint[] {
   return readiness
-    .filter((r) => (r as any)[field] != null && r.date >= oldest2m && r.date <= fmt(now))
+    .filter((r) => (r as any)[field] != null)
     .map<WellnessCheckPoint>((r) => ({
       date: r.date,
       value: (r as any)[field] ?? 0,

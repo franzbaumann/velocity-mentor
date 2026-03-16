@@ -11,15 +11,20 @@ import {
   TextInput,
   Switch,
   Alert,
+  Image,
+  Modal,
+  Pressable,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { format } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import * as FileSystem from "expo-file-system";
 import * as Sharing from "expo-sharing";
+import * as ImagePicker from "expo-image-picker";
+import * as ImageManipulator from "expo-image-manipulator";
 import type { ActivitiesStackParamList } from "../navigation/RootNavigator";
 import { ScreenContainer } from "../components/ScreenContainer";
-import { useActivityDetailMobile } from "../hooks/useActivityDetailMobile";
+import { useActivityDetailMobile, buildChartData, type ChartPoint } from "../hooks/useActivityDetailMobile";
 import { useActivityById } from "../hooks/useActivities";
 import { LapScroll } from "../components/activity/LapScroll";
 import { StreamChart } from "../components/activity/StreamChart";
@@ -150,14 +155,14 @@ export const ActivityDetailScreen: FC = () => {
   const streams = activity?.streams;
   const latlng = activity?.latlng ?? [];
 
-  const processed = useMemo(() => {
+  const chartPoints: ChartPoint[] | null = useMemo(() => {
     if (!streams) return null;
     const hasAny =
       streams.heartrate.length > 2 ||
       streams.altitude.length > 2 ||
       streams.pace.length > 2;
     if (!hasAny) return null;
-    return buildProcessedStreams(streams);
+    return buildChartData(streams as any);
   }, [streams]);
 
   const [tab, setTab] = useState<ActivityTab>("charts");
@@ -168,6 +173,8 @@ export const ActivityDetailScreen: FC = () => {
   const [coachNote, setCoachNote] = useState<string | null>(null);
   const [coachLoading, setCoachLoading] = useState(false);
   const [coachError, setCoachError] = useState(false);
+  const [photoUploading, setPhotoUploading] = useState(false);
+  const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
   const { themeName, theme, colors } = useTheme();
   const isDarkPro = themeName === "darkPro";
 
@@ -204,6 +211,80 @@ export const ActivityDetailScreen: FC = () => {
   const isMarathonPb = pbRecords.some((r) =>
     /marathon|42\.195|42\s/i.test(r.distance ?? ""),
   );
+
+  const handleAddPhoto = useCallback(async () => {
+    if (!activityIdForApi) return;
+    setPhotoUploading(true);
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert("Permission required", "Allow photo library access to attach a photo.");
+        return;
+      }
+      const picked = await ImagePicker.launchImageLibraryAsync({
+        allowsEditing: true,
+        quality: 0.8,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      });
+      if (picked.canceled || !picked.assets?.length) return;
+      const asset = picked.assets[0];
+      const manip = await ImageManipulator.manipulateAsync(
+        asset.uri,
+        [{ resize: { width: 800 } }],
+        { compress: 0.85, format: ImageManipulator.SaveFormat.JPEG },
+      );
+
+      const fileResp = await fetch(manip.uri);
+      const blob = await fileResp.blob();
+
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      if (!user) {
+        Alert.alert("Error", "You must be logged in to upload a photo.");
+        return;
+      }
+
+      const fileName = `${user.id}/${activityIdForApi}/${Date.now()}.jpg`;
+      const { error: uploadError } = await supabase.storage
+        .from("activity-photos")
+        .upload(fileName, blob, { contentType: "image/jpeg", upsert: false });
+      if (uploadError) {
+        Alert.alert("Upload failed", uploadError.message);
+        return;
+      }
+
+      const { data: publicData } = supabase.storage
+        .from("activity-photos")
+        .getPublicUrl(fileName);
+      const publicUrl = publicData.publicUrl;
+
+      const existingPhotos = Array.isArray(activity?.photos) ? activity!.photos! : [];
+      const updatedPhotos = [...existingPhotos, { url: publicUrl, path: fileName }];
+
+      const isUuid =
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+          activityIdForApi,
+        );
+      const base = supabase
+        .from("activity")
+        .update({ photos: updatedPhotos })
+        .eq("user_id", user.id);
+      const { error: updateError } = isUuid
+        ? await base.eq("id", activityIdForApi)
+        : await base.eq("external_id", activityIdForApi);
+      if (updateError) {
+        Alert.alert("Save failed", updateError.message);
+        return;
+      }
+
+      queryClient.invalidateQueries({ queryKey: ["activity-detail-mobile", id] });
+    } catch {
+      Alert.alert("Photo error", "Could not attach photo to this activity.");
+    } finally {
+      setPhotoUploading(false);
+    }
+  }, [activityIdForApi, id, queryClient]);
 
   const saveNotes = useCallback(async () => {
     if (!activityIdForApi) return;
@@ -402,6 +483,8 @@ export const ActivityDetailScreen: FC = () => {
   const hasPaceZones = paceZoneTimes.some((t) => t > 0);
 
   const distanceLabel = formatDistance(activity.distance_km).replace(/\s*km$/i, "");
+  const activityPhotos = Array.isArray(activity.photos) ? activity.photos : [];
+  const primaryPhotoUrl = activityPhotos[0]?.url ?? null;
 
   return (
     <ScreenContainer
@@ -648,88 +731,92 @@ export const ActivityDetailScreen: FC = () => {
                 </Text>
               </TouchableOpacity>
               <LapScroll laps={activity.laps} />
-              {streams && processed && (
+              {streams && chartPoints && (
                 <View
                   style={[
                     styles.chartsArea,
                     isDarkPro && { backgroundColor: theme.appBackground },
                   ]}
                 >
-                  {processed.pace.some((v) => v > 0) && (
+                  {chartPoints.some((p) => Number.isFinite(p.pace) && p.pace > 0) && (
                     <StreamChart
                       label="PACE"
                       labelColor="#3b82f6"
-                      yLabels={paceYLabels(processed.pace)}
+                      yLabels={paceYLabels(chartPoints.map((p) => p.pace))}
                       height={140}
-                      data={processed.pace}
+                      data={chartPoints.map((p) => p.pace)}
                       strokeColor="#3b82f6"
                       gradientColors={["#93c5fd", "#bfdbfe"]}
                       reversed
                       gradientId="paceGrad"
                       formatTooltip={(idx: number): TooltipLine[] => {
-                        const d = activity.distance_km * (idx / Math.max(1, processed.pace.length - 1));
+                        const point = chartPoints[idx];
+                        const d = point?.km ?? 0;
                         return [
                           { label: "Distance", value: `${d.toFixed(1)} km` },
-                          { label: "Pace", value: `${formatPace(processed.pace[idx])} /km` },
+                          { label: "Pace", value: `${formatPace(point?.pace ?? 0)} /km` },
                         ];
                       }}
                     />
                   )}
 
-                  {processed.hr.some((v) => v > 0) && (
+                  {chartPoints.some((p) => Number.isFinite(p.hr) && p.hr > 0) && (
                     <StreamChart
                       label="HEART RATE"
                       labelColor="#c0392b"
-                      yLabels={numYLabels(processed.hr)}
+                      yLabels={numYLabels(chartPoints.map((p) => p.hr))}
                       height={120}
-                      data={processed.hr}
+                      data={chartPoints.map((p) => p.hr)}
                       strokeColor="#c0392b"
                       formatTooltip={(idx: number): TooltipLine[] => {
-                        const t = streams!.time[idx] ?? 0;
+                        const p = chartPoints[idx];
+                        const t = p?.time ?? 0;
                         return [
                           { label: "Time", value: fmtElapsed(t) },
-                          { label: "HR", value: `${Math.round(processed.hr[idx])} bpm` },
+                          { label: "HR", value: `${Math.round(p?.hr ?? 0)} bpm` },
                         ];
                       }}
                     />
                   )}
 
-                  {processed.cadence.some((v) => v > 0) && (
+                  {chartPoints.some((p) => Number.isFinite(p.cadence) && p.cadence > 0) && (
                     <StreamChart
                       label="CADENCE"
                       labelColor="#7c3aed"
-                      yLabels={numYLabels(processed.cadence)}
+                      yLabels={numYLabels(chartPoints.map((p) => p.cadence))}
                       height={100}
-                      data={processed.cadence}
+                      data={chartPoints.map((p) => p.cadence)}
                       strokeColor="#7c3aed"
                       gradientColors={["#a78bfa", "#ddd6fe"]}
                       gradientId="cadGrad"
                       formatTooltip={(idx: number): TooltipLine[] => {
-                        const t = streams!.time[idx] ?? 0;
+                        const p = chartPoints[idx];
+                        const t = p?.time ?? 0;
                         return [
                           { label: "Time", value: fmtElapsed(t) },
-                          { label: "Cadence", value: `${Math.round(processed.cadence[idx])} spm` },
+                          { label: "Cadence", value: `${Math.round(p?.cadence ?? 0)} spm` },
                         ];
                       }}
                     />
                   )}
 
-                  {processed.altitude.some((v) => v > 0) && (
+                  {chartPoints.some((p) => Number.isFinite(p.altitude) && p.altitude > 0) && (
                     <StreamChart
                       label="ALTITUDE"
                       labelColor="#16a34a"
-                      yLabels={numYLabels(processed.altitude, "m")}
+                      yLabels={numYLabels(chartPoints.map((p) => p.altitude), "m")}
                       height={90}
-                      data={processed.altitude}
+                      data={chartPoints.map((p) => p.altitude)}
                       strokeColor="#16a34a"
                       gradientColors={["#86efac", "#dcfce7"]}
                       gradientId="altGrad"
                       lastInSequence
                       formatTooltip={(idx: number): TooltipLine[] => {
-                        const d = activity.distance_km * (idx / Math.max(1, processed.altitude.length - 1));
+                        const point = chartPoints[idx];
+                        const d = point?.km ?? 0;
                         return [
                           { label: "Distance", value: `${d.toFixed(1)} km` },
-                          { label: "Altitude", value: `${Math.round(processed.altitude[idx])} m` },
+                          { label: "Altitude", value: `${Math.round(point?.altitude ?? 0)} m` },
                         ];
                       }}
                     />
@@ -744,7 +831,7 @@ export const ActivityDetailScreen: FC = () => {
                   </View>
                 </View>
               )}
-              {(!streams || !processed) && (
+              {(!streams || !chartPoints) && (
                 <View
                   style={[
                     styles.noStreams,
@@ -1137,6 +1224,53 @@ export const ActivityDetailScreen: FC = () => {
                   },
                 ]}
               >
+                {primaryPhotoUrl && (
+                  <>
+                    <TouchableOpacity
+                      activeOpacity={0.9}
+                      onPress={() => setPhotoViewerOpen(true)}
+                      style={styles.notesPhotoWrapper}
+                    >
+                      <Image
+                        source={{ uri: primaryPhotoUrl }}
+                        style={styles.notesPhoto}
+                        resizeMode="cover"
+                      />
+                    </TouchableOpacity>
+                    <Modal
+                      visible={photoViewerOpen}
+                      transparent
+                      animationType="fade"
+                      onRequestClose={() => setPhotoViewerOpen(false)}
+                    >
+                      <Pressable
+                        style={styles.photoModalBackdrop}
+                        onPress={() => setPhotoViewerOpen(false)}
+                      >
+                        <Image
+                          source={{ uri: primaryPhotoUrl }}
+                          style={styles.photoModalImage}
+                          resizeMode="contain"
+                        />
+                      </Pressable>
+                    </Modal>
+                  </>
+                )}
+                <TouchableOpacity
+                  style={styles.addPhotoRow}
+                  onPress={handleAddPhoto}
+                  activeOpacity={0.8}
+                  disabled={photoUploading}
+                >
+                  <Ionicons
+                    name="image-outline"
+                    size={16}
+                    color={photoUploading ? "#9ca3af" : "#4b5563"}
+                  />
+                  <Text style={styles.addPhotoText}>
+                    {photoUploading ? "Uploading photo…" : "Add photo"}
+                  </Text>
+                </TouchableOpacity>
                 <Text
                   style={[
                     styles.notesTitle,
@@ -1229,22 +1363,24 @@ export const ActivityDetailScreen: FC = () => {
   );
 };
 
+import { HR_ZONE_COLORS as HR_COLORS_MAP, HR_ZONE_NAMES as HR_NAMES_MAP } from "../lib/constants";
+
 const HR_ZONE_COLORS = [
-  "#94a3b8",
-  "#3b82f6",
-  "#22c55e",
-  "#f97316",
-  "#ef4444",
-  "#dc2626",
+  HR_COLORS_MAP.Z1,
+  HR_COLORS_MAP.Z2,
+  HR_COLORS_MAP.Z3,
+  HR_COLORS_MAP.Z4,
+  HR_COLORS_MAP.Z5,
+  HR_COLORS_MAP.Z6,
 ];
 
 const HR_ZONE_NAMES = [
-  "Z1 Recovery",
-  "Z2 Aerobic",
-  "Z3 Tempo",
-  "Z4 Threshold",
-  "Z5 VO2max",
-  "Z5+ Anaerobic",
+  `Z1 ${HR_NAMES_MAP.Z1}`,
+  `Z2 ${HR_NAMES_MAP.Z2}`,
+  `Z3 ${HR_NAMES_MAP.Z3}`,
+  `Z4 ${HR_NAMES_MAP.Z4}`,
+  `Z5 ${HR_NAMES_MAP.Z5}`,
+  `Z6 ${HR_NAMES_MAP.Z6}`,
 ];
 
 const PACE_ZONE_NAMES = [
@@ -1877,6 +2013,37 @@ const styles = StyleSheet.create({
     marginTop: 4,
     fontSize: 11,
     color: "#6b7280",
+  },
+  notesPhotoWrapper: {
+    borderRadius: 12,
+    overflow: "hidden",
+    marginBottom: 10,
+    backgroundColor: "#00000010",
+  },
+  notesPhoto: {
+    width: "100%",
+    height: 220,
+  },
+  addPhotoRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginBottom: 8,
+  },
+  addPhotoText: {
+    fontSize: 12,
+    color: "#4b5563",
+    fontWeight: "500",
+  },
+  photoModalBackdrop: {
+    flex: 1,
+    backgroundColor: "rgba(0,0,0,0.9)",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  photoModalImage: {
+    width: "100%",
+    height: "100%",
   },
   debugText: {
     marginTop: 6,

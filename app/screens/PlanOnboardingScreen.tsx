@@ -18,7 +18,7 @@ import DateTimePicker, {
   AndroidEvent as DateTimePickerAndroidEvent,
 } from "@react-native-community/datetimepicker";
 import AsyncStorage from "@react-native-async-storage/async-storage";
-import { useNavigation } from "@react-navigation/native";
+import { useNavigation, useRoute, type RouteProp } from "@react-navigation/native";
 import { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { format, differenceInWeeks } from "date-fns";
 import { ScreenContainer } from "../components/ScreenContainer";
@@ -270,6 +270,7 @@ function mapAnswersToIntake(answers: OnboardingV2Answers): PlanIntake {
 export const PlanOnboardingScreen: FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<PlanStackParamList>>();
+  const route = useRoute<RouteProp<PlanStackParamList, "PlanOnboarding">>();
   const { activities, readiness: readinessRows, isLoading: mergedDataLoading } = useMergedIntervalsData();
   const { plan: existingPlan, isLoading: planCheckLoading } = useTrainingPlan();
 
@@ -341,14 +342,16 @@ export const PlanOnboardingScreen: FC = () => {
     };
   }, []);
 
+  const mode = route.params?.mode ?? null;
+
   // If the user already has an active training plan, skip onboarding entirely
   useEffect(() => {
     if (planCheckLoading || loadingSaved) return;
-    if (existingPlan?.plan && existingPlan.weeks.length > 0) {
+    if (mode !== "rebuild" && existingPlan?.plan && existingPlan.weeks.length > 0) {
       AsyncStorage.removeItem(STORAGE_KEY).catch(() => {});
       navigation.replace("PlanMain");
     }
-  }, [planCheckLoading, loadingSaved, existingPlan, navigation]);
+  }, [planCheckLoading, loadingSaved, existingPlan, navigation, mode]);
 
   // If saved state is stuck on step 9 without required data, reset to step 1
   useEffect(() => {
@@ -1541,7 +1544,7 @@ export const PlanOnboardingScreen: FC = () => {
                             height: 44,
                             justifyContent: "center",
                             borderColor: selected ? "transparent" : colors.border,
-                            backgroundColor: selected ? colors.primary : colors.card,
+                            backgroundColor: selected ? "#1C1C1E" : colors.card,
                           },
                         ]}
                         onPress={() => updateAnswers({ raceDistance: d })}
@@ -1550,9 +1553,8 @@ export const PlanOnboardingScreen: FC = () => {
                           style={[
                             styles.pillText,
                             {
-                              color: selected
-                                ? colors.primaryForeground
-                                : colors.foreground,
+                              color: selected ? "#FFFFFF" : colors.foreground,
+                              fontWeight: selected ? "600" : "500",
                             },
                           ]}
                         >
@@ -2374,12 +2376,12 @@ export const PlanOnboardingScreen: FC = () => {
                           justifyContent: "center",
                           borderWidth: StyleSheet.hairlineWidth,
                           borderColor: selected ? "transparent" : colors.border,
-                          backgroundColor: selected ? colors.primary : colors.card,
-                          shadowColor: selected ? colors.primary : "transparent",
-                          shadowOpacity: selected ? 0.16 : 0,
-                          shadowRadius: selected ? 10 : 0,
+                          backgroundColor: selected ? "#1C1C1E" : colors.card,
+                          shadowColor: selected ? "#000000" : "transparent",
+                          shadowOpacity: selected ? 0.15 : 0,
+                          shadowRadius: selected ? 8 : 0,
                           shadowOffset: selected
-                            ? { width: 0, height: 4 }
+                            ? { width: 0, height: 3 }
                             : { width: 0, height: 0 },
                         }}
                         onPress={() => updateAnswers({ daysPerWeek: d })}
@@ -2388,7 +2390,7 @@ export const PlanOnboardingScreen: FC = () => {
                           style={{
                             fontSize: 32,
                             fontWeight: "700",
-                            color: selected ? colors.primaryForeground : colors.foreground,
+                            color: selected ? "#FFFFFF" : colors.foreground,
                           }}
                         >
                           {d}
@@ -2396,7 +2398,7 @@ export const PlanOnboardingScreen: FC = () => {
                         <Text
                           style={{
                             fontSize: 11,
-                            color: selected ? colors.primaryForeground : colors.mutedForeground,
+                            color: selected ? "#FFFFFF" : colors.mutedForeground,
                             marginTop: 2,
                           }}
                         >
@@ -3220,6 +3222,13 @@ export const PlanOnboardingScreen: FC = () => {
         if (!rec) return null;
         return (
           <>
+            <TouchableOpacity
+              onPress={handleBack}
+              activeOpacity={0.7}
+              style={{ flexDirection: "row", alignItems: "center", gap: 4, marginBottom: 8 }}
+            >
+              <Text style={{ fontSize: 13, color: colors.mutedForeground }}>← Back</Text>
+            </TouchableOpacity>
             <Text style={[styles.stepLabel, { marginBottom: 4 }]}>BASED ON YOUR PROFILE</Text>
             <Text style={styles.title}>Here&apos;s what fits you.</Text>
             <GlassCard>
@@ -3273,6 +3282,19 @@ export const PlanOnboardingScreen: FC = () => {
                     ]}
                   >
                     {rec.primary.reason}
+                  </Text>
+                </View>
+                <View
+                  style={{
+                    marginTop: 16,
+                    backgroundColor: colors.primary,
+                    borderRadius: 16,
+                    paddingVertical: 14,
+                    alignItems: "center",
+                  }}
+                >
+                  <Text style={{ fontSize: 15, fontWeight: "600", color: colors.primaryForeground }}>
+                    Build my plan with {PHILOSOPHY_META[rec.primary.philosophy]?.label ?? rec.primary.philosophy} →
                   </Text>
                 </View>
               </TouchableOpacity>
@@ -3497,7 +3519,7 @@ export const PlanOnboardingScreen: FC = () => {
           </View>
         </View>
 
-        {state.currentStep < 9 && (
+        {state.currentStep < 8 && (
           <View style={styles.bottomBar}>
             <TouchableOpacity
               onPress={handleBack}
@@ -3526,7 +3548,7 @@ export const PlanOnboardingScreen: FC = () => {
                 <Text style={styles.navPrimaryText}>
                   {state.currentStep === 1
                     ? "Let’s go"
-                    : state.currentStep < 8
+                    : state.currentStep < 7
                     ? "Continue"
                     : "See recommendations"}
                 </Text>

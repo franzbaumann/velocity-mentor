@@ -14,6 +14,7 @@ type Props = {
 
 export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKipcoachee }) => {
   const { colors } = useTheme();
+  const completed = !!session.completed_at;
   const sessionType = String(session.session_type ?? "").toLowerCase();
   const borderColor = sessionType.includes("interval")
     ? "#ef4444"
@@ -51,8 +52,8 @@ export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKi
           height: 22,
           borderRadius: 6,
           borderWidth: 2,
-          borderColor: session.completed_at ? colors.primary : colors.mutedForeground,
-          backgroundColor: session.completed_at ? colors.primary : "transparent",
+          borderColor: completed ? colors.primary : colors.mutedForeground,
+          backgroundColor: completed ? colors.primary : "transparent",
           alignItems: "center",
           justifyContent: "center",
           marginTop: 2,
@@ -75,8 +76,9 @@ export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKi
         title: {
           fontSize: 14,
           fontWeight: "500",
-          color: colors.foreground,
+          color: completed ? colors.mutedForeground : colors.foreground,
           marginTop: 4,
+          textDecorationLine: completed ? "line-through" : "none",
         },
         titleRow: { flexDirection: "row", alignItems: "center", gap: 6, marginTop: 4 },
         intervalDot: { width: 7, height: 7, borderRadius: 999, backgroundColor: "#ef4444" },
@@ -86,14 +88,13 @@ export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKi
           marginTop: 4,
         },
         meta: { fontSize: 11, color: colors.mutedForeground },
-        dim: { opacity: session.completed_at ? 0.65 : 1 },
+        dim: { opacity: completed ? 0.65 : 1 },
         askIconBtn: {
           width: 28,
           height: 28,
           borderRadius: 999,
           alignItems: "center",
           justifyContent: "center",
-          backgroundColor: colors.primary + "20",
         },
       }),
     [borderColor, colors, session.completed_at],
@@ -103,10 +104,11 @@ export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKi
     onPress?.(session);
   };
 
-  const km = session.distance_km != null ? `${Math.round(session.distance_km * 10) / 10} km` : null;
-  const min = session.duration_min != null ? `${Math.round(session.duration_min)} min` : null;
-  const pace = session.pace_target ? `@ ${session.pace_target}` : null;
-  const est = estimatedMin != null ? `~${estimatedMin} min` : null;
+  const isRest = sessionType.includes("rest") || sessionType.includes("off");
+  const km = !isRest && session.distance_km != null && session.distance_km > 0 ? `${Math.round(session.distance_km * 10) / 10} km` : null;
+  const min = !isRest && session.duration_min != null && session.duration_min > 0 ? `${Math.round(session.duration_min)} min` : null;
+  const pace = !isRest && session.pace_target ? `@ ${session.pace_target}` : null;
+  const est = null;
 
   const dateLabel = session.scheduled_date ?? "";
 
@@ -135,17 +137,21 @@ export const SessionCard: FC<Props> = ({ session, onToggleDone, onPress, onAskKi
           </Text>
         </View>
         <View style={styles.metaRow}>
-          {[km, min, est, pace].filter(Boolean).map((m, i) => (
-            <Text key={i} style={styles.meta}>
-              {i > 0 ? " · " : ""}
-              {m}
-            </Text>
-          ))}
+          {isRest ? (
+            <Text style={styles.meta}>Rest and recovery</Text>
+          ) : (
+            [km, min, pace].filter(Boolean).map((m, i) => (
+              <Text key={i} style={styles.meta}>
+                {i > 0 ? " · " : ""}
+                {m}
+              </Text>
+            ))
+          )}
         </View>
         {onAskKipcoachee && (
           <View style={{ marginTop: 8, flexDirection: "row", justifyContent: "flex-end" }}>
-            <TouchableOpacity style={styles.askIconBtn} onPress={() => onAskKipcoachee(session)} activeOpacity={0.85}>
-              <Ionicons name="chatbubble-ellipses" size={14} color={colors.primary} />
+            <TouchableOpacity style={styles.askIconBtn} onPress={() => onAskKipcoachee(session)} activeOpacity={0.7}>
+              <Ionicons name="chatbubble-outline" size={14} color={colors.mutedForeground} />
             </TouchableOpacity>
           </View>
         )}

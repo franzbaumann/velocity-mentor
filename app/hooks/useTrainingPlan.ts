@@ -345,8 +345,24 @@ export function useTrainingPlan() {
 
       return { sessionId, done };
     },
-    onSuccess: (_, { sessionId, done }) => {
-      queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+    onMutate: async ({ sessionId, done }) => {
+      await queryClient.cancelQueries({ queryKey: ["training-plan"] });
+      const previous = queryClient.getQueryData<TrainingPlanData>(["training-plan"]);
+      if (previous) {
+        const next: TrainingPlanData = {
+          plan: previous.plan,
+          weeks: previous.weeks.map((w) => ({
+            ...w,
+            sessions: w.sessions.map((s) =>
+              s.id === sessionId ? { ...s, completed_at: done ? new Date().toISOString() : null } : s,
+            ),
+          })),
+        };
+        queryClient.setQueryData(["training-plan"], next);
+      }
+      return { previous };
+    },
+    onSuccess: async (_, { sessionId, done }) => {
       if (done) {
         if (nutritionLoadingRef.current) return;
         nutritionLoadingRef.current = true;
@@ -357,25 +373,28 @@ export function useTrainingPlan() {
           position: "bottom",
           visibilityTime: 3000,
         });
-        triggerNutritionMessage(sessionId)
-          .finally(() => {
-            nutritionLoadingRef.current = false;
-            setIsNutritionLoading(false);
-            Toast.show({
-              type: "success",
-              text1: "✓ Nutrition tip added to Coach chat",
-              position: "bottom",
-              visibilityTime: 3000,
-            });
-          })
-          .catch(() => {
-            nutritionLoadingRef.current = false;
-            setIsNutritionLoading(false);
+        try {
+          await triggerNutritionMessage(sessionId);
+          Toast.show({
+            type: "success",
+            text1: "✓ Nutrition tip added to Coach chat",
+            position: "bottom",
+            visibilityTime: 3000,
           });
+        } finally {
+          nutritionLoadingRef.current = false;
+          setIsNutritionLoading(false);
+        }
       }
     },
-    onError: (e: any) => {
+    onError: (e: any, _vars, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(["training-plan"], context.previous);
+      }
       Toast.show({ type: "error", text1: e?.message ?? "Failed to update session", position: "bottom" });
+    },
+    onSettled: () => {
+      queryClient.invalidateQueries({ queryKey: ["training-plan"] });
     },
   });
 

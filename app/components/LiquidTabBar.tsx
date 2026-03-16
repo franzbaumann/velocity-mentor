@@ -1,13 +1,11 @@
-import { BlurView } from "expo-blur";
 import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import React, { useMemo } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Pressable, StyleSheet, Text, View } from "react-native";
 import { PanGestureHandler } from "react-native-gesture-handler";
-import { useTheme } from "../context/ThemeContext";
 
-const PRIMARY_ROUTES = ["Dashboard", "Plan", "Coach", "ActivitiesStack", "Stats"] as const;
+const PRIMARY_ROUTES = ["Dashboard", "Plan", "Coach", "Community", "ActivitiesStack", "Stats"] as const;
 
 type RouteKey = (typeof PRIMARY_ROUTES)[number];
 
@@ -15,6 +13,7 @@ const LABELS: Record<RouteKey, string> = {
   Dashboard: "Home",
   Plan: "Plan",
   Coach: "Coach",
+  Community: "Community",
   ActivitiesStack: "Activities",
   Stats: "Stats",
 };
@@ -23,18 +22,16 @@ const ICONS: Record<RouteKey, keyof typeof Ionicons.glyphMap> = {
   Dashboard: "home",
   Plan: "calendar",
   Coach: "chatbubble-ellipses",
+  Community: "globe-outline",
   ActivitiesStack: "fitness",
   Stats: "stats-chart-outline",
 };
 
 export function LiquidTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
-  const { resolved, theme } = useTheme();
   const insets = useSafeAreaInsets();
-  const isDark = resolved === "dark";
-  const borderColor = theme.navBorder;
-  const pillBg = theme.navBackground;
-  const activeIconColor = theme.navIconActive;
-  const inactiveIconColor = theme.navIconInactive;
+
+  const ACTIVE_COLOR = "#1C1C1E";
+  const INACTIVE_COLOR = "#9CA3AF";
 
   const primaryRoutes = useMemo(
     () =>
@@ -100,43 +97,63 @@ export function LiquidTabBar({ state, descriptors, navigation }: BottomTabBarPro
 
   return (
     <PanGestureHandler onEnded={handleSwipeEnd}>
-      <View style={[styles.root, { paddingBottom: insets.bottom + 8 }]}>
-        <View style={styles.row}>
-          <View style={[styles.pill, { borderColor, backgroundColor: pillBg }]}>
-            <BlurView intensity={20} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
-            <View style={styles.pillContent}>
-              {primaryRoutes.map(({ key, index }) => {
-                const isFocused = state.index === index;
-                return (
-                  <Pressable
-                    key={key}
-                    onPress={() => handlePress(index)}
-                    onLongPress={() => handleLongPress(index)}
-                    style={({ pressed }) => [
-                      styles.item,
-                      pressed && { opacity: 0.7 },
+      <View
+        style={[
+          styles.root,
+          {
+            paddingBottom: insets.bottom,
+          },
+        ]}
+      >
+        <View
+          style={[
+            styles.bar,
+            {
+              shadowColor: "#000",
+              shadowOffset: { width: 0, height: -2 },
+              shadowOpacity: 0.06,
+              shadowRadius: 8,
+            },
+          ]}
+        >
+          <View style={styles.barInner}>
+            {primaryRoutes.map(({ key, index }) => {
+              const isFocused = state.index === index;
+              const content = (
+                <>
+                  <Ionicons
+                    name={ICONS[key]}
+                    size={isFocused ? 24 : 22}
+                    color={isFocused ? ACTIVE_COLOR : INACTIVE_COLOR}
+                  />
+                  <Text
+                    style={[
+                      styles.label,
+                      {
+                        color: isFocused ? ACTIVE_COLOR : INACTIVE_COLOR,
+                        fontWeight: isFocused ? "600" : "400",
+                      },
                     ]}
+                    numberOfLines={1}
                   >
-                    <Ionicons
-                      name={ICONS[key]}
-                      size={22}
-                      color={isFocused ? activeIconColor : inactiveIconColor}
-                    />
-                    <Text
-                      style={[
-                        styles.label,
-                        {
-                          color: isFocused ? activeIconColor : inactiveIconColor,
-                        },
-                      ]}
-                      numberOfLines={1}
-                    >
-                      {LABELS[key]}
-                    </Text>
-                  </Pressable>
-                );
-              })}
-            </View>
+                    {LABELS[key]}
+                  </Text>
+                </>
+              );
+              return (
+                <Pressable
+                  key={key}
+                  onPress={() => handlePress(index)}
+                  onLongPress={() => handleLongPress(index)}
+                  style={({ pressed }) => [
+                    styles.item,
+                    pressed && { opacity: 0.7 },
+                  ]}
+                >
+                  {isFocused ? <View style={styles.activePill}>{content}</View> : content}
+                </Pressable>
+              );
+            })}
           </View>
         </View>
       </View>
@@ -152,34 +169,38 @@ const styles = StyleSheet.create({
     bottom: 0,
     alignItems: "center",
   },
-  row: {
+  bar: {
     flexDirection: "row",
     alignItems: "center",
-    paddingHorizontal: 16,
+    justifyContent: "center",
+    backgroundColor: "#FFFFFF",
+    borderTopWidth: 0.5,
+    borderTopColor: "#E5E7EB",
+    paddingHorizontal: 12,
+    paddingTop: 6,
   },
-  pill: {
-    flex: 1,
-    height: 52,
-    borderRadius: 26,
-    borderWidth: StyleSheet.hairlineWidth,
-    overflow: "hidden",
-  },
-  pillContent: {
-    flex: 1,
+  barInner: {
     flexDirection: "row",
+    flex: 1,
     alignItems: "center",
     justifyContent: "space-around",
-    paddingHorizontal: 12,
   },
   item: {
     alignItems: "center",
     justifyContent: "center",
     minWidth: 64,
-    gap: 2,
+    gap: 3,
+    paddingVertical: 8,
+  },
+  activePill: {
+    backgroundColor: "#F3F4F6",
+    borderRadius: 12,
+    paddingVertical: 6,
+    paddingHorizontal: 14,
+    alignItems: "center",
   },
   label: {
     fontSize: 11,
-    fontWeight: "500",
   },
 });
 

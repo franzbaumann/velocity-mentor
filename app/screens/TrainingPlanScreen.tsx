@@ -1,11 +1,5 @@
 import { FC, useCallback, useMemo, useState } from "react";
-import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from "react-native";
+import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -34,6 +28,8 @@ import {
   subMonths,
 } from "date-fns";
 
+const SCROLL_PADDING_BELOW_BUBBLE = 120;
+
 type ViewMode = "list" | "calendar";
 
 function formatKm(km: number | null | undefined): string {
@@ -50,11 +46,13 @@ function formatMin(min: number | null | undefined): string {
 export const TrainingPlanScreen: FC = () => {
   const { colors } = useTheme();
   const navigation = useNavigation<NativeStackNavigationProp<PlanStackParamList>>();
-  const { plan, isLoading, isRefetching, rescheduleSession, markSessionDone, isMarkingDone, isNutritionLoading } = useTrainingPlan();
+  const { plan, isLoading, isRefetching, rescheduleSession, markSessionDone, isMarkingDone, isNutritionLoading } =
+    useTrainingPlan();
   const [viewMode, setViewMode] = useState<ViewMode>("list");
   const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set([1]));
   const [selectedSession, setSelectedSession] = useState<TrainingPlanSession | null>(null);
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
+  const [movingSession, setMovingSession] = useState<TrainingPlanSession | null>(null);
   const styles = useMemo(
     () =>
       StyleSheet.create({
@@ -62,14 +60,12 @@ export const TrainingPlanScreen: FC = () => {
         title: { fontSize: 22, fontWeight: "600", color: colors.foreground },
         subtitle: { fontSize: 14, color: colors.mutedForeground, marginTop: 4 },
         countdownBadge: {
-          marginTop: 8,
-          alignSelf: "flex-start",
           borderRadius: 999,
           paddingHorizontal: 10,
-          paddingVertical: 5,
-          backgroundColor: colors.primary + "1f",
+          paddingVertical: 4,
+          backgroundColor: colors.muted,
         },
-        countdownText: { fontSize: 12, fontWeight: "600", color: colors.primary },
+        countdownText: { fontSize: 11, fontWeight: "500", color: colors.mutedForeground },
         sectionHeader: {},
         body: { fontSize: 14, color: colors.mutedForeground, lineHeight: 20 },
         weekHeaderRow: {
@@ -207,19 +203,21 @@ export const TrainingPlanScreen: FC = () => {
         toggleRow: {
           flexDirection: "row",
           alignItems: "center",
-          gap: 8,
-          marginTop: 12,
-        },
-        toggleButton: {
-          paddingHorizontal: 10,
-          paddingVertical: 4,
-          borderRadius: 999,
+          borderRadius: 14,
+          padding: 3,
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
+          marginTop: 16,
+        },
+        toggleButton: {
+          flex: 1,
+          borderRadius: 11,
+          paddingVertical: 8,
+          alignItems: "center",
+          justifyContent: "center",
         },
         toggleButtonActive: {
-          backgroundColor: colors.primary,
-          borderColor: colors.primary,
+          backgroundColor: colors.muted,
         },
         toggleText: {
           fontSize: 12,
@@ -227,7 +225,8 @@ export const TrainingPlanScreen: FC = () => {
           color: colors.mutedForeground,
         },
         toggleTextActive: {
-          color: colors.primaryForeground,
+          color: colors.foreground,
+          fontWeight: "600",
         },
         calendarHeaderRow: {
           flexDirection: "row",
@@ -305,7 +304,7 @@ export const TrainingPlanScreen: FC = () => {
   }, []);
 
   const handleRebuildPlan = useCallback(() => {
-    navigation.navigate("PlanOnboarding");
+    navigation.navigate("PlanOnboarding", { mode: "rebuild" });
   }, [navigation]);
 
   const handleAskKipcoachee = useCallback(
@@ -390,7 +389,12 @@ export const TrainingPlanScreen: FC = () => {
   const raceDateRaw = plan?.plan?.goal_date || plan?.plan?.race_date || null;
   const raceDate = raceDateRaw ? new Date(raceDateRaw) : null;
   const daysToRace = raceDate ? Math.max(0, differenceInCalendarDays(raceDate, new Date())) : null;
-  const planDisplayName = plan?.plan?.plan_name ?? "Jack Daniels Half Marathon";
+  const planDisplayName =
+    plan?.plan?.goal_race ??
+    plan?.plan?.plan_name ??
+    plan?.plan?.race_type ??
+    plan?.plan?.philosophy ??
+    "Training plan";
   const raceSubtitle = raceDate
     ? `${planDisplayName} · ${format(raceDate, "MMM d, yyyy")}`
     : planDisplayName;
@@ -417,6 +421,56 @@ export const TrainingPlanScreen: FC = () => {
     return map;
   }, [weeks]);
 
+  const completedSessionsByDate = useMemo(() => {
+    const map = new Map<string, TrainingPlanSession[]>();
+    for (const w of weeks) {
+      for (const s of w.sessions) {
+        if (!s.completed_at) continue;
+        const key = s.completed_at.slice(0, 10);
+        const list = map.get(key) ?? [];
+        list.push(s);
+        map.set(key, list);
+      }
+    }
+    return map;
+  }, [weeks]);
+
+  const planStartDate = plan?.plan?.start_date ? parseISO(plan.plan.start_date) : null;
+  const planEndDate = plan?.plan?.end_date ? parseISO(plan.plan.end_date) : null;
+
+  const isDayWithinPlan = useCallback(
+    (day: Date) => {
+      if (!planStartDate || !planEndDate) return true;
+      return isWithinInterval(day, { start: planStartDate, end: planEndDate });
+    },
+    [planStartDate, planEndDate],
+  );
+
+  const getSessionTypeColor = useCallback(
+    (sessionType: string) => {
+      const t = sessionType.toLowerCase();
+      if (t.includes("easy") || t.includes("recovery")) return colors.accentGreen;
+      if (t.includes("tempo") || t.includes("threshold")) return colors.accentBlue;
+      if (t.includes("interval") || t.includes("repeat") || t.includes("fartlek")) return colors.negative;
+      if (t.includes("long")) return colors.warning;
+      if (t.includes("rest") || t.includes("off")) return colors.mutedForeground;
+      if (t.includes("race") || t.includes("tt")) return "#a855f7";
+      return colors.accentBlue;
+    },
+    [colors],
+  );
+
+  const handleCalendarDayPress = useCallback(
+    (day: Date) => {
+      if (!movingSession) return;
+      if (!isDayWithinPlan(day)) return;
+      const newDate = format(day, "yyyy-MM-dd");
+      rescheduleSession({ sessionId: movingSession.id, newDate });
+      setMovingSession(null);
+    },
+    [isDayWithinPlan, movingSession, rescheduleSession],
+  );
+
   const openSeason = useCallback(() => {
     navigation.navigate("Season");
   }, [navigation]);
@@ -426,7 +480,9 @@ export const TrainingPlanScreen: FC = () => {
   // should keep showing the current plan to avoid jarring flashes.
   if (isLoading && !plan?.plan) {
     return (
-      <ScreenContainer contentContainerStyle={styles.content}>
+      <ScreenContainer
+        contentContainerStyle={[styles.content, { paddingBottom: SCROLL_PADDING_BELOW_BUBBLE }]}
+      >
         <Text style={styles.title}>Training plan</Text>
         <SkeletonCard>
           <SkeletonLine width="35%" />
@@ -444,7 +500,9 @@ export const TrainingPlanScreen: FC = () => {
 
   if (!plan?.plan) {
     return (
-      <ScreenContainer contentContainerStyle={styles.content}>
+      <ScreenContainer
+        contentContainerStyle={[styles.content, { paddingBottom: SCROLL_PADDING_BELOW_BUBBLE }]}
+      >
         <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
           <Text style={styles.title}>Training plan</Text>
           <TouchableOpacity
@@ -474,7 +532,9 @@ export const TrainingPlanScreen: FC = () => {
   }
 
   return (
-    <ScreenContainer contentContainerStyle={styles.content}>
+    <ScreenContainer
+      contentContainerStyle={[styles.content, { paddingBottom: SCROLL_PADDING_BELOW_BUBBLE }]}
+    >
       <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
         <Text style={styles.title}>Training plan</Text>
         <TouchableOpacity
@@ -486,12 +546,14 @@ export const TrainingPlanScreen: FC = () => {
           <Text style={{ fontSize: 15, fontWeight: "600", color: colors.primary }}>Season</Text>
         </TouchableOpacity>
       </View>
-      <Text style={styles.subtitle}>{raceSubtitle}</Text>
-      {daysToRace != null && (
-        <View style={styles.countdownBadge}>
-          <Text style={styles.countdownText}>{daysToRace} days to race 🏁</Text>
-        </View>
-      )}
+      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
+        <Text style={styles.subtitle}>{raceSubtitle}</Text>
+        {daysToRace != null && (
+          <View style={styles.countdownBadge}>
+            <Text style={styles.countdownText}>🏁 {daysToRace} days to race</Text>
+          </View>
+        )}
+      </View>
 
       {thisWeekData && (
         <GlassCard>
@@ -537,44 +599,41 @@ export const TrainingPlanScreen: FC = () => {
         </GlassCard>
       )}
 
-      <View style={styles.weekHeaderRow}>
-        <View />
-        <View style={styles.toggleRow}>
-          <TouchableOpacity
+      <View style={styles.toggleRow}>
+        <TouchableOpacity
+          style={[
+            styles.toggleButton,
+            viewMode === "list" && styles.toggleButtonActive,
+          ]}
+          activeOpacity={0.8}
+          onPress={() => setViewMode("list")}
+        >
+          <Text
             style={[
-              styles.toggleButton,
-              viewMode === "list" && styles.toggleButtonActive,
+              styles.toggleText,
+              viewMode === "list" && styles.toggleTextActive,
             ]}
-            activeOpacity={0.8}
-            onPress={() => setViewMode("list")}
           >
-            <Text
-              style={[
-                styles.toggleText,
-                viewMode === "list" && styles.toggleTextActive,
-              ]}
-            >
-              List
-            </Text>
-          </TouchableOpacity>
-          <TouchableOpacity
+            List
+          </Text>
+        </TouchableOpacity>
+        <TouchableOpacity
+          style={[
+            styles.toggleButton,
+            viewMode === "calendar" && styles.toggleButtonActive,
+          ]}
+          activeOpacity={0.8}
+          onPress={() => setViewMode("calendar")}
+        >
+          <Text
             style={[
-              styles.toggleButton,
-              viewMode === "calendar" && styles.toggleButtonActive,
+              styles.toggleText,
+              viewMode === "calendar" && styles.toggleTextActive,
             ]}
-            activeOpacity={0.8}
-            onPress={() => setViewMode("calendar")}
           >
-            <Text
-              style={[
-                styles.toggleText,
-                viewMode === "calendar" && styles.toggleTextActive,
-              ]}
-            >
-              Calendar
-            </Text>
-          </TouchableOpacity>
-        </View>
+            Calendar
+          </Text>
+        </TouchableOpacity>
       </View>
 
       {viewMode === "list" ? (
@@ -663,56 +722,137 @@ export const TrainingPlanScreen: FC = () => {
                 const key = format(day, "yyyy-MM-dd");
                 const inMonth = isSameMonth(day, currentMonth);
                 const isTodayDay = isSameDay(day, new Date());
-                const daySessions = sessionsByDate.get(key) ?? [];
+                const plannedSessions = sessionsByDate.get(key) ?? [];
+                const completedSessions = completedSessionsByDate.get(key) ?? [];
+                const isValidTarget = isDayWithinPlan(day);
+                const hasAny = plannedSessions.length > 0 || completedSessions.length > 0;
                 return (
                   <View key={key} style={styles.calendarDayCell}>
-                    <View
-                      style={[
-                        styles.calendarDayBox,
-                        !inMonth && { opacity: 0.35 },
-                        isTodayDay && { borderColor: colors.primary },
-                      ]}
+                    <TouchableOpacity
+                      activeOpacity={movingSession ? 0.9 : 1}
+                      disabled={!movingSession}
+                      onPress={() => handleCalendarDayPress(day)}
                     >
-                      <Text
+                      <View
                         style={[
-                          styles.calendarDayLabel,
-                          isTodayDay && styles.calendarDayLabelToday,
+                          styles.calendarDayBox,
+                          !inMonth && { opacity: 0.35 },
+                          isTodayDay && { borderColor: colors.primary },
+                          movingSession &&
+                            (isValidTarget
+                              ? { borderColor: colors.primary, borderStyle: "dashed" as const }
+                              : { opacity: 0.15 }),
                         ]}
                       >
-                        {format(day, "d")}
-                      </Text>
-                      {daySessions.map((s) => (
-                        <TouchableOpacity
-                          key={s.id}
-                          activeOpacity={0.85}
+                        <Text
                           style={[
-                            styles.calendarSessionPill,
-                            {
-                              backgroundColor: s.completed_at
-                                ? colors.primary
-                                : colors.card,
-                              borderWidth: StyleSheet.hairlineWidth,
-                              borderColor: colors.border,
-                            },
+                            styles.calendarDayLabel,
+                            isTodayDay && styles.calendarDayLabelToday,
                           ]}
-                          onPress={() => setSelectedSession(s)}
                         >
+                          {format(day, "d")}
+                        </Text>
+                        {plannedSessions.map((s) => {
+                          const typeColor = getSessionTypeColor(s.session_type);
+                          const isCompletedHere =
+                            !!s.completed_at &&
+                            s.completed_at.slice(0, 10) === key;
+                          const isRescheduled =
+                            !!s.completed_at &&
+                            !!s.scheduled_date &&
+                            s.completed_at.slice(0, 10) !== s.scheduled_date.slice(0, 10);
+                          const bgColor = isCompletedHere ? typeColor : `${typeColor}22`;
+                          const textColor = isCompletedHere ? colors.primaryForeground : typeColor;
+                          return (
+                            <TouchableOpacity
+                              key={s.id}
+                              activeOpacity={0.85}
+                              style={[
+                                styles.calendarSessionPill,
+                                {
+                                  backgroundColor: bgColor,
+                                  borderWidth: 1,
+                                  borderColor: typeColor,
+                                  borderStyle: isRescheduled ? "dashed" : "solid",
+                                },
+                              ]}
+                              onPress={() => {
+                                if (movingSession) {
+                                  handleCalendarDayPress(day);
+                                } else {
+                                  setSelectedSession(s);
+                                }
+                              }}
+                              onLongPress={() => setMovingSession(s)}
+                            >
+                              <Text
+                                numberOfLines={1}
+                                style={[
+                                  styles.calendarSessionText,
+                                  { color: textColor },
+                                ]}
+                              >
+                                {isCompletedHere ? "✓ " : ""}
+                                {s.description}
+                              </Text>
+                            </TouchableOpacity>
+                          );
+                        })}
+                        {completedSessions
+                          .filter(
+                            (s) =>
+                              (!s.scheduled_date ||
+                                s.scheduled_date.slice(0, 10) !== key) &&
+                              s.completed_at &&
+                              s.completed_at.slice(0, 10) === key,
+                          )
+                          .map((s) => {
+                            const typeColor = getSessionTypeColor(s.session_type);
+                            return (
+                              <TouchableOpacity
+                                key={`${s.id}_completed`}
+                                activeOpacity={0.85}
+                                style={[
+                                  styles.calendarSessionPill,
+                                  {
+                                    backgroundColor: typeColor,
+                                    borderWidth: 1,
+                                    borderColor: typeColor,
+                                  },
+                                ]}
+                                onPress={() => {
+                                  if (movingSession) {
+                                    handleCalendarDayPress(day);
+                                  } else {
+                                    setSelectedSession(s);
+                                  }
+                                }}
+                                onLongPress={() => setMovingSession(s)}
+                              >
+                                <Text
+                                  numberOfLines={1}
+                                  style={[
+                                    styles.calendarSessionText,
+                                    { color: colors.primaryForeground },
+                                  ]}
+                                >
+                                  ✓ {s.description}
+                                </Text>
+                              </TouchableOpacity>
+                            );
+                          })}
+                        {!hasAny && isDayWithinPlan(day) && (
                           <Text
-                            numberOfLines={1}
                             style={[
                               styles.calendarSessionText,
-                              {
-                                color: s.completed_at
-                                  ? colors.primaryForeground
-                                  : colors.foreground,
-                              },
+                              { marginTop: 2, color: colors.mutedForeground },
                             ]}
                           >
-                            {s.description}
+                            💤
                           </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
+                        )}
+                      </View>
+                    </TouchableOpacity>
                   </View>
                 );
               })}

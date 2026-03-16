@@ -99,29 +99,40 @@ export const StatsScreen: FC = () => {
               onPress={() => setTab("runs")}
               style={[
                 styles.tabPill,
-                tab === "runs" && { backgroundColor: theme.accentBlue, color: theme.primaryForeground },
+                tab === "runs" && { backgroundColor: "#1C1C1E" },
               ]}
             >
-              <Text style={[styles.tabLabel, tab === "runs" && { color: theme.primaryForeground }]}>
-                Runs & Fitness ({runsCount})
+              <Text
+                style={[
+                  styles.tabLabel,
+                  tab === "runs" && { color: "#FFFFFF", fontWeight: "600" },
+                ]}
+              >
+                Runs & Fitness
               </Text>
             </TouchableOpacity>
             <TouchableOpacity
               onPress={() => setTab("wellness")}
               style={[
                 styles.tabPill,
-                tab === "wellness" && { backgroundColor: theme.accentBlue },
+                tab === "wellness" && { backgroundColor: "#1C1C1E" },
               ]}
             >
-              <Text style={[styles.tabLabel, { color: tab === "wellness" ? theme.primaryForeground : theme.textMuted }]}>
-                Wellness ({wellnessCount})
+              <Text
+                style={[
+                  styles.tabLabel,
+                  { color: tab === "wellness" ? "#FFFFFF" : theme.textMuted },
+                  tab === "wellness" && { fontWeight: "600" },
+                ]}
+              >
+                Wellness
               </Text>
             </TouchableOpacity>
           </View>
         </View>
 
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.statCardsScroll}>
-          {fitnessSummary.ctl != null && (
+          {fitnessSummary.ctl != null && Math.round(fitnessSummary.ctl) !== 0 && (
             <View style={[styles.summaryCard, { backgroundColor: theme.cardBackground }]}>
               <Text style={[styles.summaryValue, { color: theme.textPrimary }]}>
                 {Math.round(fitnessSummary.ctl)}
@@ -129,7 +140,7 @@ export const StatsScreen: FC = () => {
               <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>CTL · Fitness</Text>
             </View>
           )}
-          {fitnessSummary.atl != null && (
+          {fitnessSummary.atl != null && Math.round(fitnessSummary.atl) !== 0 && (
             <View style={[styles.summaryCard, { backgroundColor: theme.cardBackground }]}>
               <Text style={[styles.summaryValue, { color: theme.textPrimary }]}>
                 {Math.round(fitnessSummary.atl)}
@@ -137,7 +148,7 @@ export const StatsScreen: FC = () => {
               <Text style={[styles.summaryLabel, { color: theme.textMuted }]}>ATL · Fatigue</Text>
             </View>
           )}
-          {fitnessSummary.tsb != null && (
+          {fitnessSummary.tsb != null && Math.round(fitnessSummary.tsb) !== 0 && (
             <View
               style={[
                 styles.summaryCard,
@@ -309,16 +320,25 @@ export const StatsScreen: FC = () => {
           <View style={styles.section}>
             <Text style={[styles.sectionLabel, { color: theme.textMuted }]}>WELLNESS SCORES</Text>
             <View style={styles.twoColGrid}>
-              <View style={styles.gridHalf}>
+              <View className="gridHalf" style={styles.gridHalf}>
                 <StatsChartCard
                   icon="pulse-outline"
                   title="Readiness Score"
                   description="0–100 from TSB/CTL or intervals.icu. Higher = ready to train hard."
+                  compact={!readinessScoreSeries.length}
                 >
                   {readinessScoreSeries.length ? (
                     <ReadinessTrendChartMobile data={readinessScoreSeries} />
                   ) : (
-                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No readiness score data yet.</Text>
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                      No data yet ·{" "}
+                      <Text
+                        style={{ color: theme.accentBlue }}
+                        onPress={() => navigation.navigate("Settings" as never)}
+                      >
+                        Connect intervals.icu
+                      </Text>
+                    </Text>
                   )}
                 </StatsChartCard>
               </View>
@@ -327,11 +347,20 @@ export const StatsScreen: FC = () => {
                   icon="moon-outline"
                   title="Sleep Score"
                   description="0–100 from intervals.icu. Tracks recovery."
+                  compact={!sleepScoreSeries.length}
                 >
                   {sleepScoreSeries.length ? (
                     <ReadinessTrendChartMobile data={sleepScoreSeries} />
                   ) : (
-                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No sleep score data yet.</Text>
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                      No data yet ·{" "}
+                      <Text
+                        style={{ color: theme.accentBlue }}
+                        onPress={() => navigation.navigate("Settings" as never)}
+                      >
+                        Connect intervals.icu
+                      </Text>
+                    </Text>
                   )}
                 </StatsChartCard>
               </View>
@@ -344,13 +373,22 @@ export const StatsScreen: FC = () => {
                   icon="bar-chart-outline"
                   title="HRV Trend"
                   description="Heart rate variability (ms). Low = fatigue or illness."
+                  compact={!hrvSeries.length}
                 >
                   {hrvSeries.length ? (
                     <HRVTrendChartMobile
                       data={hrvSeries.map((p) => ({ date: p.date, CTL: p.hrv, ATL: 0, TSB: 0 }))}
                     />
                   ) : (
-                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No HRV data yet.</Text>
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                      No data yet ·{" "}
+                      <Text
+                        style={{ color: theme.accentBlue }}
+                        onPress={() => navigation.navigate("Settings" as never)}
+                      >
+                        Connect intervals.icu
+                      </Text>
+                    </Text>
                   )}
                 </StatsChartCard>
               </View>
@@ -359,11 +397,20 @@ export const StatsScreen: FC = () => {
                   icon="moon-outline"
                   title="Sleep & Resting HR"
                   description="Sleep hours + resting HR. Rising RHR = fatigue."
+                  compact={!sleepRestingSeries.length}
                 >
                   {sleepRestingSeries.length ? (
                     <SleepRestingTrendChartMobile data={sleepRestingSeries} />
                   ) : (
-                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No sleep/HR data yet.</Text>
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                      No data yet ·{" "}
+                      <Text
+                        style={{ color: theme.accentBlue }}
+                        onPress={() => navigation.navigate("Settings" as never)}
+                      >
+                        Connect intervals.icu
+                      </Text>
+                    </Text>
                   )}
                 </StatsChartCard>
               </View>
@@ -418,6 +465,7 @@ export const StatsScreen: FC = () => {
                   icon="alert-circle-outline"
                   title="Stress Score"
                   description="Daily stress from intervals.icu. Higher = more perceived stress."
+                  compact={!stressSeries.length}
                 >
                   {stressSeries.length ? (
                     <WellnessCheckChartMobile
@@ -426,7 +474,15 @@ export const StatsScreen: FC = () => {
                       color="#ef4444"
                     />
                   ) : (
-                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No stress data yet.</Text>
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                      No data yet ·{" "}
+                      <Text
+                        style={{ color: theme.accentBlue }}
+                        onPress={() => navigation.navigate("Settings" as never)}
+                      >
+                        Connect intervals.icu
+                      </Text>
+                    </Text>
                   )}
                 </StatsChartCard>
               </View>
@@ -435,6 +491,7 @@ export const StatsScreen: FC = () => {
                   icon="happy-outline"
                   title="Mood"
                   description="Self-reported mood from intervals.icu wellness."
+                  compact={!moodSeries.length}
                 >
                   {moodSeries.length ? (
                     <WellnessCheckChartMobile
@@ -443,7 +500,15 @@ export const StatsScreen: FC = () => {
                       color="#a855f7"
                     />
                   ) : (
-                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No mood data yet.</Text>
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                      No data yet ·{" "}
+                      <Text
+                        style={{ color: theme.accentBlue }}
+                        onPress={() => navigation.navigate("Settings" as never)}
+                      >
+                        Connect intervals.icu
+                      </Text>
+                    </Text>
                   )}
                 </StatsChartCard>
               </View>
@@ -452,6 +517,7 @@ export const StatsScreen: FC = () => {
                   icon="flash-outline"
                   title="Energy"
                   description="Daily energy level from wellness check-ins."
+                  compact={!energySeries.length}
                 >
                   {energySeries.length ? (
                     <WellnessCheckChartMobile
@@ -460,7 +526,15 @@ export const StatsScreen: FC = () => {
                       color="#f59e0b"
                     />
                   ) : (
-                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No energy data yet.</Text>
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                      No data yet ·{" "}
+                      <Text
+                        style={{ color: theme.accentBlue }}
+                        onPress={() => navigation.navigate("Settings" as never)}
+                      >
+                        Connect intervals.icu
+                      </Text>
+                    </Text>
                   )}
                 </StatsChartCard>
               </View>
@@ -469,6 +543,7 @@ export const StatsScreen: FC = () => {
                   icon="body-outline"
                   title="Muscle Soreness"
                   description="Subjective soreness. High load + elevated soreness = overtraining risk."
+                  compact={!sorenessSeries.length}
                 >
                   {sorenessSeries.length ? (
                     <WellnessCheckChartMobile
@@ -477,7 +552,15 @@ export const StatsScreen: FC = () => {
                       color="#f97316"
                     />
                   ) : (
-                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>No muscle soreness data yet.</Text>
+                    <Text style={[styles.emptyBody, { color: theme.textMuted }]}>
+                      No data yet ·{" "}
+                      <Text
+                        style={{ color: theme.accentBlue }}
+                        onPress={() => navigation.navigate("Settings" as never)}
+                      >
+                        Connect intervals.icu
+                      </Text>
+                    </Text>
                   )}
                 </StatsChartCard>
               </View>
@@ -509,8 +592,9 @@ const styles = StyleSheet.create({
   headerRow: {
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    gap: 12,
+    alignItems: "flex-start",
+    flexWrap: "wrap",
+    gap: 8,
   },
   statCardsScroll: {
     flexDirection: "row",
@@ -542,14 +626,15 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     borderRadius: 999,
     padding: 2,
+    marginTop: 4,
   },
   tabPill: {
-    paddingHorizontal: 14,
-    paddingVertical: 8,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 999,
   },
   tabLabel: {
-    fontSize: 13,
+    fontSize: 12,
     fontWeight: "600",
   },
   section: {
