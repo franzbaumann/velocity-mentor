@@ -53,6 +53,18 @@ export interface ActivityDetail {
   /** Pre-loaded social data from edge fallback (when direct Supabase queries may be blocked by RLS) */
   edgeLikes?: { id: string; user_id: string }[];
   edgeComments?: { id: string; user_id: string; content: string; created_at: string }[];
+  /** User-uploaded photos (url + path for deletion) */
+  photos?: { url: string; path?: string }[];
+  /** Actual DB row id (for intervals activities, id is icu_xxx but dbId is the UUID) */
+  dbId?: string;
+}
+
+function parsePhotos(raw: unknown): { url: string; path?: string }[] {
+  if (!raw || !Array.isArray(raw)) return [];
+  return raw
+    .filter((p): p is Record<string, unknown> => p != null && typeof p === "object")
+    .map((p) => ({ url: String(p.url ?? ""), path: p.path != null ? String(p.path) : undefined }))
+    .filter((p) => p.url.length > 0);
 }
 
 export type EnhancingSupplements = {
@@ -344,6 +356,7 @@ export function useActivityDetail(activityId: string | undefined) {
 
         return {
           id,
+          dbId: (dbAct?.id as string) ?? undefined,
           user_id: user.id,
           date: dateStr,
           type: String(a?.type ?? dbAct?.type ?? "Run"),
@@ -377,6 +390,7 @@ export function useActivityDetail(activityId: string | undefined) {
           nomio_drink: dbAct?.nomio_drink as boolean | null ?? null,
           lactate_levels: dbAct?.lactate_levels as string | null ?? null,
           enhancing_supplements: (dbAct?.enhancing_supplements as EnhancingSupplements | null) ?? null,
+          photos: parsePhotos(dbAct?.photos),
           source: "intervals_icu",
           latlng,
           splits,
@@ -543,6 +557,7 @@ export function useActivityDetail(activityId: string | undefined) {
 
       return {
         id: row.id as string,
+        dbId: row.id as string,
         user_id: rowUserId,
         date: (row.date as string) ?? "",
         type: (row.type as string) ?? "Run",
@@ -565,6 +580,7 @@ export function useActivityDetail(activityId: string | undefined) {
         nomio_drink: row.nomio_drink as boolean | null ?? null,
         lactate_levels: row.lactate_levels as string | null ?? null,
         enhancing_supplements: isOwner ? ((row.enhancing_supplements as EnhancingSupplements | null) ?? null) : null,
+        photos: parsePhotos(row.photos),
         latlng,
         splits,
         streams: hasStreams ? {

@@ -55,6 +55,7 @@ export type Database = {
           pace_efficiency: number | null
           pace_zone_times: Json | null
           perceived_exertion: number | null
+          photos: Json | null
           polyline: string | null
           source: Database["public"]["Enums"]["activity_source"] | null
           splits: Json | null
@@ -106,6 +107,7 @@ export type Database = {
           pace_efficiency?: number | null
           pace_zone_times?: Json | null
           perceived_exertion?: number | null
+          photos?: Json | null
           polyline?: string | null
           source?: Database["public"]["Enums"]["activity_source"] | null
           splits?: Json | null
@@ -157,6 +159,7 @@ export type Database = {
           pace_efficiency?: number | null
           pace_zone_times?: Json | null
           perceived_exertion?: number | null
+          photos?: Json | null
           polyline?: string | null
           source?: Database["public"]["Enums"]["activity_source"] | null
           splits?: Json | null

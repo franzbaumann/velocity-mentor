@@ -1,10 +1,8 @@
-import { useState, useMemo } from "react";
+import { useState } from "react";
 import { AppLayout } from "@/components/AppLayout";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
-import { Badge } from "@/components/ui/badge";
 import {
   Search,
   UserPlus,
@@ -12,11 +10,8 @@ import {
   X,
   Clock,
   ChevronRight,
-  Heart,
-  MessageCircle,
   Loader2,
   UserMinus,
-  Send,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -34,6 +29,7 @@ import {
 } from "@/hooks/useFriends";
 import { formatDistance } from "@/lib/format";
 import { FriendFeed } from "@/components/community/FriendFeed";
+import { MyFeed } from "@/components/community/MyFeed";
 import { WorkoutInvites } from "@/components/community/WorkoutInvites";
 
 function FriendProfileSheet({
@@ -116,9 +112,9 @@ function FriendProfileSheet({
                         key={w.id}
                         className="flex items-center gap-2 text-xs py-1.5 px-2 rounded-lg bg-muted/30"
                       >
-                        <Badge variant="outline" className="text-[10px] px-1.5 py-0">
+                        <span className="text-[10px] px-1.5 py-0 rounded border border-border font-medium">
                           {w.type}
-                        </Badge>
+                        </span>
                         <span className="text-foreground">{w.name || w.type}</span>
                         {w.distance_km != null && (
                           <span className="text-muted-foreground ml-auto">{w.distance_km} km</span>
@@ -182,7 +178,6 @@ function FriendProfileSheet({
 }
 
 export default function Community() {
-  const [tab, setTab] = useState("friends");
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedFriend, setSelectedFriend] = useState<FriendProfile | null>(null);
 
@@ -201,252 +196,269 @@ export default function Community() {
 
   return (
     <AppLayout>
-      <div className="max-w-2xl mx-auto">
-        <h1 className="page-title mb-6">Community</h1>
+      <div className="flex flex-col gap-6">
+        <h1 className="page-title">Community</h1>
 
-        <Tabs value={tab} onValueChange={setTab}>
-          <TabsList className="w-full mb-6">
-            <TabsTrigger value="feed" className="flex-1">
-              Feed
-            </TabsTrigger>
-            <TabsTrigger value="friends" className="flex-1 relative">
-              Friends
-              {pendingRequests.length > 0 && (
-                <span className="ml-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground inline-flex items-center justify-center">
-                  {pendingRequests.length}
-                </span>
-              )}
-            </TabsTrigger>
-            <TabsTrigger value="invites" className="flex-1">
-              Invites
-            </TabsTrigger>
-          </TabsList>
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+          {/* Feed */}
+          <div className="glass-card p-5 min-h-[320px] flex flex-col overflow-hidden">
+            <p className="section-header mb-4">Feed</p>
+            <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
+              <FriendFeed friends={friends} />
+            </div>
+          </div>
 
-          <TabsContent value="feed">
-            <FriendFeed friends={friends} />
-          </TabsContent>
+          {/* My Feed */}
+          <div className="glass-card p-5 min-h-[320px] flex flex-col overflow-hidden">
+            <p className="section-header mb-4">My Feed</p>
+            <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
+              <MyFeed />
+            </div>
+          </div>
 
-          <TabsContent value="friends">
-            {/* Search */}
-            <div className="mb-6">
-              <div className="flex gap-2">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
-                  <Input
-                    placeholder="Search by username or name..."
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={(e) => e.key === "Enter" && handleSearch()}
-                    className="pl-9"
-                  />
-                </div>
-                <Button
-                  onClick={handleSearch}
-                  disabled={searchQuery.trim().length < 2 || search.isPending}
-                  size="sm"
-                >
-                  {search.isPending ? (
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                  ) : (
-                    "Search"
+          {/* Invites + Friends (stacked) */}
+          <div className="flex flex-col gap-4">
+            {/* Invites */}
+            <div className="glass-card p-5 min-h-[320px] flex flex-col overflow-hidden">
+              <p className="section-header mb-4">Invites</p>
+              <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
+                <WorkoutInvites friends={friends} />
+              </div>
+            </div>
+
+            {/* Friends */}
+            <div className="glass-card p-5 min-h-[320px] flex flex-col overflow-hidden">
+              <div className="flex items-center justify-between mb-4">
+                <p className="section-header mb-0">
+                  Friends
+                  {pendingRequests.length > 0 && (
+                    <span className="ml-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground inline-flex items-center justify-center">
+                      {pendingRequests.length}
+                    </span>
                   )}
-                </Button>
+                </p>
+              </div>
+              <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1 space-y-4">
+              {/* Search */}
+              <div>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-muted-foreground" />
+                    <Input
+                      placeholder="Search athletes..."
+                      value={searchQuery}
+                      onChange={(e) => setSearchQuery(e.target.value)}
+                      onKeyDown={(e) => e.key === "Enter" && handleSearch()}
+                      className="pl-9 h-9 text-sm"
+                    />
+                  </div>
+                  <Button
+                    onClick={handleSearch}
+                    disabled={searchQuery.trim().length < 2 || search.isPending}
+                    size="sm"
+                    className="h-9"
+                  >
+                    {search.isPending ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      "Search"
+                    )}
+                  </Button>
+                </div>
+
+                {search.data && search.data.length > 0 && (
+                  <div className="mt-3 space-y-2">
+                    {search.data.map((result) => (
+                      <div
+                        key={result.id}
+                        className="flex items-center justify-between py-2 px-3 rounded-xl bg-muted/30"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-semibold">
+                            {result.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <span className="text-sm font-medium">{result.name}</span>
+                            {"username" in result && result.username && (
+                              <span className="text-xs text-muted-foreground ml-1.5">@{result.username}</span>
+                            )}
+                          </div>
+                        </div>
+                        {result.is_friend ? (
+                          <span className="text-xs text-muted-foreground font-medium">Already friends</span>
+                        ) : result.is_pending ? (
+                          <span className="text-xs text-muted-foreground font-medium">Request sent</span>
+                        ) : (
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-7 text-xs"
+                            onClick={() => {
+                              sendRequest.mutate(result.id, {
+                                onSuccess: () => {
+                                  toast.success(`Request sent to ${result.name}`);
+                                  search.reset();
+                                  setSearchQuery("");
+                                },
+                                onError: (e) => toast.error(e.message),
+                              });
+                            }}
+                            disabled={sendRequest.isPending}
+                          >
+                            <UserPlus className="w-3.5 h-3.5 mr-1" />
+                            Add
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {search.data && search.data.length === 0 && (
+                  <p className="text-sm text-muted-foreground mt-3">No athletes found</p>
+                )}
               </div>
 
-              {search.data && search.data.length > 0 && (
-                <div className="mt-3 space-y-2">
-                  {search.data.map((result) => (
-                    <div
-                      key={result.id}
-                      className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-muted/30"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-semibold">
-                          {result.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <span className="text-sm font-medium">{result.name}</span>
-                          {"username" in result && result.username && (
-                            <span className="text-xs text-muted-foreground ml-1.5">@{result.username}</span>
-                          )}
-                        </div>
-                      </div>
-                      {result.is_friend ? (
-                        <span className="text-xs text-muted-foreground font-medium">Already friends</span>
-                      ) : result.is_pending ? (
-                        <span className="text-xs text-muted-foreground font-medium">Request sent</span>
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => {
-                            sendRequest.mutate(result.id, {
-                              onSuccess: () => {
-                                toast.success(`Request sent to ${result.name}`);
-                                search.reset();
-                                setSearchQuery("");
-                              },
-                              onError: (e) => toast.error(e.message),
-                            });
-                          }}
-                          disabled={sendRequest.isPending}
-                        >
-                          <UserPlus className="w-4 h-4 mr-1" />
-                          Add
-                        </Button>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              {search.data && search.data.length === 0 && (
-                <p className="text-sm text-muted-foreground mt-3">No athletes found</p>
-              )}
-            </div>
-
-            {/* Pending Requests */}
-            {pendingRequests.length > 0 && (
-              <div className="mb-6">
-                <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Pending Requests
-                </h2>
-                <div className="space-y-2">
-                  {pendingRequests.map((req) => (
-                    <div
-                      key={req.id}
-                      className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-muted/30"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent text-sm font-semibold">
-                          {req.fromName.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">{req.fromName}</p>
-                          <p className="text-xs text-muted-foreground">
-                            {formatDistanceToNow(new Date(req.createdAt), { addSuffix: true })}
-                          </p>
-                        </div>
-                      </div>
-                      <div className="flex gap-1.5">
-                        <Button
-                          size="sm"
-                          variant="default"
-                          className="h-8"
-                          onClick={() =>
-                            respond.mutate(
-                              { requestId: req.id, action: "accept" },
-                              {
-                                onSuccess: () => toast.success(`You and ${req.fromName} are now friends`),
-                              }
-                            )
-                          }
-                          disabled={respond.isPending}
-                        >
-                          <Check className="w-4 h-4" />
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          className="h-8"
-                          onClick={() =>
-                            respond.mutate(
-                              { requestId: req.id, action: "reject" },
-                              {
-                                onSuccess: () => toast("Request declined"),
-                              }
-                            )
-                          }
-                          disabled={respond.isPending}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Sent Requests */}
-            {sentRequests.length > 0 && (
-              <div className="mb-6">
-                <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                  Sent Requests
-                </h2>
-                <div className="space-y-2">
-                  {sentRequests.map((req) => (
-                    <div
-                      key={req.id}
-                      className="flex items-center justify-between py-2.5 px-3 rounded-xl bg-muted/30 opacity-70"
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground text-sm font-semibold">
-                          {req.toName.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">{req.toName}</p>
-                          <p className="text-xs text-muted-foreground flex items-center gap-1">
-                            <Clock className="w-3 h-3" /> Pending
-                          </p>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* Friends List */}
-            <div>
-              <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-                Friends{friends.length > 0 ? ` (${friends.length})` : ""}
-              </h2>
-              {friendsLoading ? (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
-                </div>
-              ) : friends.length === 0 ? (
-                <div className="text-center py-12">
-                  <UserPlus className="w-10 h-10 text-muted-foreground/40 mx-auto mb-3" />
-                  <p className="text-sm text-muted-foreground">
-                    No friends yet. Search above to connect with other athletes.
-                  </p>
-                </div>
-              ) : (
-                <div className="space-y-1">
-                  {friends.map((friend) => (
-                    <button
-                      key={friend.id}
-                      onClick={() => setSelectedFriend(friend)}
-                      className="w-full flex items-center justify-between py-3 px-3 rounded-xl hover:bg-muted/30 transition-colors text-left"
-                    >
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-semibold">
-                          {friend.name.charAt(0).toUpperCase()}
-                        </div>
-                        <div>
-                          <p className="text-sm font-medium">{friend.name}</p>
-                          {friend.goalDistance && (
+              {/* Pending Requests */}
+              {pendingRequests.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    Pending Requests
+                  </h3>
+                  <div className="space-y-2">
+                    {pendingRequests.map((req) => (
+                      <div
+                        key={req.id}
+                        className="flex items-center justify-between py-2 px-3 rounded-xl bg-muted/30"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-accent/10 flex items-center justify-center text-accent text-sm font-semibold">
+                            {req.fromName.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">{req.fromName}</p>
                             <p className="text-xs text-muted-foreground">
-                              {friend.goalDistance}
-                              {friend.goalTime ? ` · ${friend.goalTime}` : ""}
+                              {formatDistanceToNow(new Date(req.createdAt), { addSuffix: true })}
                             </p>
-                          )}
+                          </div>
+                        </div>
+                        <div className="flex gap-1.5">
+                          <Button
+                            size="sm"
+                            variant="default"
+                            className="h-8 w-8 p-0"
+                            onClick={() =>
+                              respond.mutate(
+                                { requestId: req.id, action: "accept" },
+                                {
+                                  onSuccess: () => toast.success(`You and ${req.fromName} are now friends`),
+                                }
+                              )
+                            }
+                            disabled={respond.isPending}
+                          >
+                            <Check className="w-4 h-4" />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="h-8 w-8 p-0"
+                            onClick={() =>
+                              respond.mutate(
+                                { requestId: req.id, action: "reject" },
+                                {
+                                  onSuccess: () => toast("Request declined"),
+                                }
+                              )
+                            }
+                            disabled={respond.isPending}
+                          >
+                            <X className="w-4 h-4" />
+                          </Button>
                         </div>
                       </div>
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                    </button>
-                  ))}
+                    ))}
+                  </div>
                 </div>
               )}
-            </div>
-          </TabsContent>
 
-          <TabsContent value="invites">
-            <WorkoutInvites friends={friends} />
-          </TabsContent>
-        </Tabs>
+              {/* Sent Requests */}
+              {sentRequests.length > 0 && (
+                <div>
+                  <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                    Sent Requests
+                  </h3>
+                  <div className="space-y-2">
+                    {sentRequests.map((req) => (
+                      <div
+                        key={req.id}
+                        className="flex items-center justify-between py-2 px-3 rounded-xl bg-muted/30 opacity-70"
+                      >
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground text-sm font-semibold">
+                            {req.toName.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">{req.toName}</p>
+                            <p className="text-xs text-muted-foreground flex items-center gap-1">
+                              <Clock className="w-3 h-3" /> Pending
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Friends List */}
+              <div>
+                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
+                  Friends{friends.length > 0 ? ` (${friends.length})` : ""}
+                </h3>
+                {friendsLoading ? (
+                  <div className="flex justify-center py-8">
+                    <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+                  </div>
+                ) : friends.length === 0 ? (
+                  <div className="text-center py-8">
+                    <UserPlus className="w-8 h-8 text-muted-foreground/40 mx-auto mb-2" />
+                    <p className="text-sm text-muted-foreground">
+                      No friends yet. Search above to connect.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-1">
+                    {friends.map((friend) => (
+                      <button
+                        key={friend.id}
+                        onClick={() => setSelectedFriend(friend)}
+                        className="w-full flex items-center justify-between py-2.5 px-3 rounded-xl hover:bg-muted/30 transition-colors text-left"
+                      >
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-full bg-primary/10 flex items-center justify-center text-primary text-sm font-semibold">
+                            {friend.name.charAt(0).toUpperCase()}
+                          </div>
+                          <div>
+                            <p className="text-sm font-medium">{friend.name}</p>
+                            {friend.goalDistance && (
+                              <p className="text-xs text-muted-foreground truncate max-w-[140px]">
+                                {friend.goalDistance}
+                                {friend.goalTime ? ` · ${friend.goalTime}` : ""}
+                              </p>
+                            )}
+                          </div>
+                        </div>
+                        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+          </div>
+        </div>
       </div>
 
       <FriendProfileSheet

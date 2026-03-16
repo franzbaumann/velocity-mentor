@@ -32,6 +32,7 @@ import {
 import { format, parseISO, addDays } from "date-fns";
 import { toast } from "sonner";
 import type { FriendProfile } from "@/hooks/useFriends";
+import { parseSteps, WorkoutStepsDisplay, CombinedWorkoutDisplay, type CombinedWorkoutPreview } from "@/lib/workout-steps";
 
 function useWorkoutInvites() {
   const { user } = useAuth();
@@ -123,11 +124,13 @@ function useSendInvite() {
       proposedDate,
       message,
       inviteType,
+      fromWorkoutId,
     }: {
       toUser: string;
       proposedDate: string;
       message: string;
       inviteType: "combined" | "parallel";
+      fromWorkoutId?: string | null;
     }) => {
       if (!user) throw new Error("Not authenticated");
 
@@ -138,6 +141,7 @@ function useSendInvite() {
         message: message || null,
         invite_type: inviteType,
         status: "pending",
+        from_workout_id: fromWorkoutId || null,
       });
 
       if (error) throw error;
@@ -201,7 +205,7 @@ function NewInviteSheet({
       if (!plan) return [];
       const { data: workouts } = await supabase
         .from("training_plan_workout")
-        .select("type, name, description, distance_km, duration_minutes, target_pace")
+        .select("id, type, name, description, distance_km, duration_minutes, target_pace, workout_steps, coach_note, structure_detail, key_focus")
         .eq("plan_id", plan.id)
         .eq("date", proposedDate)
         .limit(5);
@@ -210,11 +214,15 @@ function NewInviteSheet({
     staleTime: 60_000,
   });
 
+  const firstWorkoutId = (myPlanWorkouts && myPlanWorkouts.length > 0)
+    ? (myPlanWorkouts[0] as { id?: string }).id ?? null
+    : null;
+
   const handleSend = () => {
     if (!selectedFriend || !proposedDate) return;
 
     sendInvite.mutate(
-      { toUser: selectedFriend, proposedDate, message, inviteType },
+      { toUser: selectedFriend, proposedDate, message, inviteType, fromWorkoutId: firstWorkoutId },
       {
         onSuccess: () => {
           toast.success("Workout invite sent!");
@@ -271,10 +279,18 @@ function NewInviteSheet({
               Your plan for {format(parseISO(proposedDate), "EEE, MMM d")}
             </p>
             {myPlanWorkouts && myPlanWorkouts.length > 0 ? (
-              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-                {(myPlanWorkouts as { type?: string; name?: string; description?: string; distance_km?: number; duration_minutes?: number; target_pace?: string }[]).map((w, i) => {
+              <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
+                {(myPlanWorkouts as { id?: string; type?: string; name?: string; description?: string; distance_km?: number; duration_minutes?: number; target_pace?: string; workout_steps?: unknown }[]).map((w, i) => {
+                  const steps = parseSteps(w.workout_steps);
+                  if (steps && steps.length > 0) {
+                    return (
+                      <div key={i} className={i > 0 ? "mt-4 pt-3 border-t border-border/50" : ""}>
+                        <WorkoutStepsDisplay steps={steps} />
+                      </div>
+                    );
+                  }
                   const parts = [w.type, w.name, w.description, w.distance_km ? `${w.distance_km} km` : null, w.duration_minutes ? `${w.duration_minutes} min` : null, w.target_pace ? `@ ${w.target_pace}` : null].filter(Boolean);
-                  return <p key={i} className={i > 0 ? "mt-1" : ""}>{parts.join(" · ") || "Workout"}</p>;
+                  return <p key={i} className={`text-xs text-muted-foreground ${i > 0 ? "mt-1" : ""}`}>{parts.join(" · ") || "Workout"}</p>;
                 })}
               </div>
             ) : (
@@ -347,11 +363,7 @@ function NewInviteSheet({
   );
 }
 
-type CombinedPreview = {
-  summary?: string;
-  athlete_a?: { name: string; workout?: string; adapted_workout?: string };
-  athlete_b?: { name: string; workout?: string; adapted_workout?: string };
-};
+type CombinedPreview = CombinedWorkoutPreview;
 
 export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
   const { user } = useAuth();
@@ -412,6 +424,50 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
   const sent = data?.sent ?? [];
   const pendingReceived = received.filter((r) => r.status === "pending");
   const autoFetchedRef = useRef<string | null>(null);
+
+  const historyInvites = [...sent, ...received.filter((r) => r.status !== "pending")]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 10);
+  const expandedInviteData = expandedInvite ? historyInvites.find((i) => i.id === expandedInvite) : null;
+  const expandedFromWorkoutId = expandedInviteData?.from_workout_id as string | null | undefined;
+  const expandedProposedDate = expandedInviteData?.proposed_date as string | undefined;
+  const isExpandedSent = expandedInviteData?.from_user === user?.id;
+
+  const { data: expandedWorkout } = useQuery({
+    queryKey: ["invite-workout-detail", expandedFromWorkoutId ?? expandedProposedDate, expandedInvite, isExpandedSent],
+    enabled: !!expandedInvite && !!user && (!!expandedFromWorkoutId || (!!expandedProposedDate && isExpandedSent)),
+    queryFn: async () => {
+      if (!user) return null;
+      if (expandedFromWorkoutId) {
+        const { data } = await supabase
+          .from("training_plan_workout")
+          .select("id, type, name, description, distance_km, duration_minutes, target_pace, workout_steps, key_focus")
+          .eq("id", expandedFromWorkoutId)
+          .maybeSingle();
+        return data;
+      }
+      if (expandedProposedDate && isExpandedSent) {
+        const { data: plan } = await supabase
+          .from("training_plan")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("is_active", true)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+        if (!plan) return null;
+        const { data: workouts } = await supabase
+          .from("training_plan_workout")
+          .select("id, type, name, description, distance_km, duration_minutes, target_pace, workout_steps, key_focus")
+          .eq("plan_id", plan.id)
+          .eq("date", expandedProposedDate)
+          .limit(1);
+        return workouts?.[0] ?? null;
+      }
+      return null;
+    },
+    staleTime: 60_000,
+  });
 
   useEffect(() => {
     if (pendingReceived.length !== 1 || isLoading) return;
@@ -499,21 +555,8 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
                     </Button>
                   </div>
                   {previewInviteId === invite.id && previewData && (
-                    <div className="mb-3 pt-3 border-t border-border/50 text-xs text-muted-foreground">
-                      <p className="font-medium text-foreground mb-1">Kipcoachee&apos;s Plan</p>
-                      <p>{previewData.summary}</p>
-                      {previewData.athlete_a && (
-                        <p className="mt-1">
-                          <span className="font-medium">{previewData.athlete_a.name}:</span>{" "}
-                          {previewData.athlete_a.adapted_workout ?? previewData.athlete_a.workout}
-                        </p>
-                      )}
-                      {previewData.athlete_b && (
-                        <p>
-                          <span className="font-medium">{previewData.athlete_b.name}:</span>{" "}
-                          {previewData.athlete_b.adapted_workout ?? previewData.athlete_b.workout}
-                        </p>
-                      )}
+                    <div className="mb-3 pt-3 border-t border-border/50">
+                      <CombinedWorkoutDisplay data={previewData} />
                     </div>
                   )}
                   <div className="flex gap-2">
@@ -558,99 +601,90 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
         <div>
           <h3 className="text-xs text-muted-foreground mb-2">History</h3>
           <div className="space-y-2">
-            {[...sent, ...received.filter((r) => r.status !== "pending")]
-              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-              .slice(0, 10)
-              .map((invite) => {
-                const isSent = invite.from_user === user?.id;
-                const otherName = friendNameMap.get(
-                  isSent ? invite.to_user : invite.from_user
-                ) ?? "Friend";
-                const combined = invite.combined_workout as {
-                  summary?: string;
-                  athlete_a?: { name: string; workout: string };
-                  athlete_b?: { name: string; workout: string };
-                } | null;
+            {historyInvites.map((invite) => {
+              const isSent = invite.from_user === user?.id;
+              const otherName = friendNameMap.get(
+                isSent ? invite.to_user : invite.from_user
+              ) ?? "Friend";
+              const combined = invite.combined_workout as CombinedWorkoutPreview | null;
+              const isExpanded = expandedInvite === invite.id;
+              const steps = expandedWorkout && isExpanded ? parseSteps(expandedWorkout.workout_steps) : null;
 
-                return (
-                  <div
-                    key={invite.id}
-                    className="w-full text-left card-standard p-3 hover:bg-muted/30 transition-colors"
+              return (
+                <div
+                  key={invite.id}
+                  className="w-full text-left card-standard p-3 hover:bg-muted/30 transition-colors"
+                >
+                  <button
+                    onClick={() =>
+                      setExpandedInvite(isExpanded ? null : invite.id)
+                    }
+                    className="w-full text-left"
                   >
-                    <button
-                      onClick={() =>
-                        setExpandedInvite(expandedInvite === invite.id ? null : invite.id)
-                      }
-                      className="w-full text-left"
-                    >
-                      <div className="flex items-center justify-between">
-                        <div>
-                          <div className="text-sm">
-                            {isSent ? `You invited ${otherName}` : `${otherName} invited you`}
-                          </div>
-                          <div className="text-xs text-muted-foreground">
-                            {format(parseISO(invite.proposed_date), "MMM d")} ·{" "}
-                            {invite.invite_type}
-                          </div>
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="text-sm">
+                          {isSent ? `You invited ${otherName}` : `${otherName} invited you`}
                         </div>
-                        <div className="flex items-center gap-2">
-                          <Badge
-                            variant={
-                              invite.status === "accepted"
-                                ? "default"
-                                : invite.status === "pending"
-                                  ? "outline"
-                                  : "secondary"
-                            }
-                            className="text-[10px]"
-                          >
-                            {invite.status}
-                          </Badge>
+                        <div className="text-xs text-muted-foreground">
+                          {format(parseISO(invite.proposed_date), "MMM d")} ·{" "}
+                          {invite.invite_type}
                         </div>
                       </div>
-                    </button>
-                    {expandedInvite === invite.id && (
-                      <>
-                        {combined?.summary && (
-                          <div className="mt-3 pt-3 border-t border-border/50 text-xs text-muted-foreground">
-                            <p className="font-medium text-foreground mb-1">Kipcoachee&apos;s Plan</p>
-                            <p>{combined.summary}</p>
-                            {combined.athlete_a && (
-                              <p className="mt-1">
-                                <span className="font-medium">{combined.athlete_a.name}:</span>{" "}
-                                {combined.athlete_a.workout}
-                              </p>
-                            )}
-                            {combined.athlete_b && (
-                              <p>
-                                <span className="font-medium">{combined.athlete_b.name}:</span>{" "}
-                                {combined.athlete_b.workout}
-                              </p>
-                            )}
-                          </div>
-                        )}
-                        <div className="mt-2 pt-2 border-t border-border/50 flex justify-end">
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
-                            onClick={() =>
-                              deleteInvite.mutate(invite.id, {
-                                onSuccess: () => toast.success("Invite deleted"),
-                                onError: () => toast.error("Could not delete invite"),
-                              })
-                            }
-                            disabled={deleteInvite.isPending}
-                          >
-                            <Trash2 className="w-3 h-3 mr-1" />
-                            Delete
-                          </Button>
+                      <div className="flex items-center gap-2">
+                        <Badge
+                          variant={
+                            invite.status === "accepted"
+                              ? "default"
+                              : invite.status === "pending"
+                                ? "outline"
+                                : "secondary"
+                          }
+                          className="text-[10px]"
+                        >
+                          {invite.status}
+                        </Badge>
+                      </div>
+                    </div>
+                  </button>
+                  {isExpanded && (
+                    <>
+                      {combined && (combined.summary || combined.shared_warmup || combined.shared_cooldown || combined.athlete_a || combined.athlete_b) ? (
+                        <div className="mt-3 pt-3 border-t border-border/50">
+                          <CombinedWorkoutDisplay data={combined} />
                         </div>
-                      </>
-                    )}
-                  </div>
-                );
-              })}
+                      ) : steps && steps.length > 0 ? (
+                        <div className="mt-3 pt-3 border-t border-border/50">
+                          <WorkoutStepsDisplay steps={steps} />
+                        </div>
+                      ) : expandedWorkout ? (
+                        <div className="mt-3 pt-3 border-t border-border/50 text-xs text-muted-foreground">
+                          <p className="font-medium text-foreground">{(expandedWorkout as { type?: string; name?: string; description?: string }).type ?? "Workout"}</p>
+                          <p>{(expandedWorkout as { type?: string; name?: string; description?: string }).name ?? (expandedWorkout as { description?: string }).description ?? "—"}</p>
+                        </div>
+                      ) : null}
+                      <div className="mt-2 pt-2 border-t border-border/50 flex justify-end">
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
+                          onClick={() =>
+                            deleteInvite.mutate(invite.id, {
+                              onSuccess: () => toast.success("Invite deleted"),
+                              onError: () => toast.error("Could not delete invite"),
+                            })
+                          }
+                          disabled={deleteInvite.isPending}
+                        >
+                          <Trash2 className="w-3 h-3 mr-1" />
+                          Delete
+                        </Button>
+                      </div>
+                    </>
+                  )}
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

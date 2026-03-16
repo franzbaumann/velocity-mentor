@@ -11,7 +11,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { format, formatDistanceToNow } from "date-fns";
 import { isNonDistanceActivity } from "@/lib/analytics";
 import { formatDistance, formatCadence, formatElevation, normalizePaceDisplay, cadenceToDisplaySpm } from "@/lib/format";
-import { ArrowLeft, BarChart3, Heart, Mountain, MessageCircle, Loader2, FileText, Coffee, Droplets, Download, Trophy, Send } from "lucide-react";
+import { ArrowLeft, BarChart3, Heart, Mountain, MessageCircle, Loader2, FileText, Coffee, Droplets, Download, Trophy, Send, ImagePlus, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -35,6 +35,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
+import { ActivityPhotos } from "@/components/ActivityPhotos";
 
 delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -649,6 +650,20 @@ export default function ActivityDetail() {
               </MapContainer>
             </div>
           )}
+
+          {/* Photos (visible to everyone when activity has photos) */}
+          {(activity.photos?.length ?? 0) > 0 && (
+            <div className="border-t border-border p-4">
+              <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Photos</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                {activity.photos?.map((p, i) => (
+                  <div key={i} className="relative aspect-square rounded-lg overflow-hidden bg-muted">
+                    <img src={p.url} alt="" className="w-full h-full object-cover" />
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Social bar (likes / comments from friends) */}
@@ -1006,6 +1021,12 @@ export default function ActivityDetail() {
         {tab === "notes" && isOwner && (
           <div className="space-y-4">
             <CoachNote activityId={id} cachedNote={activity.coach_note} />
+            <ActivityPhotos
+              activityId={activity.dbId ?? activity.id}
+              photos={activity.photos ?? []}
+              userId={user?.id}
+              onUpdate={() => queryClient.invalidateQueries({ queryKey: ["activity-detail", id] })}
+            />
             <ActivityNotes
               activityId={id}
               userNotes={activity.user_notes}

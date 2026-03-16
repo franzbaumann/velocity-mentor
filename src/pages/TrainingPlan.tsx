@@ -17,78 +17,7 @@ import {
 } from "@/components/ui/popover";
 import { DateWheelPicker } from "@/components/ui/date-wheel-picker";
 import { plannedWorkoutDurationMinutes, plannedWorkoutSummary } from "@/lib/format";
-
-// ── Workout Steps ──────────────────────────────────────────────────────────────
-type WorkoutStep = {
-  phase: "warmup" | "main" | "cooldown" | "note";
-  label: string;
-  duration_min?: number | null;
-  distance_km?: number | null;
-  target_pace?: string | null;
-  target_hr_zone?: number | null;
-  notes?: string | null;
-  // main-phase only
-  reps?: number | null;
-  rep_distance_km?: number | null;
-  rest_label?: string | null;
-};
-
-function parseSteps(raw: unknown): WorkoutStep[] | null {
-  if (!raw) return null;
-  try {
-    const arr = Array.isArray(raw) ? raw : JSON.parse(String(raw));
-    if (Array.isArray(arr) && arr.length > 0) return arr as WorkoutStep[];
-  } catch { /* ignore */ }
-  return null;
-}
-
-const PHASE_STYLES: Record<string, { border: string; bg: string; badge: string; label: string }> = {
-  warmup:   { border: "border-l-emerald-500",       bg: "bg-emerald-500/5",     badge: "bg-emerald-500/15 text-emerald-400",    label: "Warm-up"  },
-  main:     { border: "border-l-primary",            bg: "bg-primary/5",         badge: "bg-primary/15 text-primary",            label: "Main Set" },
-  cooldown: { border: "border-l-muted-foreground/40", bg: "bg-muted/20",          badge: "bg-muted text-muted-foreground",         label: "Cool-down"},
-  note:     { border: "border-l-muted-foreground/20", bg: "bg-muted/10",          badge: "bg-muted text-muted-foreground",         label: "Note"    },
-};
-
-function WorkoutStepsDisplay({ steps }: { steps: WorkoutStep[] }) {
-  if (steps.length === 0) return null;
-  return (
-    <div className="space-y-2 mb-4">
-      <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Session Breakdown</p>
-      {steps.map((step, i) => {
-        const style = PHASE_STYLES[step.phase] ?? PHASE_STYLES.note;
-        const isMain = step.phase === "main";
-        return (
-          <div key={i} className={`border-l-[3px] rounded-r-lg pl-3 pr-3 py-2.5 ${style.border} ${style.bg}`}>
-            <div className="flex items-start gap-2 flex-wrap">
-              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase tracking-wide shrink-0 ${style.badge}`}>
-                {style.label}
-              </span>
-              <span className="text-sm font-medium text-foreground leading-snug">{step.label}</span>
-            </div>
-            <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-xs text-muted-foreground">
-              {isMain && step.reps != null && step.rep_distance_km != null && (
-                <span className="font-medium text-foreground/80">{step.reps} × {step.rep_distance_km} km</span>
-              )}
-              {step.target_pace && <span>{step.target_pace}</span>}
-              {step.target_hr_zone != null && <span>HR zone {step.target_hr_zone}</span>}
-              {step.duration_min != null && !isMain && <span>{step.duration_min} min</span>}
-              {step.distance_km != null && !isMain && <span>{step.distance_km} km</span>}
-            </div>
-            {isMain && step.rest_label && (
-              <div className="mt-1.5 flex items-center gap-1.5">
-                <span className="text-[10px] font-medium text-muted-foreground/60 uppercase tracking-wide">Rest:</span>
-                <span className="text-xs text-muted-foreground">{step.rest_label}</span>
-              </div>
-            )}
-            {step.notes && (
-              <p className="text-xs text-muted-foreground/70 mt-1 italic">{step.notes}</p>
-            )}
-          </div>
-        );
-      })}
-    </div>
-  );
-}
+import { parseSteps, WorkoutStepsDisplay, type WorkoutStep } from "@/lib/workout-steps";
 
 /** Match app theme for session badges */
 const SESSION_COLORS: Record<string, string> = {
