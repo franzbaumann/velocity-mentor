@@ -29,6 +29,7 @@ const Coach = lazy(() => import("./pages/Coach"));
 const Stats = lazy(() => import("./pages/Stats"));
 const Season = lazy(() => import("./pages/Season"));
 const Community = lazy(() => import("./pages/Community"));
+const FriendProfile = lazy(() => import("./pages/FriendProfile"));
 
 const queryClient = new QueryClient();
 
@@ -48,7 +49,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   if (loading || integrationLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+        <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" style={{ borderColor: "hsl(211 100% 52%)", borderTopColor: "transparent" }} />
       </div>
     );
   }
@@ -77,7 +78,7 @@ function LandingOrDashboard() {
   if (loading || (user && integrationLoading)) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+        <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" style={{ borderColor: "hsl(211 100% 52%)", borderTopColor: "transparent" }} />
       </div>
     );
   }
@@ -107,7 +108,7 @@ const App = () => (
         <DailyCheckInProvider>
         <Suspense fallback={
             <div className="min-h-screen bg-background flex items-center justify-center">
-              <div className="w-8 h-8 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" style={{ borderColor: "hsl(211 100% 52%)", borderTopColor: "transparent" }} />
             </div>
           }>
           <Routes>
@@ -169,6 +170,14 @@ const App = () => (
             element={
               <AuthGuard>
                 <Community />
+              </AuthGuard>
+            }
+          />
+          <Route
+            path="/community/profile/:userId"
+            element={
+              <AuthGuard>
+                <FriendProfile />
               </AuthGuard>
             }
           />

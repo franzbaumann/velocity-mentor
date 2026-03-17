@@ -1,8 +1,8 @@
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import {
   Search,
   UserPlus,
@@ -11,7 +11,6 @@ import {
   Clock,
   ChevronRight,
   Loader2,
-  UserMinus,
 } from "lucide-react";
 import { toast } from "sonner";
 import { formatDistanceToNow } from "date-fns";
@@ -22,164 +21,13 @@ import {
   useSearchAthletes,
   useSendFriendRequest,
   useRespondToRequest,
-  useUnfriend,
-  useFriendActivities,
-  useFriendPlan,
-  type FriendProfile,
 } from "@/hooks/useFriends";
-import { formatDistance } from "@/lib/format";
 import { FriendFeed } from "@/components/community/FriendFeed";
 import { MyFeed } from "@/components/community/MyFeed";
 import { WorkoutInvites } from "@/components/community/WorkoutInvites";
 
-function FriendProfileSheet({
-  friend,
-  open,
-  onClose,
-}: {
-  friend: FriendProfile | null;
-  open: boolean;
-  onClose: () => void;
-}) {
-  const { data: activityData } = useFriendActivities(friend?.id ?? null);
-  const { data: planData } = useFriendPlan(friend?.id ?? null);
-  const unfriend = useUnfriend();
-
-  const activities = (activityData?.activities ?? []) as {
-    id: string;
-    date: string;
-    name: string;
-    distance_km: number | null;
-    avg_pace: string | null;
-    type: string;
-  }[];
-  const plan = planData?.plan as {
-    plan_name: string;
-    philosophy: string;
-    goal_race: string;
-    goal_time: string;
-  } | null;
-  const upcomingWorkouts = (planData?.workouts ?? []) as {
-    id: string;
-    date: string;
-    type: string;
-    name: string;
-    distance_km: number | null;
-    duration_minutes: number | null;
-  }[];
-
-  return (
-    <Sheet open={open} onOpenChange={(v) => !v && onClose()}>
-      <SheetContent side="right" className="w-full sm:max-w-md overflow-y-auto">
-        {friend && (
-          <>
-            <SheetHeader className="pb-4">
-              <div className="flex items-center gap-3">
-                <div className="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center text-primary text-lg font-semibold">
-                  {friend.name.charAt(0).toUpperCase()}
-                </div>
-                <div>
-                  <SheetTitle className="text-lg">{friend.name}</SheetTitle>
-                  {friend.goalDistance && (
-                    <p className="text-sm text-muted-foreground">
-                      {friend.goalDistance}
-                      {friend.goalTime ? ` in ${friend.goalTime}` : ""}
-                    </p>
-                  )}
-                </div>
-              </div>
-            </SheetHeader>
-
-            {plan && (
-              <div className="mb-6">
-                <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                  Current Plan
-                </h3>
-                <div className="card-standard p-3">
-                  <p className="text-sm font-medium">{plan.plan_name}</p>
-                  <p className="text-xs text-muted-foreground mt-0.5">
-                    {plan.philosophy?.replace(/_/g, " ")}
-                    {plan.goal_race ? ` · ${plan.goal_race}` : ""}
-                    {plan.goal_time ? ` · ${plan.goal_time}` : ""}
-                  </p>
-                </div>
-
-                {upcomingWorkouts.length > 0 && (
-                  <div className="mt-3 space-y-1.5">
-                    <p className="text-xs text-muted-foreground">This week</p>
-                    {upcomingWorkouts.slice(0, 5).map((w) => (
-                      <div
-                        key={w.id}
-                        className="flex items-center gap-2 text-xs py-1.5 px-2 rounded-lg bg-muted/30"
-                      >
-                        <span className="text-[10px] px-1.5 py-0 rounded border border-border font-medium">
-                          {w.type}
-                        </span>
-                        <span className="text-foreground">{w.name || w.type}</span>
-                        {w.distance_km != null && (
-                          <span className="text-muted-foreground ml-auto">{w.distance_km} km</span>
-                        )}
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            <div className="mb-6">
-              <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-                Recent Activities
-              </h3>
-              {activities.length === 0 ? (
-                <p className="text-sm text-muted-foreground">No recent activities</p>
-              ) : (
-                <div className="space-y-2">
-                  {activities.slice(0, 8).map((a) => (
-                    <div
-                      key={a.id}
-                      className="flex items-center justify-between py-2 px-2 rounded-lg hover:bg-muted/30 transition-colors"
-                    >
-                      <div>
-                        <p className="text-sm font-medium">{a.name ?? a.type}</p>
-                        <p className="text-xs text-muted-foreground">
-                          {a.date}
-                          {a.distance_km ? ` · ${formatDistance(a.distance_km)}` : ""}
-                          {a.avg_pace ? ` · ${a.avg_pace}` : ""}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <Button
-              variant="outline"
-              size="sm"
-              className="text-destructive hover:text-destructive"
-              onClick={() => {
-                unfriend.mutate(friend.id, {
-                  onSuccess: () => {
-                    toast.success(`Removed ${friend.name} from friends`);
-                    onClose();
-                  },
-                });
-              }}
-              disabled={unfriend.isPending}
-            >
-              <UserMinus className="w-4 h-4 mr-1.5" />
-              Remove friend
-            </Button>
-          </>
-        )}
-      </SheetContent>
-    </Sheet>
-  );
-}
-
 export default function Community() {
   const [searchQuery, setSearchQuery] = useState("");
-  const [selectedFriend, setSelectedFriend] = useState<FriendProfile | null>(null);
 
   const { data: friends = [], isLoading: friendsLoading } = useFriendsList();
   const { data: pendingRequests = [] } = usePendingRequests();
@@ -196,47 +44,54 @@ export default function Community() {
 
   return (
     <AppLayout>
-      <div className="flex flex-col gap-6">
-        <h1 className="page-title">Community</h1>
+      <div className="flex flex-col gap-8">
+        <div>
+          <h1 className="page-title">Community</h1>
+          <p className="text-muted-foreground mt-1 text-sm">
+            See what your friends are up to and run together.
+          </p>
+        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
           {/* Feed */}
-          <div className="glass-card p-5 min-h-[320px] flex flex-col overflow-hidden">
-            <p className="section-header mb-4">Feed</p>
+          <div className="glass-card p-6 min-h-[400px] flex flex-col overflow-hidden">
+            <h2 className="text-sm font-semibold text-foreground mb-1">Feed</h2>
+            <p className="text-xs text-muted-foreground mb-4">Activities from friends</p>
             <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
               <FriendFeed friends={friends} />
             </div>
           </div>
 
           {/* My Feed */}
-          <div className="glass-card p-5 min-h-[320px] flex flex-col overflow-hidden">
-            <p className="section-header mb-4">My Feed</p>
+          <div className="glass-card p-6 min-h-[400px] flex flex-col overflow-hidden">
+            <h2 className="text-sm font-semibold text-foreground mb-1">My Feed</h2>
+            <p className="text-xs text-muted-foreground mb-4">Your recent activities</p>
             <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
               <MyFeed />
             </div>
           </div>
 
           {/* Invites + Friends (stacked) */}
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-6">
             {/* Invites */}
-            <div className="glass-card p-5 min-h-[320px] flex flex-col overflow-hidden">
-              <p className="section-header mb-4">Invites</p>
+            <div className="glass-card p-6 min-h-[320px] flex flex-col overflow-hidden">
+              <h2 className="text-sm font-semibold text-foreground mb-4">Invites</h2>
               <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
                 <WorkoutInvites friends={friends} />
               </div>
             </div>
 
             {/* Friends */}
-            <div className="glass-card p-5 min-h-[320px] flex flex-col overflow-hidden">
+            <div className="glass-card p-6 min-h-[320px] flex flex-col overflow-hidden">
               <div className="flex items-center justify-between mb-4">
-                <p className="section-header mb-0">
+                <h2 className="text-sm font-semibold text-foreground flex items-center gap-1.5">
                   Friends
                   {pendingRequests.length > 0 && (
-                    <span className="ml-1.5 min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground inline-flex items-center justify-center">
+                    <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-primary text-[10px] font-bold text-primary-foreground inline-flex items-center justify-center">
                       {pendingRequests.length}
                     </span>
                   )}
-                </p>
+                </h2>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1 space-y-4">
               {/* Search */}
@@ -430,9 +285,9 @@ export default function Community() {
                 ) : (
                   <div className="space-y-1">
                     {friends.map((friend) => (
-                      <button
+                      <Link
                         key={friend.id}
-                        onClick={() => setSelectedFriend(friend)}
+                        to={`/community/profile/${friend.id}`}
                         className="w-full flex items-center justify-between py-2.5 px-3 rounded-xl hover:bg-muted/30 transition-colors text-left"
                       >
                         <div className="flex items-center gap-3">
@@ -450,7 +305,7 @@ export default function Community() {
                           </div>
                         </div>
                         <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
-                      </button>
+                      </Link>
                     ))}
                   </div>
                 )}
@@ -460,12 +315,6 @@ export default function Community() {
           </div>
         </div>
       </div>
-
-      <FriendProfileSheet
-        friend={selectedFriend}
-        open={!!selectedFriend}
-        onClose={() => setSelectedFriend(null)}
-      />
     </AppLayout>
   );
 }

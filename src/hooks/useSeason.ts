@@ -75,9 +75,13 @@ export function useSeason() {
     mutationFn: async ({
       season,
       races,
+      endGoalRaceIndex,
+      userId,
     }: {
       season: Omit<CompetitionSeason, "id" | "created_at">;
       races: Omit<SeasonRace, "id" | "season_id" | "created_at">[];
+      endGoalRaceIndex?: number;
+      userId: string;
     }) => {
       const { data: s, error: se } = await (supabase as ReturnType<typeof supabase.from>)
         .from("competition_season")
@@ -87,16 +91,50 @@ export function useSeason() {
       if (se || !s) throw se ?? new Error("Failed to create season");
       const created = s as CompetitionSeason;
 
+      let insertedRaces: SeasonRace[] = [];
       if (races.length > 0) {
-        const rows = races.map((r) => ({ ...r, season_id: created.id }));
-        const { error: re } = await (supabase as ReturnType<typeof supabase.from>)
+        const rows = races.map((r) => ({ ...r, season_id: created.id, user_id: userId }));
+        const { data: inserted, error: re } = await (supabase as ReturnType<typeof supabase.from>)
           .from("season_race")
-          .insert(rows);
+          .insert(rows)
+          .select();
         if (re) throw re;
+        insertedRaces = (inserted ?? []) as SeasonRace[];
       }
-      return created;
+
+      const aRaces = insertedRaces.filter((r) => r.priority === "A");
+      const defaultEndGoal = aRaces.length > 0
+        ? aRaces[aRaces.length - 1]
+        : insertedRaces[insertedRaces.length - 1];
+      const endGoalRace = endGoalRaceIndex != null && insertedRaces[endGoalRaceIndex]
+        ? insertedRaces[endGoalRaceIndex]
+        : defaultEndGoal;
+
+      let planGenerated = false;
+      if (endGoalRace && insertedRaces.length > 0) {
+        try {
+          const { data, error } = await supabase.functions.invoke("season-generate-plan", {
+            body: {
+              season_id: created.id,
+              end_goal_race_id: endGoalRace.id,
+            },
+          });
+          if (!error && !(data as { error?: string })?.error) {
+            planGenerated = true;
+          } else {
+            console.warn("[useSeason] Plan generation failed:", error ?? (data as { error?: string })?.error);
+          }
+        } catch (e) {
+          console.warn("[useSeason] Plan generation failed:", e);
+        }
+      }
+
+      return { season: created, planGenerated };
     },
-    onSuccess: invalidate,
+    onSuccess: () => {
+      invalidate();
+      qc.invalidateQueries({ queryKey: ["training-plan"] });
+    },
   });
 
   const addRaceMutation = useMutation({

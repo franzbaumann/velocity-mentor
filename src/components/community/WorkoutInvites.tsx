@@ -34,6 +34,7 @@ import { toast } from "sonner";
 import type { FriendProfile } from "@/hooks/useFriends";
 import { useFriendWorkoutForDate } from "@/hooks/useFriends";
 import { parseSteps, WorkoutStepsDisplay, CombinedWorkoutDisplay, type CombinedWorkoutPreview } from "@/lib/workout-steps";
+import { getSupabaseUrl } from "@/lib/supabase-url";
 
 function useWorkoutInvites() {
   const { user } = useAuth();
@@ -141,6 +142,29 @@ function useSendInvite() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workout-invites"] });
       qc.invalidateQueries({ queryKey: ["pending-invites-count"] });
+    },
+  });
+}
+
+function useArrangeWeek() {
+  const qc = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (inviteId: string) => {
+      const baseUrl = getSupabaseUrl();
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "";
+      const url = `${baseUrl}/functions/v1/arrange-week`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", apikey: anonKey },
+        body: JSON.stringify({ invite_id: inviteId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error((data as { error?: string }).error ?? "Request failed");
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["workout-invites"] });
+      qc.invalidateQueries({ queryKey: ["training-plan"] });
     },
   });
 }
@@ -407,6 +431,7 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
   const { data, isLoading } = useWorkoutInvites();
   const respond = useRespondToInvite();
   const deleteInvite = useDeleteInvite();
+  const arrangeWeek = useArrangeWeek();
   const [showNewInvite, setShowNewInvite] = useState(false);
   const [expandedInvite, setExpandedInvite] = useState<string | null>(null);
 
@@ -637,7 +662,30 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
                           <p>{(expandedWorkout as { type?: string; name?: string; description?: string }).name ?? (expandedWorkout as { description?: string }).description ?? "—"}</p>
                         </div>
                       ) : null}
-                      <div className="mt-2 pt-2 border-t border-border/50 flex justify-end">
+                      <div className="mt-2 pt-2 border-t border-border/50 flex justify-between items-center">
+                        <div>
+                          {!isSent && invite.status === "accepted" && combined && (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="text-xs"
+                              onClick={() =>
+                                arrangeWeek.mutate(invite.id, {
+                                  onSuccess: () => toast.success("Week arranged! Check your Training Plan."),
+                                  onError: () => toast.error("Could not arrange week"),
+                                })
+                              }
+                              disabled={arrangeWeek.isPending}
+                            >
+                              {arrangeWeek.isPending ? (
+                                <Loader2 className="w-3 h-3 mr-1 animate-spin" />
+                              ) : (
+                                <Calendar className="w-3 h-3 mr-1" />
+                              )}
+                              Arrange week
+                            </Button>
+                          )}
+                        </div>
                         <Button
                           size="sm"
                           variant="ghost"

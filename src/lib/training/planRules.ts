@@ -23,8 +23,10 @@ export const PLAN_RULES = {
   vo2maxMaxFrequencyMarathonDays: 14,
 
   doubleRunRequiresCTL: 65,
+  doubleRunVolumeThresholdKm: 120,
   doubleRunAlwaysEasy: true,
   doubleRunMaxPerWeek: 3,
+  doubleRunMaxPerWeekHighVolume: 5,
   doubleRunAllowedDays: ["tuesday", "thursday"],
 
   phaseDuration: {
@@ -81,8 +83,17 @@ export function canUseVO2max(
 export function canUseDoubleRun(
   ctl: number,
   doubleRunsEnabled: boolean,
+  peakWeeklyKm?: number | null,
 ): boolean {
-  return doubleRunsEnabled && ctl >= PLAN_RULES.doubleRunRequiresCTL;
+  if (!doubleRunsEnabled) return false;
+  if (peakWeeklyKm != null && peakWeeklyKm >= PLAN_RULES.doubleRunVolumeThresholdKm) return true;
+  return ctl >= PLAN_RULES.doubleRunRequiresCTL;
+}
+
+export function getDoubleRunMaxPerWeek(peakWeeklyKm: number): number {
+  return peakWeeklyKm >= PLAN_RULES.doubleRunVolumeThresholdKm
+    ? PLAN_RULES.doubleRunMaxPerWeekHighVolume
+    : PLAN_RULES.doubleRunMaxPerWeek;
 }
 
 export function getPhaseWeeks(

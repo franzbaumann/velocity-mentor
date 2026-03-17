@@ -14,7 +14,7 @@ function useFeedData(friendIds: string[]) {
     queryFn: async () => {
       const { data } = await supabase
         .from("activity")
-        .select("id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, user_id, photos")
+        .select("id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, user_id, photos, polyline")
         .in("user_id", friendIds)
         .order("date", { ascending: false })
         .limit(30);
@@ -65,7 +65,7 @@ export function FriendFeed({ friends }: { friends: FriendProfile[] }) {
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-6">
       {activities.map((a) => (
         <ActivityCard
           key={a.id}

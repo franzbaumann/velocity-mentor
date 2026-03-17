@@ -1,4 +1,5 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import { AppLayout } from "@/components/AppLayout";
 import { useSeason } from "@/hooks/useSeason";
 import { SEASON_CONFIGS, PRIORITY_LABELS } from "@/lib/season/config";
@@ -24,6 +25,7 @@ import {
   MapPin,
   Trash2,
   PlusCircle,
+  CalendarDays,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -43,6 +45,7 @@ import { TimeWheelPicker } from "@/components/ui/time-wheel-picker";
 import { parseGoalTimeToSeconds, formatSecondsToGoalTime } from "@/lib/format";
 import { format, parseISO } from "date-fns";
 import { toast } from "sonner";
+import { Link } from "react-router-dom";
 
 const SEASON_TYPES: { type: SeasonType; label: string; emoji: string }[] = [
   { type: "indoor_track", label: "Indoor Track", emoji: "🏟️" },
@@ -108,6 +111,7 @@ interface WizardRace {
 }
 
 function CreationWizard({ onDone }: { onDone: () => void }) {
+  const navigate = useNavigate();
   const { createSeason, isCreating } = useSeason();
   const [step, setStep] = useState(1);
   const [seasonType, setSeasonType] = useState<SeasonType | null>(null);
@@ -116,6 +120,7 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
   const [endDate, setEndDate] = useState("");
   const [primaryDistance, setPrimaryDistance] = useState("");
   const [races, setRaces] = useState<WizardRace[]>([]);
+  const [endGoalIndex, setEndGoalIndex] = useState<number>(0);
 
   const [rName, setRName] = useState("");
   const [rDate, setRDate] = useState("");
@@ -145,14 +150,42 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
 
   const sortedRaces = useMemo(() => [...races].sort((a, b) => a.date.localeCompare(b.date)), [races]);
 
+  const defaultEndGoalIndex = useMemo(() => {
+    const aRaces = sortedRaces.map((r, i) => ({ r, i })).filter(({ r }) => r.priority === "A");
+    return aRaces.length > 0 ? aRaces[aRaces.length - 1].i : sortedRaces.length - 1;
+  }, [sortedRaces]);
+
+  useEffect(() => {
+    if (step === 4 && sortedRaces.length > 0) setEndGoalIndex(defaultEndGoalIndex);
+  }, [step, defaultEndGoalIndex, sortedRaces.length]);
+
   const handleCreate = async () => {
     if (!seasonType) return;
     const { data: { session } } = await supabase.auth.getSession();
     if (!session?.user) return;
     const uid = session.user.id;
 
+    const racePayload = races.map((r) => ({
+      user_id: uid,
+      name: r.name,
+      date: r.date,
+      distance: r.distance,
+      venue: r.venue || null,
+      surface: cfg?.surface ?? null,
+      priority: r.priority,
+      goal_time: r.goal_time || null,
+      actual_time: null,
+      actual_place: null,
+      notes: null,
+      status: "upcoming" as const,
+      activity_id: null,
+    }));
+
+    const endGoalRace = sortedRaces.length > 0 ? sortedRaces[endGoalIndex >= 0 && endGoalIndex < sortedRaces.length ? endGoalIndex : defaultEndGoalIndex] : null;
+    const endGoalRaceIndexInRaces = endGoalRace ? races.findIndex((r) => r.name === endGoalRace.name && r.date === endGoalRace.date && r.distance === endGoalRace.distance) : undefined;
+
     try {
-      await createSeason({
+      const result = await createSeason({
         season: {
           user_id: uid,
           name,
@@ -163,23 +196,16 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
           status: "active",
           notes: null,
         },
-        races: races.map((r) => ({
-          user_id: uid,
-          name: r.name,
-          date: r.date,
-          distance: r.distance,
-          venue: r.venue || null,
-          surface: cfg?.surface ?? null,
-          priority: r.priority,
-          goal_time: r.goal_time || null,
-          actual_time: null,
-          actual_place: null,
-          notes: null,
-          status: "upcoming" as const,
-          activity_id: null,
-        })),
+        races: racePayload,
+        endGoalRaceIndex: endGoalRaceIndexInRaces,
+        userId: uid,
       });
-      toast.success("Season created!");
+      if (result.planGenerated) {
+        toast.success("Season created! Training plan generated.");
+        navigate("/plan");
+      } else {
+        toast.success("Season created. Plan generation unavailable—add a plan from the Training Plan page.");
+      }
       onDone();
     } catch {
       toast.error("Failed to create season");
@@ -196,7 +222,7 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
     <div className="max-w-2xl mx-auto py-8">
       {/* Step indicator */}
       <div className="flex items-center gap-2 mb-8">
-        {[1, 2, 3, 4].map((s) => (
+        {[1, 2, 3, 4, 5].map((s) => (
           <div key={s} className="flex items-center gap-2">
             <button
               onClick={() => { if (s < step) setStep(s); }}
@@ -206,7 +232,7 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
             >
               {s < step ? <Check className="w-4 h-4" /> : s}
             </button>
-            {s < 4 && <div className={`w-8 h-0.5 ${s < step ? "bg-primary/40" : "bg-border"}`} />}
+            {s < 5 && <div className={`w-8 h-0.5 ${s < step ? "bg-primary/40" : "bg-border"}`} />}
               </div>
         ))}
               </div>
@@ -396,13 +422,43 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
 
           <div className="flex justify-between mt-8">
             <Button variant="ghost" onClick={() => setStep(2)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
-            <Button onClick={() => setStep(4)}>Review <ChevronRight className="w-4 h-4 ml-1" /></Button>
+            <Button onClick={() => setStep(races.length > 0 ? 4 : 5)}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
     </div>
         </div>
       )}
 
-      {/* STEP 4 — Confirmation */}
-      {step === 4 && (
+      {/* STEP 4 — End Goal */}
+      {step === 4 && sortedRaces.length > 0 && (
+        <div>
+          <h2 className="text-xl font-bold text-foreground mb-1">Which race is your end goal?</h2>
+          <p className="text-muted-foreground text-sm mb-6">The plan will build toward this race. Other races are tune-ups or sharpening.</p>
+          <div className="space-y-2 mb-6">
+            {sortedRaces.map((r, i) => (
+              <button
+                key={i}
+                onClick={() => setEndGoalIndex(i)}
+                className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-left transition-all ${
+                  endGoalIndex === i ? "border-primary bg-primary/10" : "border-border bg-card hover:border-primary/30"
+                }`}
+              >
+                <span className={`w-7 h-7 rounded-md text-xs font-bold flex items-center justify-center shrink-0 ${PRIORITY_COLORS[r.priority]}`}>{r.priority}</span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-foreground truncate">{r.name}</p>
+                  <p className="text-xs text-muted-foreground">{r.distance} · {formatDateShort(r.date)}{r.goal_time ? ` · Goal: ${r.goal_time}` : ""}</p>
+                </div>
+                {endGoalIndex === i && <Check className="w-5 h-5 text-primary shrink-0" />}
+              </button>
+            ))}
+          </div>
+          <div className="flex justify-between mt-8">
+            <Button variant="ghost" onClick={() => setStep(3)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
+            <Button onClick={() => setStep(5)}>Review <ChevronRight className="w-4 h-4 ml-1" /></Button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 5 — Confirmation */}
+      {step === 5 && (
     <div>
           <h2 className="text-xl font-bold text-foreground mb-4">Review your season</h2>
           <div className="rounded-xl border border-border bg-card p-5 mb-6">
@@ -436,7 +492,7 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
       </div>
 
           <div className="flex justify-between">
-            <Button variant="ghost" onClick={() => setStep(3)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
+            <Button variant="ghost" onClick={() => setStep(sortedRaces.length > 0 ? 4 : 3)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
             <Button onClick={handleCreate} disabled={isCreating}>
               {isCreating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trophy className="w-4 h-4 mr-2" />}
             Create season
@@ -687,6 +743,14 @@ function SeasonView({ onCreateNewSeason }: { onCreateNewSeason: () => void }) {
             </p>
         </div>
           <div className="flex gap-2 shrink-0">
+            {(activeSeason as { training_plan_id?: string | null })?.training_plan_id && (
+              <Button variant="outline" size="sm" className="rounded-full" asChild>
+                <Link to="/plan">
+                  <CalendarDays className="w-4 h-4 mr-1" />
+                  View Training Plan
+                </Link>
+              </Button>
+            )}
             <Button variant="outline" size="sm" className="rounded-full" onClick={handleCreateNewSeason} disabled={deleting}>
               {deleting ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <PlusCircle className="w-4 h-4 mr-1" />}
               Create new season

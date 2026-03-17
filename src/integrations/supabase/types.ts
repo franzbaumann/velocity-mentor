@@ -567,6 +567,7 @@ export type Database = {
         Row: {
           created_at: string | null
           end_date: string
+          end_goal_race_id: string | null
           id: string
           name: string
           notes: string | null
@@ -574,11 +575,13 @@ export type Database = {
           season_type: string
           start_date: string
           status: string | null
+          training_plan_id: string | null
           user_id: string
         }
         Insert: {
           created_at?: string | null
           end_date: string
+          end_goal_race_id?: string | null
           id?: string
           name: string
           notes?: string | null
@@ -586,11 +589,13 @@ export type Database = {
           season_type: string
           start_date: string
           status?: string | null
+          training_plan_id?: string | null
           user_id: string
         }
         Update: {
           created_at?: string | null
           end_date?: string
+          end_goal_race_id?: string | null
           id?: string
           name?: string
           notes?: string | null
@@ -598,6 +603,7 @@ export type Database = {
           season_type?: string
           start_date?: string
           status?: string | null
+          training_plan_id?: string | null
           user_id?: string
         }
         Relationships: []
@@ -1343,6 +1349,7 @@ export type Database = {
           plan_name: string | null
           race_date: string | null
           race_type: string | null
+          season_id: string | null
           start_date: string | null
           target_time: string | null
           total_weeks: number | null
@@ -1363,6 +1370,7 @@ export type Database = {
           plan_name?: string | null
           race_date?: string | null
           race_type?: string | null
+          season_id?: string | null
           start_date?: string | null
           target_time?: string | null
           total_weeks?: number | null
@@ -1383,6 +1391,7 @@ export type Database = {
           plan_name?: string | null
           race_date?: string | null
           race_type?: string | null
+          season_id?: string | null
           start_date?: string | null
           target_time?: string | null
           total_weeks?: number | null

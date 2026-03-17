@@ -15,6 +15,8 @@ export interface CompetitionSeason {
   status: SeasonStatus;
   notes: string | null;
   created_at: string;
+  end_goal_race_id: string | null;
+  training_plan_id: string | null;
 }
 
 export interface SeasonRace {

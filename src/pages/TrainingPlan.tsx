@@ -1,11 +1,12 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useTrainingPlan } from "@/hooks/use-training-plan";
 import { supabase } from "@/integrations/supabase/client";
+import { useQuery } from "@tanstack/react-query";
 import { FunctionsHttpError } from "@supabase/supabase-js";
-import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, GripVertical, Check, MessageCircle, Sparkles, RefreshCw } from "lucide-react";
+import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, GripVertical, Check, MessageCircle, Sparkles, RefreshCw, Trophy } from "lucide-react";
 import { UnifiedCalendar } from "@/components/UnifiedCalendar";
-import { useState, useMemo, useEffect } from "react";
-import { format, parseISO, startOfWeek, endOfWeek, isWithinInterval } from "date-fns";
+import { useState, useMemo, useEffect, useRef } from "react";
+import { format, parseISO, isWithinInterval } from "date-fns";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
@@ -374,8 +375,40 @@ function SessionDetailModal({
 
 export default function TrainingPlan() {
   const { plan, isLoading, rescheduleSession, markSessionDone } = useTrainingPlan();
+  const weeks = plan?.weeks ?? [];
+  const planRow = plan?.plan as { season_id?: string | null } | undefined;
+  const seasonId = planRow?.season_id;
+
+  const { data: seasonWithRaces } = useQuery({
+    queryKey: ["competition-season", seasonId],
+    queryFn: async () => {
+      if (!seasonId) return null;
+      const { data: season } = await supabase
+        .from("competition_season")
+        .select("*")
+        .eq("id", seasonId)
+        .maybeSingle();
+      if (!season) return null;
+      const { data: races } = await supabase
+        .from("season_race")
+        .select("*")
+        .eq("season_id", seasonId)
+        .order("date", { ascending: true });
+      return { ...season, races: races ?? [] };
+    },
+    enabled: !!seasonId,
+    staleTime: 60_000,
+  });
   const [expandedWeeks, setExpandedWeeks] = useState<Set<number>>(new Set([1]));
+  const hasInitializedExpanded = useRef(false);
   const [view, setView] = useState<"list" | "calendar">("list");
+
+  useEffect(() => {
+    if (weeks.length > 0 && !hasInitializedExpanded.current) {
+      setExpandedWeeks(new Set(weeks.map((w: { week_number: number }) => w.week_number)));
+      hasInitializedExpanded.current = true;
+    }
+  }, [weeks]);
   const [selectedSession, setSelectedSession] = useState<SessionLike | null>(null);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -456,11 +489,35 @@ export default function TrainingPlan() {
     );
   }
 
-  const { plan: p, weeks } = plan;
+  const { plan: p } = plan;
 
   return (
     <AppLayout>
       <div className="animate-fade-in space-y-6">
+        {seasonWithRaces && (
+          <div className="glass-card p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="w-10 h-10 rounded-lg bg-primary/10 flex items-center justify-center shrink-0">
+                <Trophy className="w-5 h-5 text-primary" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold text-foreground truncate">{seasonWithRaces.name} Season</p>
+                {seasonWithRaces.races?.length > 0 && (
+                  <p className="text-xs text-muted-foreground truncate" title={seasonWithRaces.races.map((r: { name: string; date: string }) => `${r.name} (${format(parseISO(r.date), "MMM d")})`).join(" · ")}>
+                    {seasonWithRaces.races.slice(0, 3).map((r: { name: string; date: string }) => `${r.name} (${format(parseISO(r.date), "MMM d")})`).join(" · ")}
+                    {seasonWithRaces.races.length > 3 && ` +${seasonWithRaces.races.length - 3} more`}
+                  </p>
+                )}
+              </div>
+            </div>
+            <Link
+              to="/season"
+              className="text-sm font-medium text-primary hover:underline shrink-0"
+            >
+              View Season →
+            </Link>
+          </div>
+        )}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h1 className="text-2xl font-semibold text-foreground">Training Plan</h1>
@@ -493,11 +550,9 @@ export default function TrainingPlan() {
             <UnifiedCalendar defaultView="plan" />
           </div>
         ) : (
-        <div className="space-y-3">
+        <div className="space-y-4">
           {(() => {
             const today = new Date();
-            const mon = startOfWeek(today, { weekStartsOn: 1 });
-            const sun = endOfWeek(today, { weekStartsOn: 1 });
             const thisWeekData = weeks.find((w) => {
               const start = parseISO(w.start_date);
               const end = new Date(start);
@@ -524,53 +579,55 @@ export default function TrainingPlan() {
               </div>
             ) : null;
           })()}
-          {weeks.map((week) => {
-            const isExpanded = expandedWeeks.has(week.week_number);
-            return (
-              <div key={week.id} className="glass-card overflow-hidden">
-                <button
-                  onClick={() => toggleWeek(week.week_number)}
-                  className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-secondary/30 transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    {isExpanded ? (
-                      <ChevronDown className="w-4 h-4 text-muted-foreground" />
-                    ) : (
-                      <ChevronRight className="w-4 h-4 text-muted-foreground" />
-                    )}
-                    <Activity className="w-4 h-4 text-primary" />
-                    <span className="font-semibold text-foreground">Week {week.week_number}</span>
-                    {(week as { phase?: string }).phase && (
-                      <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize">
-                        {(week as { phase?: string }).phase}
+          <div className="flex gap-4 overflow-x-auto pb-2 -mx-1 px-1 scroll-smooth snap-x snap-mandatory" style={{ scrollbarGutter: "stable" }}>
+            {weeks.map((week) => {
+              const isExpanded = expandedWeeks.has(week.week_number);
+              return (
+                <div key={week.id} className="glass-card overflow-hidden flex-shrink-0 w-[340px] snap-start">
+                  <button
+                    onClick={() => toggleWeek(week.week_number)}
+                    className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-secondary/30 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      {isExpanded ? (
+                        <ChevronDown className="w-4 h-4 text-muted-foreground shrink-0" />
+                      ) : (
+                        <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
+                      )}
+                      <Activity className="w-4 h-4 text-primary shrink-0" />
+                      <span className="font-semibold text-foreground shrink-0">Week {week.week_number}</span>
+                      {(week as { phase?: string }).phase && (
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize shrink-0">
+                          {(week as { phase?: string }).phase}
+                        </span>
+                      )}
+                      <span className="text-sm text-muted-foreground truncate">
+                        {format(parseISO(week.start_date), "MMM d")} – {format(new Date(new Date(week.start_date).getTime() + 6 * 24 * 60 * 60 * 1000), "MMM d")}
                       </span>
-                    )}
-                    <span className="text-sm text-muted-foreground">
-                      {format(parseISO(week.start_date), "MMM d")} – {format(new Date(new Date(week.start_date).getTime() + 6 * 24 * 60 * 60 * 1000), "MMM d")}
+                    </div>
+                    <span className="text-xs text-muted-foreground shrink-0 ml-2">
+                      {week.sessions.length} sessions
+                      {(week as { total_km?: number }).total_km != null && ` · ${Math.round((week as { total_km?: number }).total_km ?? 0)}km`}
                     </span>
-                  </div>
-                  <span className="text-xs text-muted-foreground">
-                    {week.sessions.length} sessions
-                    {(week as { total_km?: number }).total_km != null && ` · ${Math.round((week as { total_km?: number }).total_km ?? 0)}km`}
-                  </span>
-                </button>
-                {isExpanded && (
-                  <div className="px-5 pb-5 pt-0 space-y-2 border-t border-border">
-                    {week.sessions.map((session) => (
-                      <SessionCard
-                        key={session.id}
-                        session={session}
-                        onReschedule={rescheduleSession}
-                        onMarkDone={markSessionDone}
-                        onAskCoachCade={handleAskCoachCade}
-                        onSessionClick={setSelectedSession}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                  </button>
+                  {isExpanded && (
+                    <div className="px-5 pb-5 pt-0 space-y-2 border-t border-border max-h-[85vh] overflow-y-auto">
+                      {week.sessions.map((session) => (
+                        <SessionCard
+                          key={session.id}
+                          session={session}
+                          onReschedule={rescheduleSession}
+                          onMarkDone={markSessionDone}
+                          onAskCoachCade={handleAskCoachCade}
+                          onSessionClick={setSelectedSession}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         </div>
         )}
         {selectedSession && (

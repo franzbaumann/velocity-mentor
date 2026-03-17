@@ -366,17 +366,17 @@ function ActivitySocialBar({
       <div className="flex items-center gap-4 px-1">
         <button
           onClick={() => toggleLike.mutate()}
-          className={`flex items-center gap-1.5 text-xs transition-colors ${userLiked ? "text-red-500" : "text-muted-foreground hover:text-red-500"}`}
+          className={`flex items-center gap-2 text-sm transition-colors ${userLiked ? "text-red-500" : "text-muted-foreground hover:text-red-500"}`}
           disabled={toggleLike.isPending}
         >
-          <Heart className={`w-4 h-4 ${userLiked ? "fill-current" : ""}`} />
+          <Heart className={`w-5 h-5 ${userLiked ? "fill-current" : ""}`} />
           Like
         </button>
         <button
           onClick={() => setShowComments(true)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
-          <MessageCircle className="w-4 h-4" />
+          <MessageCircle className="w-5 h-5" />
           Comment
         </button>
       </div>
@@ -388,21 +388,21 @@ function ActivitySocialBar({
       <div className="flex items-center gap-4">
         <button
           onClick={() => toggleLike.mutate()}
-          className={`flex items-center gap-1.5 text-xs transition-colors ${userLiked ? "text-red-500" : "text-muted-foreground hover:text-red-500"}`}
+          className={`flex items-center gap-2 text-sm transition-colors ${userLiked ? "text-red-500" : "text-muted-foreground hover:text-red-500"}`}
           disabled={toggleLike.isPending}
         >
-          <Heart className={`w-4 h-4 ${userLiked ? "fill-current" : ""}`} />
+          <Heart className={`w-5 h-5 ${userLiked ? "fill-current" : ""}`} />
           {likeCount > 0 && <span>{likeCount}</span>}
         </button>
         <button
           onClick={() => setShowComments(!showComments)}
-          className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground transition-colors"
+          className="flex items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
         >
-          <MessageCircle className="w-4 h-4" />
+          <MessageCircle className="w-5 h-5" />
           {commentCount > 0 && <span>{commentCount}</span>}
         </button>
         {likeCount > 0 && names && (
-          <span className="text-xs text-muted-foreground ml-auto">
+          <span className="text-sm text-muted-foreground ml-auto">
             Liked by {likes!.slice(0, 3).map((l) => l.user_id === user?.id ? "you" : names.get(l.user_id) ?? "friend").join(", ")}
             {likeCount > 3 && ` and ${likeCount - 3} more`}
           </span>
@@ -410,19 +410,26 @@ function ActivitySocialBar({
       </div>
 
       {(showComments || commentCount > 0) && (
-        <div className="pt-2 border-t border-border/50 space-y-2">
+        <div className="pt-2 border-t border-border/50 space-y-3">
           {(comments ?? []).map((c) => (
-            <div key={c.id} className="text-xs">
-              <span className="font-medium">
-                {c.user_id === user?.id ? "You" : names?.get(c.user_id) ?? "Friend"}
-              </span>{" "}
-              <span className="text-muted-foreground">{c.content}</span>
-              <span className="text-muted-foreground/60 ml-2">
-                {formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
-              </span>
+            <div key={c.id} className="flex gap-3">
+              <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center text-muted-foreground text-sm font-semibold shrink-0">
+                {(c.user_id === user?.id ? "You" : names?.get(c.user_id) ?? "Friend").charAt(0).toUpperCase()}
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm">
+                  <span className="font-medium">
+                    {c.user_id === user?.id ? "You" : names?.get(c.user_id) ?? "Friend"}
+                  </span>{" "}
+                  <span className="text-muted-foreground">{c.content}</span>
+                </p>
+                <p className="text-xs text-muted-foreground/80 mt-0.5">
+                  {formatDistanceToNow(new Date(c.created_at), { addSuffix: true })}
+                </p>
+              </div>
             </div>
           ))}
-          <div className="flex gap-2 mt-1">
+          <div className="flex gap-2 mt-2">
             <Input
               placeholder="Add a comment..."
               value={commentText}
@@ -430,16 +437,16 @@ function ActivitySocialBar({
               onKeyDown={(e) => {
                 if (e.key === "Enter" && commentText.trim()) addComment.mutate(commentText.trim());
               }}
-              className="text-xs h-8"
+              className="text-sm h-9"
             />
             <Button
               size="sm"
               variant="ghost"
-              className="h-8 px-2"
+              className="h-9 px-2"
               onClick={() => commentText.trim() && addComment.mutate(commentText.trim())}
               disabled={!commentText.trim() || addComment.isPending}
             >
-              <Send className="w-3.5 h-3.5" />
+              <Send className="w-4 h-4" />
             </Button>
           </div>
         </div>

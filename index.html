@@ -3,20 +3,20 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <!-- TODO: Set the document title to the name of your application -->
-    <title>Sub3boysen</title>
-    <meta name="description" content="Sub 3 boysens hemliga vapen">
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <title>Cade</title>
+    <meta name="description" content="Your AI-powered running coach and training companion">
     <meta name="author" content="Cade" />
 
     <meta property="og:type" content="website" />
     <meta name="twitter:card" content="summary_large_image" />
-    <meta property="og:title" content="Sub3boysen">
-  <meta name="twitter:title" content="Sub3boysen">
-  <meta property="og:description" content="Sub 3 boysens hemliga vapen">
-  <meta name="twitter:description" content="Sub 3 boysens hemliga vapen">
+    <meta property="og:title" content="Cade">
+    <meta name="twitter:title" content="Cade">
+    <meta property="og:description" content="Your AI-powered running coach and training companion">
+    <meta name="twitter:description" content="Your AI-powered running coach and training companion">
 </head>
 
-  <body style="margin:0">
+  <body style="margin:0;min-height:100vh;background-color:hsl(0 0% 96.5%)">
     <script>
       (function(){
         var t = localStorage.getItem('cade-theme') || localStorage.getItem('paceiq-theme') || 'system';
@@ -24,7 +24,9 @@
         if(dark) document.documentElement.classList.add('dark');
       })();
     </script>
-    <div id="root"></div>
+    <div id="root">
+      <div style="display:flex;align-items:center;justify-content:center;min-height:100vh;color:#6B7280;font-family:system-ui,sans-serif">Loading...</div>
+    </div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

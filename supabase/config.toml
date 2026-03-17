@@ -46,3 +46,6 @@ verify_jwt = false
 
 [functions.generate-on-accept]
 verify_jwt = false
+
+[functions.arrange-week]
+verify_jwt = false
