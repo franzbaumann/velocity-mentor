@@ -33,6 +33,7 @@ import { CadeLogo } from "@/components/CadeLogo";
 const navLinks = [
   { label: "Features", href: "#features" },
   { label: "Philosophy", href: "#philosophy" },
+  { label: "Contact", href: "/contact" },
 ];
 
 const SCREENSHOTS = [
@@ -75,15 +76,25 @@ export default function LandingPage() {
             <CadeLogo variant="full" size="xl" />
           </Link>
           <nav className="hidden sm:flex items-center gap-8">
-            {navLinks.map(({ label, href }) => (
-              <a
-                key={label}
-                href={href}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-              >
-                {label}
-              </a>
-            ))}
+            {navLinks.map(({ label, href }) =>
+              href.startsWith("/") ? (
+                <Link
+                  key={label}
+                  to={href}
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {label}
+                </Link>
+              ) : (
+                <a
+                  key={label}
+                  href={href}
+                  className="text-sm text-muted-foreground hover:text-foreground transition-colors"
+                >
+                  {label}
+                </a>
+              )
+            )}
             <Link
               to="/auth"
               className="text-sm font-medium text-foreground hover:text-primary transition-colors"
@@ -124,7 +135,11 @@ export default function LandingPage() {
               </Button>
             </Link>
             <a href="#how-it-works">
-              <Button size="lg" variant="outline" className="gap-2 rounded-full px-8">
+              <Button
+                size="lg"
+                variant="outline"
+                className="gap-2 rounded-full px-8 border-border bg-background/80 text-foreground hover:bg-accent hover:text-accent-foreground dark:border-white/30 dark:bg-white/10 dark:text-white dark:hover:bg-white/20 dark:hover:text-white"
+              >
                 See how it works
               </Button>
             </a>
@@ -471,8 +486,11 @@ export default function LandingPage() {
             <Link to="/auth" className="hover:text-foreground transition-colors">
               Sign in to app
             </Link>
-            <a href="mailto:hello@caderunning.com" className="hover:text-foreground transition-colors">
-              hello@caderunning.com
+            <Link to="/contact" className="hover:text-foreground transition-colors">
+              Contact
+            </Link>
+            <a href="mailto:info@caderunning.com" className="hover:text-foreground transition-colors">
+              info@caderunning.com
             </a>
           </div>
         </div>

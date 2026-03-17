@@ -3,6 +3,18 @@
   "outputDirectory": "dist",
   "framework": "vite",
   "redirects": [
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "velocity-mentor.vercel.app" }],
+      "destination": "https://caderunning.com/:path*",
+      "permanent": true
+    },
+    {
+      "source": "/:path*",
+      "has": [{ "type": "host", "value": "www.velocity-mentor.vercel.app" }],
+      "destination": "https://caderunning.com/:path*",
+      "permanent": true
+    },
     { "source": "/:path+/", "destination": "/:path+", "permanent": true }
   ],
   "rewrites": [

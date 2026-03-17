@@ -20,6 +20,7 @@ import Activities from "./pages/Activities";
 import SettingsPage from "./pages/SettingsPage";
 import Philosophy from "./pages/Philosophy";
 import AuthPage from "./pages/AuthPage";
+import ContactPage from "./pages/ContactPage";
 import StravaCallback from "./pages/StravaCallback";
 import NotFound from "./pages/NotFound";
 
@@ -113,6 +114,7 @@ const App = () => (
           }>
           <Routes>
           <Route path="/auth" element={<AuthPage />} />
+          <Route path="/contact" element={<ContactPage />} />
           <Route path="/auth/strava/callback" element={<StravaCallback />} />
           <Route path="/set-username" element={<AuthGuard><SetUsername /></AuthGuard>} />
           <Route path="/setup" element={<AuthGuard><IntervalsSetupGuide /></AuthGuard>} />
