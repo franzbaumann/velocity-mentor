@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
-  Footprints,
+  Zap,
   Activity,
   BarChart2,
   Calendar,
@@ -15,6 +15,8 @@ import {
   Dumbbell,
   FlaskConical,
   Trophy,
+  Users,
+  UserPlus,
 } from "lucide-react";
 import { AuroraBackground } from "@/components/ui/aurora-background";
 import { Button } from "@/components/ui/button";
@@ -71,7 +73,7 @@ export default function LandingPage() {
         <div className="max-w-[1100px] mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center">
-              <Footprints className="w-4 h-4 text-primary-foreground" />
+              <Zap className="w-4 h-4 text-primary-foreground" />
             </div>
             <span className="text-lg font-semibold text-foreground tracking-tight">Cade</span>
           </Link>
@@ -86,11 +88,11 @@ export default function LandingPage() {
               </a>
             ))}
           </nav>
-          <a href="#beta">
+          <Link to="/auth">
             <Button size="sm" className="gap-2 rounded-full">
-              Join beta <ArrowRight className="w-3.5 h-3.5" />
+              Get started <ArrowRight className="w-3.5 h-3.5" />
             </Button>
-          </a>
+          </Link>
         </div>
       </header>
 
@@ -113,12 +115,12 @@ export default function LandingPage() {
             your training history, and a plan that adjusts when life gets in the way.
           </p>
           <div className="flex flex-col sm:flex-row gap-3 mt-2">
-            <a href="#beta">
+            <Link to="/auth">
               <Button size="lg" className="gap-2 rounded-full px-8">
-                Join the beta <ArrowRight className="w-4 h-4" />
+                Get started <ArrowRight className="w-4 h-4" />
               </Button>
-            </a>
-            <a href="#features">
+            </Link>
+            <a href="#how-it-works">
               <Button size="lg" variant="outline" className="gap-2 rounded-full px-8">
                 See how it works
               </Button>
@@ -131,7 +133,7 @@ export default function LandingPage() {
             </span>
             <span className="flex items-center gap-1.5">
               <Check className="w-4 h-4 text-green-600 shrink-0" />
-              Works with your Garmin, Coros or Apple Watch
+              Works with intervals.icu
             </span>
             <span className="flex items-center gap-1.5">
               <Check className="w-4 h-4 text-green-600 shrink-0" />
@@ -181,7 +183,7 @@ export default function LandingPage() {
               See the app
             </h2>
             <p className="text-lg text-muted-foreground max-w-[560px] mx-auto">
-              Your dashboard, stats, and training philosophy in one place.
+              Dashboard, stats, philosophy, and more — all in one place.
             </p>
           </div>
           <Carousel opts={{ loop: true, align: "center" }} className="w-full">
@@ -259,7 +261,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── HOW IT WORKS ────────────────────────────────────────────────── */}
-      <section className="py-24 px-4 sm:px-6 bg-muted/30 border-t border-border">
+      <section id="how-it-works" className="py-24 px-4 sm:px-6 bg-muted/30 border-t border-border">
         <div className="max-w-[1100px] mx-auto">
           <div className="text-center mb-14">
             <p className="text-xs font-semibold tracking-widest uppercase text-muted-foreground mb-3">
@@ -273,19 +275,19 @@ export default function LandingPage() {
                 icon: Link2,
                 step: "1",
                 title: "Connect your data",
-                desc: "Link your intervals.icu account. Cade instantly reads your full training history, HRV, sleep, CTL and fitness curves. Works with Garmin, Coros, Apple Watch and Polar.",
+                desc: "Link intervals.icu. Cade reads your training history, HRV, sleep, CTL and fitness curves. Garmin, Coros, Apple Watch and Polar sync via intervals.icu — direct connections coming soon.",
+              },
+              {
+                icon: Trophy,
+                step: "2",
+                title: "Create your season",
+                desc: "Add your races with A/B/C priorities, pick your end goal (e.g. Stockholm Marathon), and Cade auto-generates a plan that tapers around every race.",
               },
               {
                 icon: Brain,
-                step: "2",
-                title: "Meet Coach Cade, your coach",
-                desc: "Coach Cade analyses your physiology and builds a training plan around your goal, your philosophy and your current fitness. Not a template — built from your actual data.",
-              },
-              {
-                icon: TrendingUp,
                 step: "3",
-                title: "Your plan adapts",
-                desc: "Every session adjusts in real time. Tired week? Coach Cade sees it in your HRV and TSB before you do. Big race coming? Your load is managed automatically.",
+                title: "Meet Coach Cade",
+                desc: "Chat with your AI coach, do daily check-ins, and adapt your plan. Tired week? Coach Cade sees it in your HRV and TSB. Run with friends — share activities and invite them to workouts.",
               },
             ].map(({ icon: Icon, step, title, desc }) => (
               <div key={step} className="flex flex-col gap-4">
@@ -322,14 +324,29 @@ export default function LandingPage() {
                 desc: "Ask Coach Cade anything. Pre-run readiness, post-workout analysis, race strategy, pacing questions. Every answer references your actual CTL, HRV and training zones — never generic advice.",
               },
               {
-                icon: Activity,
-                title: "Total Load Management",
-                desc: "Cade counts everything — running load, padel, gym, work stress, sleep deficit. Your CNS doesn't distinguish between stressors. Neither does Cade.",
+                icon: Trophy,
+                title: "Season Planning",
+                desc: "Create your season with A/B/C races, set your end goal (e.g. Stockholm Marathon), and Cade generates a plan that tapers around every race.",
               },
               {
                 icon: Calendar,
                 title: "Philosophy-Based Training Plans",
-                desc: "80/20 polarized, Jack Daniels VDOT, Lydiard, Pfitzinger, Hansons, Norwegian method. Choose your philosophy — Cade builds every session around it.",
+                desc: "80/20 polarized, Jack Daniels VDOT, Lydiard, Pfitzinger, Hansons, Norwegian method. Doubles for high volume (e.g. 180 km/week) when you enable them.",
+              },
+              {
+                icon: Users,
+                title: "Community",
+                desc: "Friend feed, activity sharing, likes, and full friend profiles. See what your friends are training for.",
+              },
+              {
+                icon: UserPlus,
+                title: "Workout Invites",
+                desc: "Invite a friend to run together. Coach Cade creates a combined workout for both of you.",
+              },
+              {
+                icon: Activity,
+                title: "Total Load Management",
+                desc: "Cade counts everything — running load, padel, gym, work stress, sleep deficit. Your CNS doesn't distinguish between stressors. Neither does Cade.",
               },
               {
                 icon: Dumbbell,
@@ -342,7 +359,7 @@ export default function LandingPage() {
                 desc: "CTL, ATL, TSB, HRV trends, lactate threshold estimates, aerobic decoupling, VO2max tracking. The data serious runners actually care about.",
               },
               {
-                icon: Trophy,
+                icon: BarChart2,
                 title: "Post-Workout Analysis",
                 desc: "Every run automatically analysed. Coach Cade tells you what the numbers mean and what to do differently next time. No logging required.",
               },
@@ -439,7 +456,7 @@ export default function LandingPage() {
         <div className="max-w-[1100px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded-md bg-primary flex items-center justify-center">
-              <Footprints className="w-3 h-3 text-primary-foreground" />
+              <Zap className="w-3 h-3 text-primary-foreground" />
             </div>
             <span className="font-medium text-foreground">Cade</span>
             <span>© 2026</span>
