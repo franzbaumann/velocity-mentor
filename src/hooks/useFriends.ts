@@ -30,6 +30,9 @@ async function callProxy(path: string, body: Record<string, unknown> = {}) {
   return res.data;
 }
 
+const getAnonKey = () =>
+  import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "";
+
 function proxyFetch(path: string, body: Record<string, unknown> = {}) {
   return async () => {
     await supabase.auth.refreshSession();
@@ -42,7 +45,7 @@ function proxyFetch(path: string, body: Record<string, unknown> = {}) {
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${session.access_token}`,
-        apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
+        apikey: getAnonKey(),
       },
       body: JSON.stringify({ ...body, __path: path }),
     });
@@ -240,6 +243,15 @@ export function useFriendPlan(friendId: string | null) {
     queryKey: ["friend-plan", friendId],
     enabled: !!friendId,
     queryFn: proxyFetch("friend-plan", { friend_id: friendId! }),
+    staleTime: 60_000,
+  });
+}
+
+export function useFriendWorkoutForDate(friendId: string | null, date: string | null) {
+  return useQuery({
+    queryKey: ["friend-workout-for-date", friendId, date],
+    enabled: !!friendId && !!date,
+    queryFn: () => callProxy("friend-workout-for-date", { friend_id: friendId!, date: date! }),
     staleTime: 60_000,
   });
 }

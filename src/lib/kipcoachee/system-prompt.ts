@@ -1,7 +1,7 @@
 import type { AthleteContext } from "./types";
 
 /**
- * Builds the full Kipcoachee system prompt with the athlete's live data injected.
+ * Builds the full Coach Cade system prompt with the athlete's live data injected.
  * This is the single source of truth for the coach's personality, knowledge,
  * decision framework, and communication style.
  *

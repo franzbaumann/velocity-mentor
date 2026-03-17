@@ -4,7 +4,7 @@ import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers":
-    "authorization, x-client-info, apikey, content-type, x-supabase-client-platform, x-supabase-client-platform-version, x-supabase-client-runtime, x-supabase-client-runtime-version",
+    "authorization, x-client-info, apikey, content-type, x-backfill-secret",
 };
 
 function json(data: unknown, status = 200) {
@@ -64,70 +64,13 @@ Return ONLY valid JSON:
   "notes": "Any coaching notes about pacing, meeting points during the session, etc."
 }`;
 
-serve(async (req) => {
-  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
-
-  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-  const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return json({ error: "Unauthorized" }, 401);
-
-  const supabaseUser = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: { user } } = await supabaseUser.auth.getUser();
-  if (!user) return json({ error: "Unauthorized" }, 401);
-
-  const admin = createClient(SUPABASE_URL, SERVICE_KEY);
-  const body = (await req.json().catch(() => ({}))) as {
-    invite_id?: string;
-    preview?: boolean;
-    from_user_id?: string;
-    to_user_id?: string;
-    proposed_date?: string;
-    invite_type?: "combined" | "parallel";
-  };
-  const { invite_id, preview, from_user_id, to_user_id, proposed_date, invite_type } = body;
-
-  let fromUser: string;
-  let toUser: string;
-  let dateStr: string;
-  let mode: "combined" | "parallel";
-
-  if (invite_id) {
-    const { data: invite } = await admin
-      .from("workout_invite")
-      .select("*")
-      .eq("id", invite_id)
-      .maybeSingle();
-
-    if (!invite) return json({ error: "Invite not found" }, 404);
-    if (invite.from_user !== user.id && invite.to_user !== user.id) {
-      return json({ error: "Not authorized" }, 403);
-    }
-
-    if (invite.combined_workout) {
-      return json({ combined_workout: invite.combined_workout });
-    }
-
-    fromUser = invite.from_user;
-    toUser = invite.to_user;
-    dateStr = invite.proposed_date;
-    mode = invite.invite_type ?? "combined";
-  } else {
-    if (!from_user_id || !to_user_id || !proposed_date || !invite_type) {
-      return json({ error: "from_user_id, to_user_id, proposed_date, invite_type required for preview" }, 400);
-    }
-    if (from_user_id !== user.id) {
-      return json({ error: "Only the sender can preview before sending" }, 403);
-    }
-    fromUser = from_user_id;
-    toUser = to_user_id;
-    dateStr = proposed_date;
-    mode = invite_type;
-  }
-
+async function generateCombinedWorkout(
+  admin: ReturnType<typeof createClient>,
+  fromUser: string,
+  toUser: string,
+  dateStr: string,
+  mode: "combined" | "parallel"
+): Promise<Record<string, unknown>> {
   const [profileA, profileB] = await Promise.all([
     admin.from("athlete_profile")
       .select("name, goal_distance, goal_time, lactate_threshold_pace, vdot")
@@ -242,7 +185,7 @@ Mode: ${mode === "parallel" ? "PARALLEL — they do their own reps but share war
   }
 
   if (!text) {
-    return json({ error: "AI service unavailable" }, 503);
+    throw new Error("AI service unavailable");
   }
 
   let combined: Record<string, unknown>;
@@ -253,12 +196,75 @@ Mode: ${mode === "parallel" ? "PARALLEL — they do their own reps but share war
     combined = { summary: text, athlete_a: { name: nameA, workout: workoutDescA }, athlete_b: { name: nameB, workout: workoutDescB } };
   }
 
-  if (invite_id && !preview) {
-    await admin
-      .from("workout_invite")
-      .update({ combined_workout: combined })
-      .eq("id", invite_id);
+  return combined;
+}
+
+serve(async (req) => {
+  if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
+
+  const secret = req.headers.get("x-backfill-secret");
+  const expectedSecret = Deno.env.get("BACKFILL_COMBINED_WORKOUTS_SECRET");
+  if (!expectedSecret || secret !== expectedSecret) {
+    return json({ error: "Unauthorized" }, 401);
   }
 
-  return json({ combined_workout: combined });
+  const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+  const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+
+  const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString();
+
+  const [pendingRes, acceptedRes] = await Promise.all([
+    admin.from("workout_invite").select("id, from_user, to_user, proposed_date, invite_type").is("combined_workout", null).eq("status", "pending"),
+    admin.from("workout_invite").select("id, from_user, to_user, proposed_date, invite_type").is("combined_workout", null).eq("status", "accepted").gte("responded_at", sevenDaysAgo),
+  ]);
+
+  if (pendingRes.error || acceptedRes.error) {
+    console.error("[backfill] Failed to fetch invites", pendingRes.error ?? acceptedRes.error);
+    return json({ error: "Failed to fetch invites" }, 500);
+  }
+
+  const invites = [...(pendingRes.data ?? []), ...(acceptedRes.data ?? [])];
+
+  if (!invites || invites.length === 0) {
+    return json({ ok: true, processed: 0, message: "No invites to backfill" });
+  }
+
+  const results: { id: string; ok: boolean; error?: string }[] = [];
+
+  for (const invite of invites) {
+    const fromUser = invite.from_user;
+    const toUser = invite.to_user;
+    const dateStr = invite.proposed_date;
+    const mode = (invite.invite_type ?? "combined") as "combined" | "parallel";
+
+    if (!fromUser || !toUser || !dateStr) {
+      results.push({ id: invite.id, ok: false, error: "Missing from_user, to_user, or proposed_date" });
+      continue;
+    }
+
+    try {
+      const combined = await generateCombinedWorkout(admin, fromUser, toUser, dateStr, mode);
+
+      const { error: updateError } = await admin
+        .from("workout_invite")
+        .update({ combined_workout: combined })
+        .eq("id", invite.id);
+
+      if (updateError) {
+        console.error("[backfill] Failed to update invite", invite.id, updateError);
+        results.push({ id: invite.id, ok: false, error: updateError.message });
+      } else {
+        console.log("[backfill] Generated combined workout for invite", invite.id);
+        results.push({ id: invite.id, ok: true });
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[backfill] Failed for invite", invite.id, msg);
+      results.push({ id: invite.id, ok: false, error: msg });
+    }
+  }
+
+  const processed = results.filter((r) => r.ok).length;
+  return json({ ok: true, processed, total: invites.length, results });
 });

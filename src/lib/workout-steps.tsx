@@ -29,8 +29,56 @@ export const PHASE_STYLES: Record<string, { border: string; bg: string; badge: s
   note:     { border: "border-l-muted-foreground/20", bg: "bg-muted/10",          badge: "bg-muted text-muted-foreground",         label: "Note"    },
 };
 
-export function WorkoutStepsDisplay({ steps }: { steps: WorkoutStep[] }) {
+/** Easy/recovery/long runs: show as one block. Quality sessions: show warm-up, main, cool-down. */
+const EASY_TYPES = ["easy", "recovery", "long"];
+function isEasyRun(workoutType?: string | null): boolean {
+  const t = (workoutType ?? "").toLowerCase().trim();
+  return EASY_TYPES.includes(t);
+}
+
+/** Detect easy run from step content: all main, no reps, zones <= 2 */
+function looksLikeEasyRun(steps: WorkoutStep[]): boolean {
+  if (steps.length === 0) return false;
+  const hasReps = steps.some((s) => s.reps != null && s.reps > 0);
+  const hasWarmupCooldown = steps.some((s) => s.phase === "warmup" || s.phase === "cooldown");
+  const zones = steps.map((s) => s.target_hr_zone).filter((z): z is number => z != null);
+  const allEasyZones = zones.length === 0 || zones.every((z) => z <= 2);
+  return !hasReps && !hasWarmupCooldown && allEasyZones;
+}
+
+function collapseEasyRunSteps(steps: WorkoutStep[]): string {
+  const totalKm = steps.reduce((s, st) => s + (st.distance_km ?? 0), 0);
+  const totalMin = steps.reduce((s, st) => s + (st.duration_min ?? 0), 0);
+  const firstPace = steps.map((s) => s.target_pace).find(Boolean) as string | undefined;
+  const parts: string[] = [];
+  if (totalKm > 0) parts.push(`${totalKm} km easy`);
+  else if (totalMin > 0) parts.push(`${totalMin} min easy`);
+  else parts.push("Easy jog");
+  if (firstPace) parts.push(`@ ${firstPace}`);
+  const hrZones = steps.map((s) => s.target_hr_zone).filter((z): z is number => z != null);
+  if (hrZones.length > 0) parts.push(`HR zone ${Math.min(...hrZones)}–${Math.max(...hrZones)}`);
+  return parts.join(" ");
+}
+
+export function WorkoutStepsDisplay({
+  steps,
+  workoutType,
+}: { steps: WorkoutStep[]; workoutType?: string | null }) {
   if (steps.length === 0) return null;
+
+  const shouldCollapse = isEasyRun(workoutType) || looksLikeEasyRun(steps);
+  if (shouldCollapse) {
+    const summary = collapseEasyRunSteps(steps);
+    return (
+      <div className="mb-4">
+        <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Session</p>
+        <div className="border-l-[3px] border-l-primary rounded-r-lg pl-3 pr-3 py-2.5 bg-primary/5">
+          <span className="text-sm font-medium text-foreground leading-snug">{summary}</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-2 mb-4">
       <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">Session Breakdown</p>

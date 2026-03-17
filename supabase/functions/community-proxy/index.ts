@@ -280,6 +280,42 @@ serve(async (req) => {
     return json({ plan, workouts: workouts ?? [] });
   }
 
+  // POST /friend-workout-for-date — get friend's workouts for a specific date (for Run Together combined sessions)
+  if (path === "friend-workout-for-date" && req.method === "POST") {
+    const { friend_id, date } = body;
+    if (!friend_id || !date) return json({ error: "friend_id and date required" }, 400);
+
+    const sorted = [user.id, friend_id].sort();
+    const { data: fs } = await admin
+      .from("friendship")
+      .select("id")
+      .eq("user_a", sorted[0])
+      .eq("user_b", sorted[1])
+      .maybeSingle();
+
+    if (!fs) return json({ error: "Not friends" }, 403);
+
+    const { data: plan } = await admin
+      .from("training_plan")
+      .select("id")
+      .eq("user_id", friend_id)
+      .eq("is_active", true)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+
+    if (!plan) return json({ workouts: [] });
+
+    const { data: workouts } = await admin
+      .from("training_plan_workout")
+      .select("id, type, name, description, distance_km, duration_minutes, target_pace, workout_steps, coach_note, structure_detail, key_focus")
+      .eq("plan_id", plan.id)
+      .eq("date", date)
+      .limit(5);
+
+    return json({ workouts: workouts ?? [] });
+  }
+
   // POST /friend-activity-detail — full activity row + streams + social for a friend's activity (server-side, bypasses RLS)
   if (path === "friend-activity-detail" && req.method === "POST") {
     const activityId = (body.activity_id ?? "").toString().trim();

@@ -37,3 +37,12 @@ verify_jwt = false
 
 [functions.combined-workout]
 verify_jwt = true
+
+[functions.on-invite-created]
+verify_jwt = false
+
+[functions.backfill-combined-workouts]
+verify_jwt = false
+
+[functions.generate-on-accept]
+verify_jwt = false

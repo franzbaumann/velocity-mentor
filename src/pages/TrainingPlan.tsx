@@ -314,7 +314,7 @@ function SessionDetailModal({
             )}
             {steps && steps.length > 0 && (
               <div>
-                <WorkoutStepsDisplay steps={steps} />
+                <WorkoutStepsDisplay steps={steps} workoutType={session.session_type} />
                 <button
                   onClick={() => fetchSteps(true)}
                   className="text-[10px] text-muted-foreground/50 hover:text-muted-foreground flex items-center gap-1 mb-4"

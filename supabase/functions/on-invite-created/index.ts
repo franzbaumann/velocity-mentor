@@ -70,63 +70,36 @@ serve(async (req) => {
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-  const authHeader = req.headers.get("Authorization");
-  if (!authHeader) return json({ error: "Unauthorized" }, 401);
+  const body = (await req.json().catch(() => ({}))) as {
+    type?: string;
+    table?: string;
+    record?: {
+      id?: string;
+      from_user?: string;
+      to_user?: string;
+      proposed_date?: string;
+      invite_type?: "combined" | "parallel";
+    };
+  };
 
-  const supabaseUser = createClient(SUPABASE_URL, Deno.env.get("SUPABASE_ANON_KEY")!, {
-    global: { headers: { Authorization: authHeader } },
-  });
-  const { data: { user } } = await supabaseUser.auth.getUser();
-  if (!user) return json({ error: "Unauthorized" }, 401);
+  if (body.type !== "INSERT" || body.table !== "workout_invite" || !body.record?.id) {
+    console.error("[on-invite-created] Invalid payload", { type: body.type, table: body.table });
+    return json({ error: "Invalid webhook payload" }, 400);
+  }
+
+  const record = body.record;
+  const inviteId = record.id;
+  const fromUser = record.from_user;
+  const toUser = record.to_user;
+  const dateStr = record.proposed_date;
+  const mode = (record.invite_type ?? "combined") as "combined" | "parallel";
+
+  if (!fromUser || !toUser || !dateStr) {
+    console.error("[on-invite-created] Missing required fields", record);
+    return json({ error: "Missing from_user, to_user, or proposed_date" }, 400);
+  }
 
   const admin = createClient(SUPABASE_URL, SERVICE_KEY);
-  const body = (await req.json().catch(() => ({}))) as {
-    invite_id?: string;
-    preview?: boolean;
-    from_user_id?: string;
-    to_user_id?: string;
-    proposed_date?: string;
-    invite_type?: "combined" | "parallel";
-  };
-  const { invite_id, preview, from_user_id, to_user_id, proposed_date, invite_type } = body;
-
-  let fromUser: string;
-  let toUser: string;
-  let dateStr: string;
-  let mode: "combined" | "parallel";
-
-  if (invite_id) {
-    const { data: invite } = await admin
-      .from("workout_invite")
-      .select("*")
-      .eq("id", invite_id)
-      .maybeSingle();
-
-    if (!invite) return json({ error: "Invite not found" }, 404);
-    if (invite.from_user !== user.id && invite.to_user !== user.id) {
-      return json({ error: "Not authorized" }, 403);
-    }
-
-    if (invite.combined_workout) {
-      return json({ combined_workout: invite.combined_workout });
-    }
-
-    fromUser = invite.from_user;
-    toUser = invite.to_user;
-    dateStr = invite.proposed_date;
-    mode = invite.invite_type ?? "combined";
-  } else {
-    if (!from_user_id || !to_user_id || !proposed_date || !invite_type) {
-      return json({ error: "from_user_id, to_user_id, proposed_date, invite_type required for preview" }, 400);
-    }
-    if (from_user_id !== user.id) {
-      return json({ error: "Only the sender can preview before sending" }, 403);
-    }
-    fromUser = from_user_id;
-    toUser = to_user_id;
-    dateStr = proposed_date;
-    mode = invite_type;
-  }
 
   const [profileA, profileB] = await Promise.all([
     admin.from("athlete_profile")
@@ -242,6 +215,7 @@ Mode: ${mode === "parallel" ? "PARALLEL — they do their own reps but share war
   }
 
   if (!text) {
+    console.error("[on-invite-created] AI service unavailable for invite", inviteId);
     return json({ error: "AI service unavailable" }, 503);
   }
 
@@ -253,12 +227,16 @@ Mode: ${mode === "parallel" ? "PARALLEL — they do their own reps but share war
     combined = { summary: text, athlete_a: { name: nameA, workout: workoutDescA }, athlete_b: { name: nameB, workout: workoutDescB } };
   }
 
-  if (invite_id && !preview) {
-    await admin
-      .from("workout_invite")
-      .update({ combined_workout: combined })
-      .eq("id", invite_id);
+  const { error } = await admin
+    .from("workout_invite")
+    .update({ combined_workout: combined })
+    .eq("id", inviteId);
+
+  if (error) {
+    console.error("[on-invite-created] Failed to update invite", inviteId, error);
+    return json({ error: "Failed to update invite" }, 500);
   }
 
-  return json({ combined_workout: combined });
+  console.log("[on-invite-created] Generated combined workout for invite", inviteId);
+  return json({ ok: true, invite_id: inviteId });
 });
