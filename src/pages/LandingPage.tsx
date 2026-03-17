@@ -2,7 +2,6 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
-  Zap,
   Activity,
   BarChart2,
   Calendar,
@@ -29,6 +28,7 @@ import {
   CarouselPrevious,
 } from "@/components/ui/carousel";
 import { supabase } from "@/integrations/supabase/client";
+import { CadeLogo } from "@/components/CadeLogo";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -72,10 +72,7 @@ export default function LandingPage() {
       <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/80 backdrop-blur-xl">
         <div className="max-w-[1100px] mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center">
-              <Zap className="w-4 h-4 text-primary-foreground" />
-            </div>
-            <span className="text-lg font-semibold text-foreground tracking-tight">Cade</span>
+            <CadeLogo variant="full" size="xl" />
           </Link>
           <nav className="hidden sm:flex items-center gap-8">
             {navLinks.map(({ label, href }) => (
@@ -87,6 +84,12 @@ export default function LandingPage() {
                 {label}
               </a>
             ))}
+            <Link
+              to="/auth"
+              className="text-sm font-medium text-foreground hover:text-primary transition-colors"
+            >
+              Sign in
+            </Link>
           </nav>
           <Link to="/auth">
             <Button size="sm" className="gap-2 rounded-full">
@@ -126,6 +129,12 @@ export default function LandingPage() {
               </Button>
             </a>
           </div>
+          <p className="text-sm text-muted-foreground mt-2">
+            Already have an account?{" "}
+            <Link to="/auth" className="font-medium text-foreground hover:text-primary underline underline-offset-2">
+              Sign in
+            </Link>
+          </p>
           <div className="flex flex-wrap items-center justify-center gap-5 text-sm text-muted-foreground mt-1">
             <span className="flex items-center gap-1.5">
               <Check className="w-4 h-4 text-green-600 shrink-0" />
@@ -455,10 +464,7 @@ export default function LandingPage() {
       <footer className="py-6 px-4 sm:px-6 border-t border-border">
         <div className="max-w-[1100px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
-            <div className="w-5 h-5 rounded-md bg-primary flex items-center justify-center">
-              <Zap className="w-3 h-3 text-primary-foreground" />
-            </div>
-            <span className="font-medium text-foreground">Cade</span>
+            <CadeLogo variant="full" size="sm" />
             <span>© 2026</span>
           </div>
           <div className="flex items-center gap-6">

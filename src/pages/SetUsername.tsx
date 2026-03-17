@@ -2,8 +2,8 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Footprints } from "lucide-react";
 import { Link } from "react-router-dom";
+import { CadeLogo } from "@/components/CadeLogo";
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,30}$/;
 function normalizeUsername(raw: string): string {
@@ -73,10 +73,7 @@ export default function SetUsername() {
       <header className="fixed top-0 left-0 right-0 z-50 border-b border-border bg-background/80 backdrop-blur-xl">
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2.5">
-            <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center">
-              <Footprints className="w-4 h-4 text-primary-foreground" />
-            </div>
-            <span className="text-lg font-semibold text-foreground tracking-tight">Cade</span>
+            <CadeLogo variant="full" size="md" />
           </Link>
         </div>
       </header>

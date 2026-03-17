@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
-import { Check, ChevronRight, ExternalLink, Footprints, ArrowLeft, Loader2 } from "lucide-react";
+import { Check, ChevronRight, ExternalLink, ArrowLeft, Loader2 } from "lucide-react";
 import { Marquee } from "@/components/ui/marquee";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useIntervalsSync, SyncProgress } from "@/hooks/useIntervalsSync";
 import { useOnboardingProgress } from "@/hooks/useOnboardingProgress";
+import { CadeLogo } from "@/components/CadeLogo";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -675,10 +676,7 @@ export function IntervalsSetupGuide() {
       <header className="border-b border-border">
         <div className="max-w-[1100px] mx-auto px-4 sm:px-6 h-14 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="w-7 h-7 rounded-lg bg-primary flex items-center justify-center">
-              <Footprints className="w-3.5 h-3.5 text-primary-foreground" />
-            </div>
-            <span className="font-semibold text-foreground">Cade</span>
+            <CadeLogo variant="full" size="sm" />
             <span className="text-muted-foreground text-sm hidden sm:inline">· Setup</span>
           </div>
           <div className="flex items-center gap-4">

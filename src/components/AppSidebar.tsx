@@ -8,7 +8,6 @@ import {
   BarChart3,
   BookOpen,
   Settings,
-  Footprints,
   LogOut,
   Sun,
   Moon,
@@ -25,6 +24,7 @@ import { supabase } from "@/integrations/supabase/client";
 import { useTheme, type Theme } from "@/hooks/useTheme";
 import { useSidebar } from "@/components/SidebarContext";
 import { usePendingInvitesCount } from "@/hooks/useFriends";
+import { CadeLogo } from "@/components/CadeLogo";
 
 const navItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -87,16 +87,10 @@ export function AppSidebar() {
       } ${hoverExpanded ? "shadow-xl" : ""}`}
     >
       <div className="flex items-center gap-2.5 px-4 h-16 border-b border-border flex-shrink-0">
-        <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
-          <Footprints className="w-4 h-4 text-primary-foreground" />
-        </div>
-        <span
-          className={`text-lg font-semibold text-foreground tracking-tight transition-opacity duration-200 whitespace-nowrap ${
-            expanded ? "opacity-100" : "opacity-0 w-0 overflow-hidden"
-          }`}
-        >
-          Cade
-        </span>
+        <CadeLogo
+          variant={expanded ? "full" : "icon"}
+          size="md"
+        />
       </div>
 
       <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto overflow-x-hidden">
