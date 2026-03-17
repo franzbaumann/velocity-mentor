@@ -1,5 +1,5 @@
 import { FC, useMemo } from "react";
-import { StyleSheet, Text, View } from "react-native";
+import { Image, StyleSheet, Text, View } from "react-native";
 import Svg, { Path, Rect } from "react-native-svg";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
@@ -56,8 +56,8 @@ const META: Record<StatType, Meta> = {
   },
   resting_hr: {
     title: "Resting HR",
-    icon: "flash-outline",
-    color: "#ef4444",
+    icon: "walk-outline",
+    color: "#a855f7",
     unit: " bpm",
   },
   vo2max: {
@@ -266,7 +266,14 @@ export const ChatStatChartsMobile: FC<Props> = ({ content, readiness, activities
                 { backgroundColor: colors.primary + "22" },
               ]}
             >
-              <Ionicons name={meta.icon} size={14} color={colors.primary} />
+              {type === "resting_hr" ? (
+                <Image
+                  source={require("../assets/cade-runner-blue.png")}
+                  style={{ width: 22, height: 22, tintColor: "#2563eb" }}
+                />
+              ) : (
+                <Ionicons name={meta.icon} size={14} color={colors.primary} />
+              )}
             </View>
             <View style={styles.headerText}>
               <Text style={[styles.title, { color: colors.foreground }]} numberOfLines={1}>

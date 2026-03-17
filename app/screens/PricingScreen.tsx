@@ -197,7 +197,7 @@ export const PricingScreen: FC = () => {
         showsVerticalScrollIndicator={false}
       >
         <View style={styles.header}>
-          <Text style={styles.title}>Choose your PaceIQ plan</Text>
+          <Text style={styles.title}>Choose your Cade plan</Text>
           <Text style={styles.subtitle}>
             Skip login and explore our plans. You can create your account at any time.
           </Text>

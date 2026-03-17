@@ -1,5 +1,16 @@
-import { FC, useCallback, useMemo, useState } from "react";
-import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { FC, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  ActivityIndicator,
+  Dimensions,
+  NativeScrollEvent,
+  NativeSyntheticEvent,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  Image,
+} from "react-native";
 import { useNavigation } from "@react-navigation/native";
 import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { Ionicons } from "@expo/vector-icons";
@@ -10,8 +21,11 @@ import { typography } from "../theme/theme";
 import type { PlanStackParamList } from "../navigation/RootNavigator";
 import { useTrainingPlan, TrainingPlanSession } from "../hooks/useTrainingPlan";
 import { SessionCard } from "../components/plan/SessionCard";
+import { DraggableSessionList } from "../components/plan/DraggableSessionList";
 import { SessionDetailModal } from "../components/plan/SessionDetailModal";
 import { SkeletonCard, SkeletonLine } from "../components/Skeleton";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import { PlanOnboardingOverlay, SpotlightRect } from "../components/plan/PlanOnboardingOverlay";
 import {
   addMonths,
   eachDayOfInterval,
@@ -29,6 +43,8 @@ import {
 } from "date-fns";
 
 const SCROLL_PADDING_BELOW_BUBBLE = 120;
+const WEEK_COLUMN_WIDTH = Dimensions.get("window").width * 0.82;
+const WEEK_COLUMN_GAP = 12;
 
 type ViewMode = "list" | "calendar";
 
@@ -53,26 +69,31 @@ export const TrainingPlanScreen: FC = () => {
   const [selectedSession, setSelectedSession] = useState<TrainingPlanSession | null>(null);
   const [currentMonth, setCurrentMonth] = useState(() => new Date());
   const [movingSession, setMovingSession] = useState<TrainingPlanSession | null>(null);
+  const [weekSessionOrder, setWeekSessionOrder] = useState<Record<string, string[]>>({});
+  const weekScrollRef = useRef<ScrollView | null>(null);
+  const containerRef = useRef<View>(null);
+  const scrollAreaRef = useRef<View>(null);
+  const [onboardingStep, setOnboardingStep] = useState<1 | 2 | 3 | null>(null);
+  const [onboardingCompleting, setOnboardingCompleting] = useState(false);
+  const [scrollAreaRect, setScrollAreaRect] = useState<SpotlightRect | null>(null);
+  const onboardingStepRef = useRef<1 | 2 | 3 | null>(null);
+  onboardingStepRef.current = onboardingStep;
+  const scrollBaselineRef = useRef<number | null>(null);
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        content: { gap: 16, paddingBottom: 32 },
+        content: { gap: 8, paddingBottom: 24, backgroundColor: "#f9fafb" },
         title: { fontSize: 22, fontWeight: "600", color: colors.foreground },
         subtitle: { fontSize: 14, color: colors.mutedForeground, marginTop: 4 },
         countdownBadge: {
           borderRadius: 999,
-          paddingHorizontal: 10,
-          paddingVertical: 4,
+          paddingHorizontal: 14,
+          paddingVertical: 6,
           backgroundColor: colors.muted,
         },
-        countdownText: { fontSize: 11, fontWeight: "500", color: colors.mutedForeground },
-        sectionHeader: {},
+        countdownText: { fontSize: 12, fontWeight: "600", color: colors.mutedForeground },
+        sectionHeader: { color: colors.mutedForeground },
         body: { fontSize: 14, color: colors.mutedForeground, lineHeight: 20 },
-        weekHeaderRow: {
-          flexDirection: "row",
-          alignItems: "center",
-          justifyContent: "space-between",
-        },
         weekHeaderButton: {
           flexDirection: "row",
           alignItems: "center",
@@ -115,8 +136,19 @@ export const TrainingPlanScreen: FC = () => {
           fontSize: 12,
           color: colors.mutedForeground,
         },
+        weekColumnsContainer: {
+          paddingTop: 4,
+          paddingBottom: 8,
+        },
+        weekColumnCard: {
+          padding: 0,
+          overflow: "hidden",
+          width: WEEK_COLUMN_WIDTH,
+          marginRight: WEEK_COLUMN_GAP,
+        },
         weekSessions: {
           paddingHorizontal: 16,
+          paddingTop: 8,
           paddingBottom: 12,
           borderTopWidth: StyleSheet.hairlineWidth,
           borderTopColor: colors.border,
@@ -207,7 +239,7 @@ export const TrainingPlanScreen: FC = () => {
           padding: 3,
           borderWidth: StyleSheet.hairlineWidth,
           borderColor: colors.border,
-          marginTop: 16,
+          marginTop: 0,
         },
         toggleButton: {
           flex: 1,
@@ -362,9 +394,45 @@ export const TrainingPlanScreen: FC = () => {
   const weeks = plan?.weeks ?? [];
   const today = new Date();
 
+  // Seed local ordering when weeks change.
+  useEffect(() => {
+    if (!weeks.length) return;
+    setWeekSessionOrder((prev) => {
+      const next = { ...prev };
+      for (const w of weeks) {
+        if (!next[w.id]) {
+          next[w.id] = w.sessions.map((s) => s.id);
+        }
+      }
+      return next;
+    });
+  }, [weeks]);
+
+  const getOrderedSessions = useCallback(
+    (week: (typeof weeks)[number]): TrainingPlanSession[] => {
+      const order = weekSessionOrder[week.id];
+      if (!order) return week.sessions;
+      const byId = new Map<string, TrainingPlanSession>();
+      for (const s of week.sessions) byId.set(s.id, s);
+      const ordered: TrainingPlanSession[] = [];
+      for (const id of order) {
+        const s = byId.get(id);
+        if (s) ordered.push(s);
+      }
+      // Fallback: include any new sessions not in order yet
+      if (ordered.length !== week.sessions.length) {
+        for (const s of week.sessions) {
+          if (!order.includes(s.id)) ordered.push(s);
+        }
+      }
+      return ordered;
+    },
+    [weekSessionOrder, weeks],
+  );
+
   const thisWeekData = useMemo(() => {
-    const mon = startOfWeek(today, { weekStartsOn: 1 });
-    const sun = endOfWeek(today, { weekStartsOn: 1 });
+    const mon = startOfWeek(today, { weekStartsOn: 0 });
+    const sun = endOfWeek(today, { weekStartsOn: 0 });
     const week = weeks.find((w) => {
       const start = parseISO(w.start_date);
       const end = new Date(start);
@@ -386,6 +454,16 @@ export const TrainingPlanScreen: FC = () => {
     };
   }, [weeks, today]);
 
+  const currentWeekIndex = useMemo(() => {
+    if (!weeks.length) return -1;
+    return weeks.findIndex((w) => {
+      const start = parseISO(w.start_date);
+      const end = new Date(start);
+      end.setDate(end.getDate() + 6);
+      return isWithinInterval(today, { start, end });
+    });
+  }, [weeks, today]);
+
   const raceDateRaw = plan?.plan?.goal_date || plan?.plan?.race_date || null;
   const raceDate = raceDateRaw ? new Date(raceDateRaw) : null;
   const daysToRace = raceDate ? Math.max(0, differenceInCalendarDays(raceDate, new Date())) : null;
@@ -402,8 +480,8 @@ export const TrainingPlanScreen: FC = () => {
   const calendarDays = useMemo(() => {
     const monthStart = startOfMonth(currentMonth);
     const monthEnd = endOfMonth(currentMonth);
-    const calStart = startOfWeek(monthStart, { weekStartsOn: 1 });
-    const calEnd = endOfWeek(monthEnd, { weekStartsOn: 1 });
+    const calStart = startOfWeek(monthStart, { weekStartsOn: 0 });
+    const calEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
     return eachDayOfInterval({ start: calStart, end: calEnd });
   }, [currentMonth]);
 
@@ -475,6 +553,110 @@ export const TrainingPlanScreen: FC = () => {
     navigation.navigate("Season");
   }, [navigation]);
 
+  useEffect(() => {
+    if (viewMode !== "list") return;
+    if (currentWeekIndex == null || currentWeekIndex < 0) return;
+    const x = currentWeekIndex * (WEEK_COLUMN_WIDTH + WEEK_COLUMN_GAP);
+    weekScrollRef.current?.scrollTo({ x, y: 0, animated: false });
+  }, [viewMode, currentWeekIndex]);
+
+  // ── Plan onboarding tutorial ──────────────────────────────
+  const hasPlan = !!plan?.plan;
+  useEffect(() => {
+    if (!hasPlan) return;
+    AsyncStorage.getItem("onboarding_plan_v1").then((v) => {
+      if (v !== "done") setOnboardingStep(1);
+    });
+  }, [hasPlan]);
+
+  const handleScrollAreaLayout = useCallback(() => {
+    requestAnimationFrame(() => {
+      containerRef.current?.measureInWindow((cx: number, cy: number) => {
+        scrollAreaRef.current?.measureInWindow(
+          (sx: number, sy: number, sw: number, sh: number) => {
+            if (sw > 0 && sh > 0) {
+              setScrollAreaRect({ x: sx - cx, y: sy - cy, w: sw, h: sh });
+            }
+          },
+        );
+      });
+    });
+  }, []);
+
+  const handleWeekScroll = useCallback(
+    (e: NativeSyntheticEvent<NativeScrollEvent>) => {
+      if (onboardingStepRef.current !== 1) return;
+      const x = e.nativeEvent.contentOffset.x;
+      if (scrollBaselineRef.current === null) {
+        scrollBaselineRef.current = x;
+        return;
+      }
+      if (Math.abs(x - scrollBaselineRef.current) >= 80) {
+        setOnboardingStep(2);
+        scrollBaselineRef.current = null;
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    if (onboardingStepRef.current === 3 && selectedSession && !onboardingCompleting) {
+      setOnboardingCompleting(true);
+    }
+  }, [selectedSession, onboardingCompleting]);
+
+  const handleOnboardingDone = useCallback(() => {
+    setOnboardingStep(null);
+    setOnboardingCompleting(false);
+    AsyncStorage.setItem("onboarding_plan_v1", "done");
+  }, []);
+
+  const onboardingSpotlight = useMemo((): SpotlightRect | null => {
+    if (!scrollAreaRect || !onboardingStep) return null;
+    if (onboardingStep === 1) return scrollAreaRect;
+    return {
+      x: scrollAreaRect.x + 16,
+      y: scrollAreaRect.y + 55,
+      w: WEEK_COLUMN_WIDTH - 32,
+      h: 130,
+    };
+  }, [scrollAreaRect, onboardingStep]);
+  // ── End onboarding ────────────────────────────────────────
+
+  const handleWeekReorder = useCallback(
+    (weekId: string, fromIndex: number, toIndex: number) => {
+      const week = weeks.find((w) => w.id === weekId);
+      if (!week) return;
+      const ordered = getOrderedSessions(week);
+      if (
+        fromIndex < 0 ||
+        fromIndex >= ordered.length ||
+        toIndex < 0 ||
+        toIndex >= ordered.length
+      ) {
+        return;
+      }
+      const source = ordered[fromIndex];
+      const target = ordered[toIndex];
+      if (!target?.scheduled_date) return;
+      const newDate = target.scheduled_date.slice(0, 10);
+
+      setWeekSessionOrder((prev) => {
+        const currentIds =
+          prev[weekId] ?? week.sessions.map((s) => s.id);
+        const nextIds = currentIds.slice();
+        const [moved] = nextIds.splice(fromIndex, 1);
+        nextIds.splice(toIndex, 0, moved);
+        return { ...prev, [weekId]: nextIds };
+      });
+
+      rescheduleSession({ sessionId: source.id, newDate });
+      if (onboardingStepRef.current === 2) setOnboardingStep(3);
+    },
+    [weeks, getOrderedSessions, rescheduleSession],
+  );
+
+
   // Only show the blocking skeleton while the very first plan load is happening.
   // Background refetches (e.g. after marking sessions done or generating coach notes)
   // should keep showing the current plan to avoid jarring flashes.
@@ -503,15 +685,29 @@ export const TrainingPlanScreen: FC = () => {
       <ScreenContainer
         contentContainerStyle={[styles.content, { paddingBottom: SCROLL_PADDING_BELOW_BUBBLE }]}
       >
-        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 16 }}>
-          <Text style={styles.title}>Training plan</Text>
+        <View
+          style={{
+            alignItems: "flex-end",
+            marginBottom: 8,
+          }}
+        >
           <TouchableOpacity
             onPress={openSeason}
             activeOpacity={0.8}
-            style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12, minHeight: 48 }}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              minHeight: 48,
+            }}
           >
-            <Ionicons name="trophy" size={20} color={colors.primary} />
-            <Text style={{ fontSize: 15, fontWeight: "600", color: colors.primary }}>Season</Text>
+            <Image
+              source={require("../assets/cade-runner-blue.png")}
+              style={{ width: 22, height: 22, tintColor: "#2563eb" }}
+            />
+            <Text style={{ fontSize: 15, fontWeight: "600", color: colors.foreground }}>Season</Text>
           </TouchableOpacity>
         </View>
         <GlassCard>
@@ -532,27 +728,43 @@ export const TrainingPlanScreen: FC = () => {
   }
 
   return (
+    <View ref={containerRef} style={{ flex: 1 }}>
     <ScreenContainer
       contentContainerStyle={[styles.content, { paddingBottom: SCROLL_PADDING_BELOW_BUBBLE }]}
     >
-      <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
-        <Text style={styles.title}>Training plan</Text>
-        <TouchableOpacity
-          onPress={openSeason}
-          activeOpacity={0.8}
-          style={{ flexDirection: "row", alignItems: "center", gap: 6, paddingVertical: 8, paddingHorizontal: 12, minHeight: 48 }}
-        >
-          <Ionicons name="trophy" size={20} color={colors.primary} />
-          <Text style={{ fontSize: 15, fontWeight: "600", color: colors.primary }}>Season</Text>
-        </TouchableOpacity>
-      </View>
-      <View style={{ flexDirection: "row", alignItems: "center", gap: 8 }}>
-        <Text style={styles.subtitle}>{raceSubtitle}</Text>
-        {daysToRace != null && (
+      <View style={{ flexDirection: "row", alignItems: "center", flexWrap: "wrap", gap: 8, marginBottom: 4 }}>
+        {raceDate && (
           <View style={styles.countdownBadge}>
-            <Text style={styles.countdownText}>🏁 {daysToRace} days to race</Text>
+            <Text style={styles.countdownText}>
+              {format(raceDate, "MMM d")} · {planDisplayName}
+            </Text>
           </View>
         )}
+        {daysToRace != null && (
+          <View style={styles.countdownBadge}>
+            <Text style={styles.countdownText}>{daysToRace} days to race</Text>
+          </View>
+        )}
+        <View style={{ flex: 1, alignItems: "flex-end" }}>
+          <TouchableOpacity
+            onPress={openSeason}
+            activeOpacity={0.8}
+            style={{
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+              paddingVertical: 8,
+              paddingHorizontal: 12,
+              minHeight: 48,
+            }}
+          >
+            <Image
+              source={require("../assets/cade-runner-blue.png")}
+              style={{ width: 26, height: 26, tintColor: "#2563eb" }}
+            />
+            <Text style={{ fontSize: 15, fontWeight: "600", color: colors.foreground }}>Season</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {thisWeekData && (
@@ -637,43 +849,52 @@ export const TrainingPlanScreen: FC = () => {
       </View>
 
       {viewMode === "list" ? (
-        <View style={{ gap: 8 }}>
+        <View ref={scrollAreaRef} onLayout={handleScrollAreaLayout}>
+        <ScrollView
+          ref={weekScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.weekColumnsContainer}
+          snapToInterval={WEEK_COLUMN_WIDTH + WEEK_COLUMN_GAP}
+          snapToAlignment="start"
+          decelerationRate="fast"
+          onScroll={handleWeekScroll}
+          scrollEventThrottle={16}
+        >
           {weeks.map((week) => {
-            const isExpanded = expandedWeeks.has(week.week_number);
+            const isExpanded = true;
             const weekStart = parseISO(week.start_date);
             const weekEnd = new Date(weekStart.getTime() + 6 * 24 * 60 * 60 * 1000);
+            const orderedSessions = getOrderedSessions(week);
             return (
-              <GlassCard key={week.id} style={{ padding: 0, overflow: "hidden" }}>
-                <TouchableOpacity
-                  activeOpacity={0.7}
-                  style={styles.weekHeaderButton}
-                  onPress={() => toggleWeek(week.week_number)}
-                >
-                  <View style={styles.weekHeaderLeft}>
-                    <Text style={styles.chevron}>
-                      {isExpanded ? "▾" : "▸"}
+              <GlassCard key={week.id} style={styles.weekColumnCard}>
+                <View>
+                  <TouchableOpacity
+                    activeOpacity={0.7}
+                    style={styles.weekHeaderButton}
+                  >
+                    <View style={styles.weekHeaderLeft}>
+                      <Text style={styles.chevron}>{isExpanded ? "▾" : "▸"}</Text>
+                      <Image
+                        source={require("../assets/cade-runner-blue.png")}
+                        style={{ width: 24, height: 24, tintColor: "#2563eb" }}
+                      />
+                      <Text style={styles.weekTitle}>Week {week.week_number}</Text>
+                      {week.phase && (
+                        <Text style={styles.weekPhase}>{week.phase}</Text>
+                      )}
+                      <Text style={styles.weekDateRange}>
+                        {format(weekStart, "MMM d")} – {format(weekEnd, "MMM d")}
+                      </Text>
+                    </View>
+                    <Text style={styles.weekMeta}>
+                      {week.total_km != null ? `${Math.round(week.total_km)} km` : ""}
                     </Text>
-                    <Text style={styles.weekTitle}>Week {week.week_number}</Text>
-                    {week.phase && (
-                      <Text style={styles.weekPhase}>{week.phase}</Text>
-                    )}
-                    <Text style={styles.weekDateRange}>
-                      {format(weekStart, "MMM d")} – {format(weekEnd, "MMM d")}
-                    </Text>
-                  </View>
-                  <Text style={styles.weekMeta}>
-                    {week.sessions.length} sessions
-                    {week.total_km != null
-                      ? ` · ${Math.round(week.total_km)} km`
-                      : ""}
-                  </Text>
-                </TouchableOpacity>
-                {isExpanded && (
-                  <View style={styles.weekSessions}>
-                    {week.sessions.map((s) => (
-                      <SessionCard
-                        key={s.id}
-                        session={s}
+                  </TouchableOpacity>
+                  {isExpanded && (
+                    <View style={styles.weekSessions}>
+                      <DraggableSessionList
+                        sessions={orderedSessions}
                         onToggleDone={(sess) =>
                           markSessionDone({
                             sessionId: sess.id,
@@ -682,17 +903,32 @@ export const TrainingPlanScreen: FC = () => {
                         }
                         onPress={setSelectedSession}
                         onAskKipcoachee={handleAskKipcoachee}
+                        onReorder={(from, to) =>
+                          handleWeekReorder(week.id, from, to)
+                        }
                       />
-                    ))}
-                  </View>
-                )}
+                    </View>
+                  )}
+                </View>
               </GlassCard>
             );
           })}
+        </ScrollView>
         </View>
       ) : (
         <GlassCard>
           <View>
+            {!!movingSession && (
+              <View style={{ marginBottom: 8, paddingHorizontal: 2 }}>
+                <Text style={{ fontSize: 12, color: colors.mutedForeground }}>
+                  Tap a day to move{" "}
+                  <Text style={{ fontWeight: "600", color: colors.foreground }}>
+                    {movingSession.description}
+                  </Text>
+                  .
+                </Text>
+              </View>
+            )}
             <View style={styles.calendarHeaderRow}>
               <TouchableOpacity
                 style={styles.calendarNav}
@@ -711,7 +947,7 @@ export const TrainingPlanScreen: FC = () => {
               </TouchableOpacity>
             </View>
             <View style={styles.calendarWeekdayRow}>
-              {["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map((d) => (
+              {["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].map((d) => (
                 <Text key={d} style={styles.calendarWeekday}>
                   {d}
                 </Text>
@@ -761,8 +997,14 @@ export const TrainingPlanScreen: FC = () => {
                             !!s.completed_at &&
                             !!s.scheduled_date &&
                             s.completed_at.slice(0, 10) !== s.scheduled_date.slice(0, 10);
-                          const bgColor = isCompletedHere ? typeColor : `${typeColor}22`;
-                          const textColor = isCompletedHere ? colors.primaryForeground : typeColor;
+                          const labelSource =
+                            typeof s.session_type === "string" && s.session_type.trim().length > 0
+                              ? s.session_type.trim()
+                              : "Session";
+                          const shortLabel =
+                            labelSource.length <= 3
+                              ? labelSource
+                              : labelSource.slice(0, 1).toUpperCase();
                           return (
                             <TouchableOpacity
                               key={s.id}
@@ -770,7 +1012,7 @@ export const TrainingPlanScreen: FC = () => {
                               style={[
                                 styles.calendarSessionPill,
                                 {
-                                  backgroundColor: bgColor,
+                                  backgroundColor: colors.card,
                                   borderWidth: 1,
                                   borderColor: typeColor,
                                   borderStyle: isRescheduled ? "dashed" : "solid",
@@ -789,11 +1031,13 @@ export const TrainingPlanScreen: FC = () => {
                                 numberOfLines={1}
                                 style={[
                                   styles.calendarSessionText,
-                                  { color: textColor },
+                                  {
+                                    color: typeColor,
+                                    fontWeight: isCompletedHere ? "700" : "500",
+                                  },
                                 ]}
                               >
-                                {isCompletedHere ? "✓ " : ""}
-                                {s.description}
+                                {shortLabel}
                               </Text>
                             </TouchableOpacity>
                           );
@@ -866,7 +1110,7 @@ export const TrainingPlanScreen: FC = () => {
           <View style={{ flex: 1 }}>
             <Text style={styles.rebuildTitle}>Rebuild plan</Text>
             <Text style={styles.rebuildSubtitle}>
-              Change your goals or schedule and let Kipcoachee design a fresh block.
+              Change your goals or schedule and let Cade design a fresh block.
             </Text>
           </View>
           <TouchableOpacity
@@ -891,5 +1135,14 @@ export const TrainingPlanScreen: FC = () => {
         isNutritionLoading={isNutritionLoading}
       />
     </ScreenContainer>
+    {onboardingStep != null && (
+      <PlanOnboardingOverlay
+        step={onboardingStep}
+        spotlight={onboardingSpotlight}
+        completing={onboardingCompleting}
+        onComplete={handleOnboardingDone}
+      />
+    )}
+    </View>
   );
 };

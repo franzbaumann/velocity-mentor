@@ -16,6 +16,7 @@ import { useNavigation } from "@react-navigation/native";
 import * as Haptics from "expo-haptics";
 import { Share } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
 import { formatDistanceToNow } from "date-fns";
 import { GlassCard } from "../GlassCard";
 import { useTheme } from "../../context/ThemeContext";
@@ -31,6 +32,7 @@ import {
 } from "../../hooks/useCommunity";
 import { useSupabaseAuth } from "../../SupabaseProvider";
 import { formatDistance, formatDuration } from "../../lib/format";
+import { getActivityFadeColor } from "../../lib/analytics";
 
 function ActivityCard({
   activity,
@@ -98,6 +100,12 @@ function ActivityCard({
   const pace = activity.avg_pace;
   const photos = Array.isArray(activity.photos) ? activity.photos : [];
   const hasPhoto = photos.length > 0 && !!photos[0]?.url;
+  const fadeColor = getActivityFadeColor({
+    type: activity.type,
+    name: activity.name,
+    avg_hr: activity.avg_hr,
+    duration_seconds: activity.duration_seconds,
+  });
 
   const isSelf = user?.id === activity.user_id;
   const detailId =
@@ -138,10 +146,17 @@ function ActivityCard({
 
   return (
     <TouchableOpacity activeOpacity={0.85} onPress={handleOpenDetail}>
-    <GlassCard style={styles.card}>
+    <GlassCard style={[styles.card, styles.cardWithFade]}>
+      <LinearGradient
+        colors={[`${fadeColor}2e`, `${fadeColor}10`, `${fadeColor}00`]}
+        locations={[0, 0.35, 0.7]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={StyleSheet.absoluteFillObject}
+      />
       <View style={styles.cardHeader}>
         <View style={[styles.avatar, { backgroundColor: "#0f172a0d" }]}>
-          <Text style={[styles.avatarText, { color: "#1C1C1E" }]}>
+          <Text style={[styles.avatarText, { color: theme.textPrimary }]}>
             {friendName.charAt(0).toUpperCase()}
           </Text>
         </View>
@@ -224,7 +239,7 @@ function ActivityCard({
 
       <View style={styles.statsRow}>
         {activity.distance_km != null && activity.distance_km > 0 && (
-          <Text style={[styles.statChip, { color: "#1C1C1E" }]}>
+          <Text style={[styles.statChip, { color: theme.textPrimary }]}>
             {formatDistance(activity.distance_km)}
           </Text>
         )}
@@ -320,7 +335,7 @@ function ActivityCard({
               <Ionicons
                 name="send"
                 size={18}
-                color={commentText.trim() ? "#1C1C1E" : theme.textMuted}
+                color={commentText.trim() ? theme.textPrimary : theme.textMuted}
               />
             </TouchableOpacity>
           </View>
@@ -359,7 +374,7 @@ export const FriendFeed: FC<{ friends: FriendProfile[] }> = ({ friends }) => {
   if (isLoading) {
     return (
       <View style={styles.emptyContainer}>
-        <ActivityIndicator size="small" color="#1C1C1E" />
+        <ActivityIndicator size="small" color={theme.textPrimary} />
       </View>
     );
   }
@@ -394,6 +409,9 @@ export const FriendFeed: FC<{ friends: FriendProfile[] }> = ({ friends }) => {
 const styles = StyleSheet.create({
   feedList: { gap: 12 },
   card: { marginBottom: 0 },
+  cardWithFade: {
+    position: "relative",
+  },
   cardHeader: { flexDirection: "row", alignItems: "center", gap: 10, marginBottom: 10 },
   avatar: {
     width: 36,

@@ -9,6 +9,7 @@ import {
   TextInput,
   TouchableOpacity,
   View,
+  Image,
 } from "react-native";
 import { Swipeable } from "react-native-gesture-handler";
 import { Ionicons } from "@expo/vector-icons";
@@ -853,10 +854,10 @@ export const SettingsScreen: FC = () => {
           width: 10,
           height: 10,
           borderRadius: 999,
-          backgroundColor: "#E5E7EB",
+          backgroundColor: theme.cardBorder,
         },
         streakCalendarDotActive: {
-          backgroundColor: "#1C1C1E",
+          backgroundColor: theme.textPrimary,
         },
         streakCalendarDotTodayWrapper: {
           borderWidth: 1,
@@ -975,7 +976,7 @@ export const SettingsScreen: FC = () => {
           <View style={styles.memoryEmptyWrap}>
             <Text style={{ fontSize: 24 }}>🧠</Text>
             <Text style={[styles.body, { fontWeight: "600", color: colors.foreground }]}>No memories yet</Text>
-            <Text style={[styles.hint, { textAlign: "center" }]}>Kipcoachee will remember important things about your training here</Text>
+            <Text style={[styles.hint, { textAlign: "center" }]}>Cade will remember important things about your training here</Text>
           </View>
         ) : (
           <View>
@@ -1193,7 +1194,10 @@ export const SettingsScreen: FC = () => {
                       {isSyncing && syncProgress?.stage === "quick_sync" ? (
                         <ActivityIndicator size="small" color={colors.mutedForeground} />
                       ) : (
-                        <Ionicons name="flash-outline" size={16} color={colors.mutedForeground} />
+                        <Image
+                          source={require("../assets/cade-runner-blue.png")}
+                          style={{ width: 24, height: 24, tintColor: "#2563eb" }}
+                        />
                       )}
                       <Text style={styles.advancedBtnText}>Quick sync (30d)</Text>
                     </TouchableOpacity>

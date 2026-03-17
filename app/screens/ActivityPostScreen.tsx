@@ -70,7 +70,8 @@ export const ActivityPostScreen: FC = () => {
   const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
   const [photoViewerIndex, setPhotoViewerIndex] = useState(0);
 
-  const hasPhotos = photos.length > 0 && !!photos[0]?.url;
+  const displayPhotos = photos.filter((p) => !!p.url);
+  const hasPhotos = displayPhotos.length > 0;
 
   const handlePickPhoto = useCallback(async () => {
     try {
@@ -181,7 +182,7 @@ export const ActivityPostScreen: FC = () => {
               showsHorizontalScrollIndicator={false}
               style={{ height: PHOTO_H }}
             >
-              {photos.map((p, idx) => (
+              {displayPhotos.map((p, idx) => (
                 <TouchableOpacity
                   key={p.path ?? p.url ?? idx}
                   activeOpacity={0.95}
@@ -195,9 +196,9 @@ export const ActivityPostScreen: FC = () => {
                 </TouchableOpacity>
               ))}
             </ScrollView>
-            {photos.length > 1 && (
+              {displayPhotos.length > 1 && (
               <View style={st.dotsRow}>
-                {photos.map((_, i) => (
+                {displayPhotos.map((_, i) => (
                   <View key={i} style={[st.dot, i === photoViewerIndex && st.dotActive]} />
                 ))}
               </View>
@@ -231,9 +232,9 @@ export const ActivityPostScreen: FC = () => {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={st.thumbStrip}
           >
-            {photos.map((p, idx) => (
+            {displayPhotos.map((p, idx) => (
               <View key={p.path ?? p.url ?? idx} style={st.thumbWrap}>
-                <Image source={{ uri: p.url }} style={st.thumb} />
+                <Image source={{ uri: p.url as string }} style={st.thumb} />
                 <TouchableOpacity
                   style={st.thumbRemove}
                   onPress={() => handleRemovePhoto(idx)}
@@ -339,8 +340,8 @@ export const ActivityPostScreen: FC = () => {
                     style={[
                       st.tagChip,
                       {
-                        backgroundColor: active ? "#1C1C1E" : theme.secondary,
-                        borderColor: active ? "#1C1C1E" : theme.border,
+                        backgroundColor: active ? theme.textPrimary : theme.secondary,
+                        borderColor: active ? theme.textPrimary : theme.border,
                       },
                     ]}
                     onPress={() => addTag(tag)}
@@ -374,9 +375,9 @@ export const ActivityPostScreen: FC = () => {
       {/* Photo viewer */}
       <Modal visible={photoViewerOpen} transparent animationType="fade" onRequestClose={() => setPhotoViewerOpen(false)}>
         <Pressable style={st.viewerBackdrop} onPress={() => setPhotoViewerOpen(false)}>
-          {photos[photoViewerIndex] && (
+          {displayPhotos[photoViewerIndex] && (
             <Image
-              source={{ uri: photos[photoViewerIndex].url }}
+              source={{ uri: displayPhotos[photoViewerIndex].url as string }}
               style={st.viewerImage}
               resizeMode="contain"
             />

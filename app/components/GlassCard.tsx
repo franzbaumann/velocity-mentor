@@ -1,4 +1,4 @@
-import { PropsWithChildren } from "react";
+import React, { memo, PropsWithChildren } from "react";
 import { Platform, StyleSheet, View, ViewStyle } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 
@@ -7,7 +7,7 @@ type GlassCardProps = PropsWithChildren<{
   padding?: number;
 }>;
 
-export function GlassCard({ children, style, padding }: GlassCardProps) {
+export const GlassCard = memo(function GlassCard({ children, style, padding }: GlassCardProps) {
   const { themeName, theme } = useTheme();
   const isDarkPro = themeName === "darkPro";
   return (
@@ -38,7 +38,7 @@ export function GlassCard({ children, style, padding }: GlassCardProps) {
       {children}
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   card: {

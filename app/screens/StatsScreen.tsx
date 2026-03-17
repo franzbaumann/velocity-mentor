@@ -99,13 +99,13 @@ export const StatsScreen: FC = () => {
               onPress={() => setTab("runs")}
               style={[
                 styles.tabPill,
-                tab === "runs" && { backgroundColor: "#1C1C1E" },
+                tab === "runs" && { backgroundColor: theme.textPrimary },
               ]}
             >
               <Text
                 style={[
                   styles.tabLabel,
-                  tab === "runs" && { color: "#FFFFFF", fontWeight: "600" },
+                  tab === "runs" && { color: theme.cardBackground, fontWeight: "600" },
                 ]}
               >
                 Runs & Fitness
@@ -115,13 +115,13 @@ export const StatsScreen: FC = () => {
               onPress={() => setTab("wellness")}
               style={[
                 styles.tabPill,
-                tab === "wellness" && { backgroundColor: "#1C1C1E" },
+                tab === "wellness" && { backgroundColor: theme.textPrimary },
               ]}
             >
               <Text
                 style={[
                   styles.tabLabel,
-                  { color: tab === "wellness" ? "#FFFFFF" : theme.textMuted },
+                  { color: tab === "wellness" ? theme.cardBackground : theme.textMuted },
                   tab === "wellness" && { fontWeight: "600" },
                 ]}
               >
@@ -514,7 +514,8 @@ export const StatsScreen: FC = () => {
               </View>
               <View style={styles.gridHalf}>
                 <StatsChartCard
-                  icon="flash-outline"
+                  icon="walk-outline"
+                  iconVariant="cadeRunner"
                   title="Energy"
                   description="Daily energy level from wellness check-ins."
                   compact={!energySeries.length}
@@ -523,7 +524,7 @@ export const StatsScreen: FC = () => {
                     <WellnessCheckChartMobile
                       data={energySeries}
                       scale={["", "High", "Good", "Avg", "Low"]}
-                      color="#f59e0b"
+                      color="#a855f7"
                     />
                   ) : (
                     <Text style={[styles.emptyBody, { color: theme.textMuted }]}>

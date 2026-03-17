@@ -170,7 +170,7 @@ export function EditActivityModal({
               </Text>
               <View style={styles.summaryStatsRow}>
                 {activity.distance_km != null && activity.distance_km > 0 && (
-                  <Text style={[styles.summaryStat, { color: "#1C1C1E" }]}>
+                  <Text style={[styles.summaryStat, { color: theme.textPrimary }]}>
                     {formatDistance(activity.distance_km)}
                   </Text>
                 )}
@@ -248,7 +248,7 @@ export function EditActivityModal({
               <Text style={[styles.cancelBtnText, { color: theme.textSecondary }]}>Cancel</Text>
             </TouchableOpacity>
             <TouchableOpacity
-              style={[styles.saveBtn, { backgroundColor: "#1C1C1E" }]}
+              style={[styles.saveBtn, { backgroundColor: theme.textPrimary }]}
               onPress={handleSave}
               disabled={saving}
               activeOpacity={0.8}

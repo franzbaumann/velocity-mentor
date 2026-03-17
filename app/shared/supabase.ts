@@ -2,22 +2,16 @@ import { createClient, type FunctionsResponse } from "@supabase/supabase-js";
 import * as SecureStore from "expo-secure-store";
 import type { Database } from "../lib/supabase-types";
 
-// Prefer Expo env vars, but fall back to the real project values so
-// the app works even if .env is not picked up in development.
-const supabaseUrl =
-  process.env.EXPO_PUBLIC_SUPABASE_URL ||
-  "https://nhxwjaqhlbkdnageyavu.supabase.co";
-
-const supabaseKey =
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+// Mobile app should always talk to the same Supabase project as web/edge.
+// Use the canonical production URL/anon key directly to avoid mismatched
+// EXPO_PUBLIC_* envs pointing at another project.
+export const SUPABASE_URL = "https://nhxwjaqhlbkdnageyavu.supabase.co";
+export const SUPABASE_ANON_KEY =
   "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5oeHdqYXFobGJrZG5hZ2V5YXZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzE2NzI5NzMsImV4cCI6MjA4NzI0ODk3M30.i7YEsLDUwD2jyCOk8J-QooMPSJd-Sezuw5b9ZfuQKbM";
-
-export const SUPABASE_URL = supabaseUrl;
-export const SUPABASE_ANON_KEY = supabaseKey;
 
 export const AUTH_STORAGE_KEY = "paceiq-auth-session";
 
-export const supabase = createClient<Database>(supabaseUrl, supabaseKey, {
+export const supabase = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY, {
   auth: {
     storage: {
       getItem: () => SecureStore.getItemAsync(AUTH_STORAGE_KEY),
@@ -110,7 +104,12 @@ export async function callEdgeFunctionWithRetry<TResult = unknown, TBody = unkno
           return null;
         };
         const body = await readBody(responseLike);
-        if (body?.error) logPayload.edgeError = body.error;
+        if (body?.error) {
+          logPayload.edgeError = body.error;
+          // Surface edge error message to callers instead of the generic
+          // "Edge Function returned a non-2xx status code" text.
+          (resp.error as Error).message = body.error;
+        }
         console.warn("[edge] invoke error", logPayload);
         if (attempt >= maxRetries) {
           return resp;

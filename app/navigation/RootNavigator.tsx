@@ -21,6 +21,12 @@ import { StravaCallbackScreen } from "../screens/StravaCallbackScreen";
 import { SeasonScreen } from "../screens/SeasonScreen";
 import { SeasonWizardScreen } from "../screens/SeasonWizardScreen";
 import { SeasonViewScreen } from "../screens/SeasonViewScreen";
+import {
+  RecoveryCompletionScreen,
+  RecoveryProgramDetailScreen,
+  RecoveryProgramListScreen,
+  RecoverySessionScreen,
+} from "../screens/recovery";
 import { useSupabaseAuth } from "../SupabaseProvider";
 import { useOnboardingStatus } from "../hooks/useOnboardingStatus";
 import { TutorialNavigator } from "../tutorial/TutorialNavigator";
@@ -49,6 +55,13 @@ export type PlanStackParamList = {
   SeasonView: { seasonId: string };
 };
 
+export type RecoveryStackParamList = {
+  RecoveryProgramList: undefined;
+  RecoveryProgramDetail: { programId: string };
+  RecoverySession: { programId: string; startIndex?: number };
+  RecoveryCompletion: { programId: string };
+};
+
 export type AppTabsParamList = {
   Dashboard: { selectedDate?: string } | undefined;
   Plan: undefined;
@@ -66,12 +79,14 @@ export type RootStackParamList = {
   Calendar: { selectedDate?: string } | undefined;
   FriendActivityDetail: FriendActivityParams;
   ActivityPost: ActivityPostParams;
+  RecoveryFlow: undefined;
 };
 
 const RootStack = createNativeStackNavigator<RootStackParamList>();
 const AuthStack = createNativeStackNavigator<AuthStackParamList>();
 const ActivitiesStack = createNativeStackNavigator<ActivitiesStackParamList>();
 const PlanStack = createNativeStackNavigator<PlanStackParamList>();
+const RecoveryStack = createNativeStackNavigator<RecoveryStackParamList>();
 
 function AuthStackNavigator() {
   return (
@@ -136,6 +151,41 @@ function PlanStackNavigator() {
       <PlanStack.Screen name="SeasonWizard" component={SeasonWizardScreen} />
       <PlanStack.Screen name="SeasonView" component={SeasonViewScreen} />
     </PlanStack.Navigator>
+  );
+}
+
+function RecoveryStackNavigator() {
+  const { theme } = useTheme();
+  return (
+    <RecoveryStack.Navigator
+      screenOptions={{
+        headerStyle: { backgroundColor: theme.appBackground },
+        headerTintColor: theme.textPrimary,
+        headerShadowVisible: false,
+        contentStyle: { backgroundColor: theme.appBackground },
+      }}
+    >
+      <RecoveryStack.Screen
+        name="RecoveryProgramList"
+        component={RecoveryProgramListScreen}
+        options={{ headerShown: false, gestureEnabled: true }}
+      />
+      <RecoveryStack.Screen
+        name="RecoveryProgramDetail"
+        component={RecoveryProgramDetailScreen}
+        options={{ headerTitle: "Program Details", gestureEnabled: true }}
+      />
+      <RecoveryStack.Screen
+        name="RecoverySession"
+        component={RecoverySessionScreen}
+        options={{ headerTitle: "Recovery Session", gestureEnabled: false }}
+      />
+      <RecoveryStack.Screen
+        name="RecoveryCompletion"
+        component={RecoveryCompletionScreen}
+        options={{ headerTitle: "Complete", gestureEnabled: false }}
+      />
+    </RecoveryStack.Navigator>
   );
 }
 
@@ -214,7 +264,7 @@ function AppTabsNavigator() {
                     paddingHorizontal: 2,
                   }}
                 >
-                  <Ionicons name="flame-outline" size={10} color="#1C1C1E" />
+                  <Ionicons name="flame-outline" size={10} color={theme.textPrimary} />
                 </View>
               )}
             </View>
@@ -377,6 +427,14 @@ export function RootNavigator() {
               headerStyle: { backgroundColor: theme.appBackground },
               headerTintColor: theme.textPrimary,
               headerShadowVisible: false,
+            }}
+          />
+          <RootStack.Screen
+            name="RecoveryFlow"
+            component={RecoveryStackNavigator}
+            options={{
+              headerShown: false,
+              presentation: "card",
             }}
           />
         </RootStack.Navigator>

@@ -1,10 +1,11 @@
 import { FC, ReactNode, useRef, useState } from "react";
-import { Animated, Easing, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Animated, Easing, Image, Platform, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useTheme } from "../context/ThemeContext";
 
 type Props = {
   icon: keyof typeof Ionicons.glyphMap;
+  iconVariant?: "default" | "cadeRunner";
   title: string;
   /** Explanation shown on card back when tapped */
   description?: string;
@@ -15,7 +16,15 @@ type Props = {
   bodyPressOnly?: boolean;
 };
 
-export const StatsChartCard: FC<Props> = ({ icon, title, description, children, compact, bodyPressOnly }) => {
+export const StatsChartCard: FC<Props> = ({
+  icon,
+  iconVariant = "default",
+  title,
+  description,
+  children,
+  compact,
+  bodyPressOnly,
+}) => {
   const { themeName, theme } = useTheme();
   const isDarkPro = themeName === "darkPro";
   const flipAnim = useRef(new Animated.Value(0)).current;
@@ -59,13 +68,25 @@ export const StatsChartCard: FC<Props> = ({ icon, title, description, children, 
     });
   };
 
+  const renderIcon = () => {
+    if (iconVariant === "cadeRunner") {
+      return (
+        <Image
+          source={require("../assets/cade-runner-blue.png")}
+          style={{ width: 26, height: 26, tintColor: "#2563eb" }}
+        />
+      );
+    }
+    return <Ionicons name={icon} size={18} color={titleColor} />;
+  };
+
   if (bodyPressOnly) {
     return (
       <View style={styles.flipContainer}>
         <Animated.View style={[styles.flipCard, { transform: [{ rotateY: frontRotation }] }]}>
           <View style={[styles.card, cardStyle]}>
             <View style={styles.titleRow}>
-              <Ionicons name={icon} size={18} color={titleColor} />
+              {renderIcon()}
               <Text style={[styles.title, { color: titleColor }]} numberOfLines={2} ellipsizeMode="tail">{title}</Text>
               {description ? (
                 <TouchableOpacity onPress={flipCard} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.infoBtn}>
@@ -85,7 +106,7 @@ export const StatsChartCard: FC<Props> = ({ icon, title, description, children, 
             >
               <View style={[styles.card, cardStyle]}>
                 <View style={styles.titleRow}>
-                  <Ionicons name={icon} size={18} color={titleColor} />
+                  {renderIcon()}
                   <Text style={[styles.title, { color: titleColor }]} numberOfLines={2} ellipsizeMode="tail">{title}</Text>
                   {description ? (
                     <TouchableOpacity onPress={flipCard} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.infoBtn}>
@@ -110,7 +131,7 @@ export const StatsChartCard: FC<Props> = ({ icon, title, description, children, 
         <Animated.View style={[styles.flipCard, { transform: [{ rotateY: frontRotation }] }]}>
           <View style={[styles.card, cardStyle]}>
             <View style={styles.titleRow}>
-              <Ionicons name={icon} size={18} color={titleColor} />
+              {renderIcon()}
               <Text style={[styles.title, { color: titleColor }]} numberOfLines={2} ellipsizeMode="tail">{title}</Text>
               {description ? (
                 <TouchableOpacity onPress={flipCard} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.infoBtn}>
@@ -127,7 +148,7 @@ export const StatsChartCard: FC<Props> = ({ icon, title, description, children, 
           >
             <View style={[styles.card, cardStyle]}>
               <View style={styles.titleRow}>
-                <Ionicons name={icon} size={18} color={titleColor} />
+                {renderIcon()}
                 <Text style={[styles.title, { color: titleColor }]} numberOfLines={2} ellipsizeMode="tail">{title}</Text>
                 {description ? (
                   <TouchableOpacity onPress={flipCard} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }} style={styles.infoBtn}>

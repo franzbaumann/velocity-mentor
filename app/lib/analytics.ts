@@ -210,3 +210,13 @@ export function findBestForDistance(
   return best;
 }
 
+export function getActivityFadeColor(activity: {
+  type: string | null;
+  name?: string | null;
+  avg_hr?: number | null;
+  duration_seconds?: number | null;
+}): string {
+  void activity;
+  return "#3b82f6";
+}
+

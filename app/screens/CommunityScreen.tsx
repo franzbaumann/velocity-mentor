@@ -105,7 +105,7 @@ export const CommunityScreen: FC = () => {
       {/* Header */}
       <View style={styles.headerRow}>
         <View style={styles.headerTitleRow}>
-          <Ionicons name="globe-outline" size={22} color="#1C1C1E" />
+          <Ionicons name="globe-outline" size={22} color={theme.textPrimary} />
           <Text style={[styles.title, { color: theme.textPrimary }]}>Community</Text>
         </View>
       </View>
@@ -119,7 +119,7 @@ export const CommunityScreen: FC = () => {
           ]}
         >
           <View style={styles.pushBannerLeft}>
-            <Ionicons name="notifications-outline" size={18} color="#1C1C1E" />
+            <Ionicons name="notifications-outline" size={18} color={theme.textPrimary} />
             <View style={styles.pushBannerTextWrap}>
               <Text style={[styles.pushTitle, { color: theme.textPrimary }]}>
                 Enable community notifications
@@ -130,7 +130,7 @@ export const CommunityScreen: FC = () => {
             </View>
           </View>
           <TouchableOpacity
-            style={[styles.pushBtn, { backgroundColor: "#1C1C1E" }]}
+            style={[styles.pushBtn, { backgroundColor: theme.textPrimary }]}
             onPress={handleEnableNotifications}
             activeOpacity={0.8}
           >
@@ -158,12 +158,12 @@ export const CommunityScreen: FC = () => {
                 <Ionicons
                   name={t.icon}
                   size={16}
-                  color={active ? "#1C1C1E" : theme.textMuted}
+                  color={active ? theme.textPrimary : theme.textMuted}
                 />
                 <Text
                   style={[
                     styles.tabLabel,
-                    { color: active ? "#1C1C1E" : theme.textMuted },
+                    { color: active ? theme.textPrimary : theme.textMuted },
                     active && styles.tabLabelActive,
                   ]}
                 >

@@ -135,7 +135,7 @@ function buildQuickPrompts({
   return prompts.slice(0, 6);
 }
 
-const WELCOME = `Hey — I'm Kipcoachee, your AI running coach.
+const WELCOME = `Hey — I'm Cade, your AI running coach.
 
 Before we build a plan, I need to understand you. Tell me your running history, goals, weekly volume, and what you’re training for — and I’ll create a personalized plan from that.
 
@@ -227,7 +227,7 @@ async function streamChatNative({
   }
 
   if (!CHAT_URL || CHAT_URL.includes("undefined")) {
-    console.error("[Kipcoachee] CHAT_URL missing - check EXPO_PUBLIC_SUPABASE_URL in app/.env");
+    console.error("[Cade] CHAT_URL missing - check EXPO_PUBLIC_SUPABASE_URL in app/.env");
   }
 
   const resp = await fetch(CHAT_URL, {
@@ -243,11 +243,11 @@ async function streamChatNative({
     } catch {
       // ignore
     }
-    console.error("[Kipcoachee]", resp.status, err);
+    console.error("[Cade]", resp.status, err);
     if (resp.status === 429) {
       onRateLimit?.();
     } else {
-      onError?.(err?.error ?? "Kipcoachee is unavailable right now.");
+      onError?.(err?.error ?? "Cade is unavailable right now.");
     }
     onDone();
     return;
@@ -682,8 +682,8 @@ export const CoachScreen: FC = () => {
         // Plan JSON (create_plan/adjust_plan) is now shown with Apply/Tweak UI instead of auto-saving.
         const _finalContent = assistantSoFar;
       } catch (e) {
-        console.error("[Kipcoachee] fetch error", e);
-        Alert.alert("Error", "Failed to reach Kipcoachee. Check connection and that ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY is set in Supabase.");
+        console.error("[Cade] fetch error", e);
+        Alert.alert("Error", "Failed to reach Cade. Check connection and that ANTHROPIC_API_KEY, GROQ_API_KEY, or GEMINI_API_KEY is set in Supabase.");
         setIsLoading(false);
       }
     },
@@ -750,7 +750,7 @@ export const CoachScreen: FC = () => {
   };
 
   const placeholder =
-    rateLimitSecs > 0 ? `Wait ${rateLimitSecs}s (rate limit)` : "Tell Kipcoachee your story...";
+    rateLimitSecs > 0 ? `Wait ${rateLimitSecs}s (rate limit)` : "Tell Cade your story...";
 
   const handleApplyPlan = useCallback(
     async (plan: Record<string, unknown>, isAdjustment: boolean) => {
@@ -892,7 +892,7 @@ export const CoachScreen: FC = () => {
   const styles = useMemo(
     () =>
       StyleSheet.create({
-        content: { flexGrow: 1, gap: 16 },
+      content: { flex: 1, flexGrow: 1, gap: 16 },
         headerRow: {
           flexDirection: "row",
           alignItems: "center",
@@ -917,10 +917,10 @@ export const CoachScreen: FC = () => {
         },
         tabSelected: {
           borderBottomWidth: 2,
-          borderBottomColor: "#1C1C1E",
+          borderBottomColor: theme.textPrimary,
         },
         tabLabel: { fontSize: 14, fontWeight: "500" },
-        tabLabelSelected: { color: "#1C1C1E", fontWeight: "600" },
+        tabLabelSelected: { color: theme.textPrimary, fontWeight: "600" },
         tabLabelUnselected: { color: colors.mutedForeground },
         title: { fontSize: 22, fontWeight: "600", color: colors.foreground },
         headerActions: { flexDirection: "row", alignItems: "center", gap: 8 },
@@ -965,7 +965,14 @@ export const CoachScreen: FC = () => {
         messagesContainer: { padding: 16, paddingBottom: 8, gap: 8 },
         welcomeText: { fontSize: 14, color: colors.foreground, lineHeight: 22 },
         sectionHeader: {},
-        chips: { flexDirection: "row", flexWrap: "wrap", gap: 8, paddingHorizontal: 16, paddingBottom: 8 },
+        chips: {
+          flexDirection: "row",
+          flexWrap: "wrap",
+          gap: 8,
+          paddingHorizontal: 16,
+          paddingBottom: 8,
+          paddingTop: 8,
+        },
         chip: {
           paddingHorizontal: 14,
           paddingVertical: 10,
@@ -1114,25 +1121,29 @@ export const CoachScreen: FC = () => {
         inputRow: {
           flexDirection: "row",
           alignItems: "center",
-          paddingHorizontal: 12,
-          paddingVertical: 10,
-          borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: colors.border,
-          backgroundColor: colors.background,
+          marginHorizontal: 12,
+          marginVertical: 8,
+          paddingHorizontal: 14,
+          paddingVertical: Platform.OS === "ios" ? 10 : 8,
+          borderRadius: 24,
+          backgroundColor: "#FFFFFF",
+          shadowColor: "#000",
+          shadowOffset: { width: 0, height: 1 },
+          shadowOpacity: 0.06,
+          shadowRadius: 4,
+          elevation: 2,
           gap: 8,
         },
         input: {
           flex: 1,
-          borderRadius: 999,
-          paddingHorizontal: 16,
-          paddingVertical: Platform.OS === "ios" ? 12 : 8,
-          backgroundColor: colors.muted,
+          paddingHorizontal: 0,
+          paddingVertical: 0,
           color: colors.foreground,
         },
         sendButton: {
-          borderRadius: 999,
-          paddingHorizontal: 16,
-          paddingVertical: 10,
+          width: 32,
+          height: 32,
+          borderRadius: 16,
           backgroundColor: colors.primary,
           alignItems: "center",
           justifyContent: "center",
@@ -1146,13 +1157,13 @@ export const CoachScreen: FC = () => {
   return (
     <KeyboardAvoidingView
       style={{ flex: 1 }}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
+      behavior="padding"
       keyboardVerticalOffset={80}
     >
       <ScreenContainer contentContainerStyle={styles.content}>
         <View style={styles.headerRow}>
           <View style={styles.titleRow}>
-            <Text style={styles.title}>Kipcoachee</Text>
+            <Text style={styles.title}>Cade</Text>
             <Animated.View
               style={[
                 styles.onlineDot,
@@ -1318,7 +1329,8 @@ export const CoachScreen: FC = () => {
         <View style={styles.chatCard}>
           <ScrollView
             ref={scrollRef}
-            contentContainerStyle={styles.messagesContainer}
+            style={{ flex: 1 }}
+            contentContainerStyle={[styles.messagesContainer, { flexGrow: 1, justifyContent: "flex-end" }]}
             keyboardShouldPersistTaps="handled"
             refreshControl={
               <RefreshControl
@@ -1644,14 +1656,13 @@ export const CoachScreen: FC = () => {
               {(PREMIUM_PROMPTS.length ? PREMIUM_PROMPTS : quickPrompts).map((p) => (
                 <TouchableOpacity
                   key={p}
-                  style={styles.promptCard}
+                  style={styles.chip}
                   onPress={() => handleQuickPrompt(p)}
                   activeOpacity={0.7}
                 >
-                  <Text style={styles.promptCardText} numberOfLines={2}>
+                  <Text style={styles.chipText} numberOfLines={2}>
                     {p}
                   </Text>
-                  <Text style={styles.promptCardChevron}>›</Text>
                 </TouchableOpacity>
               ))}
             </View>
@@ -1682,7 +1693,7 @@ export const CoachScreen: FC = () => {
               style={styles.input}
               value={message}
               onChangeText={setMessage}
-              placeholder={placeholder}
+              placeholder={rateLimitSecs > 0 ? `Wait ${rateLimitSecs}s (rate limit)` : "Message Cade..."}
               placeholderTextColor={colors.mutedForeground}
               editable={!isLoading && rateLimitSecs <= 0}
               returnKeyType="send"
@@ -1700,7 +1711,7 @@ export const CoachScreen: FC = () => {
               {isLoading ? (
                 <ActivityIndicator size="small" color={colors.primaryForeground} />
               ) : (
-                <Text style={styles.sendLabel}>Send</Text>
+                <Text style={[styles.sendLabel, { fontSize: 16 }]}>↗</Text>
               )}
             </TouchableOpacity>
           </View>

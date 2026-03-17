@@ -377,6 +377,11 @@ export function useDashboardData(selectedDate?: string) {
         ? "Synced from intervals.icu"
         : mockReadiness.aiSummary);
     const isToday = latest.date === todayStr;
+
+    const previousRow = rowsUpToAnchor.length >= 2 ? rowsUpToAnchor[rowsUpToAnchor.length - 2] : null;
+    const previousScore = previousRow?.score ?? (previousRow?.tsb != null ? Math.round(Math.min(100, Math.max(0, 50 + previousRow.tsb * 2.5))) : null);
+    const scoreDelta = previousScore != null && score != null ? score - previousScore : null;
+
     return {
       score,
       hrv: hrv ?? mockReadiness.hrv,
@@ -389,9 +394,9 @@ export function useDashboardData(selectedDate?: string) {
       tsb: tsb != null ? Math.round(tsb * 10) / 10 : mockReadiness.tsb,
       aiSummary: summary,
       hrvTrend: "neutral" as const,
-      /** Row date (YYYY-MM-DD); use to show "Today" vs "12 Mar" so user sees data age */
       date: latest.date,
       isToday,
+      scoreDelta,
     };
   }, [readinessRows, anchorDateStr, todayStr]);
 

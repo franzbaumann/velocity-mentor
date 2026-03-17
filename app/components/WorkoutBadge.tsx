@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import React, { memo, useMemo } from "react";
 import { StyleSheet, Text, View } from "react-native";
 import { useTheme } from "../context/ThemeContext";
 import type { AppTheme } from "../theme/themes";
@@ -27,7 +27,7 @@ function typeStyles(t: AppTheme): Record<WorkoutType, { bg: string; text: string
   };
 }
 
-export function WorkoutBadge({ type }: { type: WorkoutType }) {
+export const WorkoutBadge = memo(function WorkoutBadge({ type }: { type: WorkoutType }) {
   const { theme } = useTheme();
   const stylesMap = useMemo(() => typeStyles(theme), [theme]);
   const { bg, text } = stylesMap[type] ?? stylesMap.easy;
@@ -36,7 +36,7 @@ export function WorkoutBadge({ type }: { type: WorkoutType }) {
       <Text style={[styles.text, { color: text }]}>{labels[type]}</Text>
     </View>
   );
-}
+});
 
 const styles = StyleSheet.create({
   badge: {

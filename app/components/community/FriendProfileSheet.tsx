@@ -84,7 +84,7 @@ export const FriendProfileSheet: FC<{
               {/* Header */}
               <View style={styles.header}>
                 <View style={[styles.avatarLarge, { backgroundColor: "#0f172a0d" }]}>
-                  <Text style={[styles.avatarLargeText, { color: "#1C1C1E" }]}>
+                  <Text style={[styles.avatarLargeText, { color: theme.textPrimary }]}>
                     {friend.name.charAt(0).toUpperCase()}
                   </Text>
                 </View>

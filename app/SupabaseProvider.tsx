@@ -1,4 +1,4 @@
-import { PropsWithChildren, createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { PropsWithChildren, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { AppState, Linking } from "react-native";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { supabase } from "./shared/supabase";
@@ -135,49 +135,34 @@ export const SupabaseProvider = ({ children }: PropsWithChildren) => {
     };
   }, []);
 
-  const signInWithEmail = async (email: string) => {
+  const signInWithEmail = useCallback(async (email: string) => {
     const { error } = await supabase.auth.signInWithOtp({
       email,
       options: { emailRedirectTo: AUTH_CALLBACK_URL },
     });
+    if (error) throw error;
+  }, []);
 
-    if (error) {
-      // Bubble up so UI can show a proper error message
-      throw error;
-    }
-  };
+  const signInWithPassword = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+  }, []);
 
-  const signInWithPassword = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
-      email,
-      password,
-    });
-    if (error) {
-      throw error;
-    }
-  };
+  const signUpWithPassword = useCallback(async (email: string, password: string) => {
+    const { error } = await supabase.auth.signUp({ email, password });
+    if (error) throw error;
+  }, []);
 
-  const signUpWithPassword = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      // Ingen email‑verify – vi loggar in direkt med samma credentials i UI.
-    });
-    if (error) {
-      throw error;
-    }
-  };
-
-  const signOut = async () => {
+  const signOut = useCallback(async () => {
     intentionalSignOutRef.current = true;
     await supabase.auth.signOut();
     intentionalSignOutRef.current = false;
-  };
+  }, []);
 
-  const bypassLogin = () => {
+  const bypassLogin = useCallback(() => {
     setDevBypass(true);
     setLoading(false);
-  };
+  }, []);
 
   const value = useMemo<SupabaseContextValue>(
     () => ({

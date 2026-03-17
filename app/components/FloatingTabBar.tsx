@@ -2,10 +2,11 @@ import type { BottomTabBarProps } from "@react-navigation/bottom-tabs";
 import React, { useCallback, useMemo, useState } from "react";
 import { Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { Pressable, StyleSheet, Text, TouchableWithoutFeedback, View } from "react-native";
+import { Pressable, StyleSheet, Text, View } from "react-native";
 import Animated, { useAnimatedStyle, withSpring, withTiming } from "react-native-reanimated";
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
+import { useTheme } from "../context/ThemeContext";
 
 const MAIN_ROUTES = ["Dashboard", "Plan", "Coach", "Community", "ActivitiesStack"] as const;
 const SECONDARY_ROUTES = ["Stats", "Settings", "Philosophy", "Season"] as const;
@@ -25,11 +26,12 @@ const ICONS: Record<string, keyof typeof Ionicons.glyphMap> = {
   Season: "trophy-outline",
 };
 
-const ACTIVE_COLOR = "#1C1C1E";
-const INACTIVE_COLOR = "#9CA3AF";
-
 export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const { theme, resolved } = useTheme();
+  const isDark = resolved === "dark";
+  const ACTIVE_COLOR = theme.textPrimary;
+  const INACTIVE_COLOR = theme.textMuted;
   const [isExpanded, setIsExpanded] = useState(false);
 
   const primaryRoutes = useMemo(
@@ -84,7 +86,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
   }));
 
   const backdropStyle = useAnimatedStyle(() => ({
-    opacity: withTiming(isExpanded ? 0 : 0, { duration: 180 }),
+    opacity: withTiming(isExpanded ? 0.3 : 0, { duration: 180 }),
   }));
 
   const handleTabPress = useCallback(
@@ -115,14 +117,18 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
   if (isHidden) return null;
 
   return (
-    <View style={[styles.root, { paddingBottom: insets.bottom + 8 }]} pointerEvents="box-none">
+    <View style={[styles.root, { paddingBottom: insets.bottom + 4 }]} pointerEvents="box-none">
 
       {secondaryRoutes.length > 0 && (
         <Animated.View
-          style={[styles.drawerWrapper, drawerStyle]}
+          style={[
+            styles.drawerWrapper,
+            isDark && { backgroundColor: "rgba(18,18,18,0.7)", borderColor: "rgba(255,255,255,0.08)" },
+            drawerStyle,
+          ]}
           pointerEvents={isExpanded ? "auto" : "none"}
         >
-          <BlurView intensity={50} tint="light" style={StyleSheet.absoluteFill} />
+          <BlurView intensity={30} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
           <View style={styles.drawerInner}>
             {secondaryRoutes.map(({ key, index }) => (
               <Pressable
@@ -135,16 +141,21 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
                 }
                 style={({ pressed }) => [styles.secondaryItem, pressed && { opacity: 0.7 }]}
               >
-                <Ionicons name={ICONS[key]} size={20} color={ACTIVE_COLOR} />
-                <Text style={styles.secondaryLabel}>{key}</Text>
+                <Ionicons name={ICONS[key]} size={20} color={theme.textPrimary} />
+                <Text style={[styles.secondaryLabel, { color: theme.textPrimary }]}>{key}</Text>
               </Pressable>
             ))}
           </View>
         </Animated.View>
       )}
 
-      <View style={styles.barWrapper}>
-        <BlurView intensity={40} tint="light" style={StyleSheet.absoluteFill} />
+      <View
+        style={[
+          styles.barWrapper,
+          isDark && { backgroundColor: "rgba(18,18,18,0.7)", borderColor: "rgba(255,255,255,0.08)" },
+        ]}
+      >
+        <BlurView intensity={26} tint={isDark ? "dark" : "light"} style={StyleSheet.absoluteFill} />
         <View style={styles.barInner}>
           {primaryRoutes.map(({ key, index }) => {
             const isFocused = state.index === index;
@@ -177,7 +188,7 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
                 delayLongPress={300}
                 style={({ pressed }) => [styles.mainItem, pressed && { opacity: 0.75 }]}
               >
-                {isFocused ? <View style={styles.activePill}>{content}</View> : content}
+                {isFocused ? <View style={[styles.activePill, { backgroundColor: isDark ? "rgba(255,255,255,0.1)" : "#F3F4F6" }]}>{content}</View> : content}
               </Pressable>
             );
           })}
@@ -196,33 +207,33 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
   barWrapper: {
-    width: "88%",
-    maxWidth: 360,
-    borderRadius: 22,
+    width: "84%",
+    maxWidth: 340,
+    borderRadius: 18,
     overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.35)",
+    backgroundColor: "rgba(255,255,255,0.25)",
     borderWidth: 0.5,
-    borderColor: "rgba(255,255,255,0.8)",
+    borderColor: "rgba(255,255,255,0.65)",
   },
   barInner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
-    paddingHorizontal: 10,
-    paddingVertical: 6,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
   },
   mainItem: {
     alignItems: "center",
     justifyContent: "center",
-    minWidth: 48,
+    minWidth: 44,
     gap: 2,
-    paddingVertical: 2,
+    paddingVertical: 1,
   },
   activePill: {
     backgroundColor: "#F3F4F6",
-    borderRadius: 10,
-    paddingVertical: 4,
-    paddingHorizontal: 10,
+    borderRadius: 9,
+    paddingVertical: 3,
+    paddingHorizontal: 9,
     alignItems: "center",
     shadowColor: "transparent",
     shadowOpacity: 0,
@@ -231,28 +242,28 @@ const styles = StyleSheet.create({
     elevation: 0,
   },
   label: {
-    fontSize: 9,
+    fontSize: 8.5,
   },
   moreBtn: {
     alignItems: "center",
     justifyContent: "center",
   },
   drawerWrapper: {
-    width: "82%",
-    maxWidth: 340,
-    borderRadius: 18,
+    width: "80%",
+    maxWidth: 330,
+    borderRadius: 16,
     overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,0.22)",
+    backgroundColor: "rgba(255,255,255,0.2)",
     borderWidth: 0.5,
-    borderColor: "rgba(255,255,255,0.7)",
-    marginBottom: 8,
+    borderColor: "rgba(255,255,255,0.6)",
+    marginBottom: 6,
   },
   drawerInner: {
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
     paddingHorizontal: 12,
-    paddingVertical: 6,
+    paddingVertical: 4,
   },
   secondaryItem: {
     alignItems: "center",

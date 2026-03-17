@@ -1,5 +1,5 @@
 import { FC, useEffect, useMemo, useState } from "react";
-import { Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from "react-native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useTheme } from "../../context/ThemeContext";
 import { TrainingPlanSession } from "../../hooks/useTrainingPlan";
@@ -124,11 +124,21 @@ export const SessionDetailModal: FC<Props> = ({
           fontSize: 12,
           color: theme.textMuted,
         },
+        focusLabelRow: {
+          flexDirection: "row",
+          alignItems: "center",
+          marginTop: 4,
+          gap: 6,
+        },
+        focusIcon: {
+          width: 14,
+          height: 14,
+          tintColor: theme.accentBlue,
+        },
         focusLabel: {
           fontSize: 12,
           fontWeight: "500",
           color: theme.textMuted,
-          marginTop: 4,
         },
         focusText: {
           fontSize: 13,
@@ -283,13 +293,24 @@ export const SessionDetailModal: FC<Props> = ({
         tipsTitle: {
           fontSize: 12,
           fontWeight: "600",
-          color: "#854d0e",
+          color: theme.textPrimary,
           marginBottom: 4,
+        },
+        tipRow: {
+          flexDirection: "row",
+          alignItems: "flex-start",
+          gap: 6,
+          marginTop: 2,
+        },
+        tipIcon: {
+          width: 10,
+          height: 10,
+          marginTop: 3,
+          tintColor: "#2563eb",
         },
         tipItem: {
           fontSize: 12,
-          color: "#854d0e",
-          marginTop: 2,
+          color: theme.textPrimary,
         },
         timingRow: {
           marginTop: 10,
@@ -835,9 +856,15 @@ export const SessionDetailModal: FC<Props> = ({
                 <>
                   {session.key_focus && (
                     <>
-                      <Text style={styles.focusLabel}>
-                        {focusLabel ? `${focusLabel.icon} ${focusLabel.label}` : "Key focus"}
-                      </Text>
+                      <View style={styles.focusLabelRow}>
+                        <Image
+                          source={require("../../assets/cade-runner-blue.png")}
+                          style={styles.focusIcon}
+                        />
+                        <Text style={styles.focusLabel}>
+                          {focusLabel ? focusLabel.label : "Key focus"}
+                        </Text>
+                      </View>
                       <Text style={styles.focusText}>{session.key_focus}</Text>
                       {focusLabel && (
                         <>
@@ -849,77 +876,104 @@ export const SessionDetailModal: FC<Props> = ({
                   )}
                   {workoutKind === "easy" && (
                     <>
-                      <Text style={styles.tipItem}>✅ You can hold a full conversation</Text>
-                      <Text style={styles.tipItem}>✅ Breathing feels comfortable</Text>
-                      <Text style={styles.tipItem}>
-                        ✅ You feel like you could run much longer if needed
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        ❌ If you can&apos;t talk, you&apos;re too fast — slow down
-                      </Text>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>You can hold a full conversation</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>Breathing feels comfortable</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>You feel like you could run much longer if needed</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>If you can&apos;t talk, you&apos;re too fast — slow down</Text>
+                      </View>
                     </>
                   )}
                   {workoutKind === "tempo" && (
                     <>
-                      <Text style={styles.tipItem}>
-                        ✅ Comfortably hard — you can speak 3–4 words at a time
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        ✅ Breathing is controlled but clearly labored
-                      </Text>
-                      <Text style={styles.tipItem}>✅ Sustainable for 20–40 min</Text>
-                      <Text style={styles.tipItem}>
-                        ❌ If you can&apos;t speak at all, it&apos;s too fast
-                      </Text>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>Comfortably hard — you can speak 3–4 words at a time</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>Breathing is controlled but clearly labored</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>Sustainable for 20–40 min</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>If you can&apos;t speak at all, it&apos;s too fast</Text>
+                      </View>
                     </>
                   )}
                   {isInterval && (
                     <>
-                      <Text style={styles.tipItem}>
-                        ✅ Hard effort — you can only say 1–2 words on the reps
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        ✅ Last rep should feel very hard but still controlled
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        ❌ Stop if pace drops more than ~15 sec/km from target
-                      </Text>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>Hard effort — you can only say 1–2 words on the reps</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>Last rep should feel very hard but still controlled</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>Stop if pace drops more than ~15 sec/km from target</Text>
+                      </View>
                     </>
                   )}
                   {workoutKind === "long" && (
                     <>
-                      <Text style={styles.tipItem}>
-                        ✅ First half should feel easy and relaxed
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        ✅ You finish tired but not destroyed
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        ❌ If legs feel smashed for days after, you went too fast
-                      </Text>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>First half should feel easy and relaxed</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>You finish tired but not destroyed</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>If legs feel smashed for days after, you went too fast</Text>
+                      </View>
                     </>
                   )}
                   {workoutKind === "recovery" && (
                     <>
-                      <Text style={styles.tipItem}>
-                        ✅ Pace feels almost embarrassingly slow — that&apos;s correct
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        ✅ Full conversation, no noticeable breathing effort
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        ❌ If HR drifts above Z2, slow down or walk
-                      </Text>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>Pace feels almost embarrassingly slow — that&apos;s correct</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>Full conversation, no noticeable breathing effort</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>If HR drifts above Z2, slow down or walk</Text>
+                      </View>
                     </>
                   )}
                   {workoutKind === "rest" && (
                     <>
-                      <Text style={styles.tipItem}>
-                        ✅ You feel more refreshed by the end of the day
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        ❌ If you feel more tired after &quot;cross training&quot;, you did too much
-                      </Text>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>You feel more refreshed by the end of the day</Text>
+                      </View>
+                      <View style={styles.tipRow}>
+                        <Image source={require("../../assets/cade-runner-blue.png")} style={styles.tipIcon} />
+                        <Text style={styles.tipItem}>
+                          If you feel more tired after &quot;cross training&quot;, you did too much
+                        </Text>
+                      </View>
                     </>
                   )}
                 </>
@@ -978,106 +1032,13 @@ export const SessionDetailModal: FC<Props> = ({
               </View>
             )}
 
-            {/* 4. TIPS */}
-            <View style={styles.sectionContainer}>
-              <TouchableOpacity
-                activeOpacity={0.8}
-                style={styles.sectionHeaderRow}
-                onPress={() => setOpenTips((v) => !v)}
-              >
-                <Text style={styles.sectionHeaderTitle}>Tips</Text>
-                <Text style={styles.sectionHeaderChevron}>{openTips ? "⌃" : "⌄"}</Text>
-              </TouchableOpacity>
-              {openTips && (
-                <View style={styles.tipsCard}>
-                  <Text style={styles.tipsTitle}>TIPS FOR THIS SESSION</Text>
-                  {workoutKind === "easy" && (
-                    <>
-                      <Text style={styles.tipItem}>
-                        💡 Easier than you think — most runners go too fast on easy days.
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        💡 These runs quietly build your aerobic base.
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        💡 If HR creeps up, walk until it drops back down.
-                      </Text>
-                    </>
-                  )}
-                  {workoutKind === "tempo" && (
-                    <>
-                      <Text style={styles.tipItem}>
-                        💡 Start slightly slower than goal pace and grow into it.
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        💡 The last 5 min should feel challenging but controlled.
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        💡 Run by feel first; use pace and HR only to confirm.
-                      </Text>
-                    </>
-                  )}
-                  {isInterval && (
-                    <>
-                      <Text style={styles.tipItem}>
-                        💡 Start conservatively on the first rep — speed up only if you&apos;re
-                        feeling good.
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        💡 Full recovery between reps is key for quality; don&apos;t rush the easy
-                        jog.
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        💡 If pace drifts more than ~15 sec/km slower than target, cut the last rep
-                        short.
-                      </Text>
-                    </>
-                  )}
-                  {workoutKind === "long" && (
-                    <>
-                      <Text style={styles.tipItem}>
-                        💡 Take fuel every 45–60 min (gels, drink mix, or real food).
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        💡 Hydrate before, during and after — small sips often.
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        💡 Slow down on hills, don&apos;t force the pace.
-                      </Text>
-                    </>
-                  )}
-                  {workoutKind === "recovery" && (
-                    <>
-                      <Text style={styles.tipItem}>
-                        💡 Purpose is to flush the legs, not to gain fitness.
-                      </Text>
-                      <Text style={styles.tipItem}>💡 Walking is fine — and encouraged.</Text>
-                      <Text style={styles.tipItem}>
-                        💡 Shorter is usually better — 20–30 min is enough.
-                      </Text>
-                    </>
-                  )}
-                  {workoutKind === "rest" && (
-                    <>
-                      <Text style={styles.tipItem}>
-                        💡 Treat rest days as part of the plan, not a missed workout.
-                      </Text>
-                      <Text style={styles.tipItem}>
-                        💡 Sleep is your best performance enhancer — aim for an extra 30–60 min.
-                      </Text>
-                    </>
-                  )}
-                </View>
-              )}
-            </View>
-
             {(scheduledDateLabel || timingSuggestion) && (
               <View style={styles.timingRow}>
                 {scheduledDateLabel && (
-                  <Text style={styles.timingText}>📅 Scheduled: {scheduledDateLabel}</Text>
+                  <Text style={styles.timingText}>Scheduled: {scheduledDateLabel}</Text>
                 )}
                 {timingSuggestion && (
-                  <Text style={styles.timingText}>⏰ Suggested time: {timingSuggestion}</Text>
+                  <Text style={styles.timingText}>Suggested time: {timingSuggestion}</Text>
                 )}
               </View>
             )}
@@ -1162,7 +1123,7 @@ export const SessionDetailModal: FC<Props> = ({
                 activeOpacity={0.85}
                 onPress={() => onAskKipcoachee(session)}
               >
-                <Text style={styles.buttonGhostText}>Ask Kipcoachee</Text>
+                <Text style={styles.buttonGhostText}>Ask Coach Cade</Text>
               </TouchableOpacity>
             )}
             <TouchableOpacity

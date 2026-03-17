@@ -72,6 +72,8 @@ export function ThemeProvider({ children }: { children: React.ReactNode }) {
 
   const value: ThemeContextValue = { themeName, theme, colors, resolved, setTheme };
 
+  if (!hydrated) return null;
+
   return <ThemeContext.Provider value={value}>{children}</ThemeContext.Provider>;
 }
 

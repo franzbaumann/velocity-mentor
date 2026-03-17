@@ -47,7 +47,7 @@ const SLIDES: SlideData[] = [
     id: "coach",
     accent: "#8B5CF6",
     emoji: "🤖",
-    title: "Meet\nKipcoachee",
+    title: "Meet\nCade",
     subtitle:
       "Your personal AI coach. Ask anything, get your plan adjusted anytime.",
     features: [
@@ -63,7 +63,7 @@ const SLIDES: SlideData[] = [
     emoji: "📅",
     title: "A plan built\nfor you",
     subtitle:
-      "Kipcoachee builds a personalized plan based on your goal race and fitness.",
+      "Cade builds a personalized plan based on your goal race and fitness.",
     features: [
       { icon: "🏃", text: "Structured sessions with clear targets" },
       { icon: "📈", text: "Progressive load that adapts over time" },

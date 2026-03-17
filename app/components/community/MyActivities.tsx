@@ -18,6 +18,8 @@ import { GlassCard } from "../GlassCard";
 import { useTheme } from "../../context/ThemeContext";
 import { useMyActivities, type FeedActivity } from "../../hooks/useCommunity";
 import { formatDistance, formatDuration } from "../../lib/format";
+import { LinearGradient } from "expo-linear-gradient";
+import { getActivityFadeColor } from "../../lib/analytics";
 
 // ---------------------------------------------------------------------------
 // Activity card (own activities) — Edit navigates to ActivityDetail with sheet
@@ -40,9 +42,23 @@ function MyActivityCard({ activity }: { activity: FeedActivity }) {
     navigation.navigate("ActivityPost", { activity });
   };
 
+  const fadeColor = getActivityFadeColor({
+    type: activity.type,
+    name: activity.name,
+    avg_hr: activity.avg_hr,
+    duration_seconds: activity.duration_seconds,
+  });
+
   return (
     <TouchableOpacity activeOpacity={0.85} onPress={handleOpenPost}>
-      <GlassCard style={s.card}>
+      <GlassCard style={[s.card, s.cardWithFade]}>
+        <LinearGradient
+          colors={[`${fadeColor}2e`, `${fadeColor}10`, `${fadeColor}00`]}
+          locations={[0, 0.35, 0.7]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 0 }}
+          style={StyleSheet.absoluteFillObject}
+        />
         <View style={s.cardHeader}>
           <View style={s.cardHeaderLeft}>
             <Text style={[s.activityName, { color: theme.textPrimary }]}>
@@ -107,7 +123,7 @@ function MyActivityCard({ activity }: { activity: FeedActivity }) {
 
         <View style={s.statsRow}>
           {activity.distance_km != null && activity.distance_km > 0 && (
-            <Text style={[s.statChip, { color: "#1C1C1E" }]}>{formatDistance(activity.distance_km)}</Text>
+            <Text style={[s.statChip, { color: theme.textPrimary }]}>{formatDistance(activity.distance_km)}</Text>
           )}
           {activity.avg_pace && (
             <Text style={[s.statChip, { color: theme.textSecondary }]}>{activity.avg_pace}</Text>
@@ -137,7 +153,7 @@ export const MyActivities: FC = () => {
   if (isLoading) {
     return (
       <View style={s.emptyContainer}>
-        <ActivityIndicator size="small" color="#1C1C1E" />
+        <ActivityIndicator size="small" color={theme.textPrimary} />
       </View>
     );
   }
@@ -169,6 +185,9 @@ export const MyActivities: FC = () => {
 const s = StyleSheet.create({
   feedList: { gap: 12 },
   card: { marginBottom: 0 },
+  cardWithFade: {
+    position: "relative",
+  },
   cardHeader: {
     flexDirection: "row",
     alignItems: "flex-start",

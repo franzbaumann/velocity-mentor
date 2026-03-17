@@ -1544,7 +1544,7 @@ export const PlanOnboardingScreen: FC = () => {
                             height: 44,
                             justifyContent: "center",
                             borderColor: selected ? "transparent" : colors.border,
-                            backgroundColor: selected ? "#1C1C1E" : colors.card,
+                            backgroundColor: selected ? colors.foreground : colors.card,
                           },
                         ]}
                         onPress={() => updateAnswers({ raceDistance: d })}
@@ -2376,7 +2376,7 @@ export const PlanOnboardingScreen: FC = () => {
                           justifyContent: "center",
                           borderWidth: StyleSheet.hairlineWidth,
                           borderColor: selected ? "transparent" : colors.border,
-                          backgroundColor: selected ? "#1C1C1E" : colors.card,
+                          backgroundColor: selected ? colors.foreground : colors.card,
                           shadowColor: selected ? "#000000" : "transparent",
                           shadowOpacity: selected ? 0.15 : 0,
                           shadowRadius: selected ? 8 : 0,

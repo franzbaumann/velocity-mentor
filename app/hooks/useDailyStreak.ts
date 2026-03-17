@@ -101,7 +101,6 @@ export function useDailyStreak(): DailyStreakState {
         if (!currentStreak || !lastActiveDate) {
           nextStreak = 1;
         } else if (diffDays === 0) {
-          // already counted today – no change
           nextStreak = currentStreak;
         } else if (diffDays === 1) {
           nextStreak = currentStreak + 1;
@@ -111,29 +110,32 @@ export function useDailyStreak(): DailyStreakState {
 
         const nextLongest = Math.max(longestStreak || 1, nextStreak || 1);
         const nextLastActive = diffDays >= 1 ? todayStr : lastActiveDate || todayStr;
+        const hasChanged = nextStreak !== currentStreak || nextLongest !== longestStreak || nextLastActive !== lastActiveDate;
 
-        if (user) {
-          await supabase
-            .from("daily_streaks")
-            .upsert(
-              {
-                user_id: user.id,
-                current_streak: nextStreak,
-                longest_streak: nextLongest,
-                last_active_date: nextLastActive,
-              },
-              { onConflict: "user_id" },
-            );
+        if (hasChanged) {
+          if (user) {
+            await supabase
+              .from("daily_streaks")
+              .upsert(
+                {
+                  user_id: user.id,
+                  current_streak: nextStreak,
+                  longest_streak: nextLongest,
+                  last_active_date: nextLastActive,
+                },
+                { onConflict: "user_id" },
+              );
+          }
+
+          await AsyncStorage.setItem(
+            LOCAL_STREAK_KEY,
+            JSON.stringify({
+              currentStreak: nextStreak,
+              longestStreak: nextLongest,
+              lastActiveDate: nextLastActive,
+            } satisfies StorageRecord),
+          );
         }
-
-        await AsyncStorage.setItem(
-          LOCAL_STREAK_KEY,
-          JSON.stringify({
-            currentStreak: nextStreak,
-            longestStreak: nextLongest,
-            lastActiveDate: nextLastActive,
-          } satisfies StorageRecord),
-        );
 
         const isMilestoneRaw = MILESTONES.includes(nextStreak);
         const shouldCelebrate = isMilestoneRaw && nextStreak > lastMilestoneShown;

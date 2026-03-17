@@ -8,6 +8,7 @@ import {
   TouchableOpacity,
   View,
   Switch,
+  Image,
 } from "react-native";
 import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
@@ -40,16 +41,17 @@ export const AuthScreen: FC = () => {
       StyleSheet.create({
         container: { flex: 1, backgroundColor: colors.background },
         inner: { flex: 1, paddingHorizontal: 24, paddingTop: 80, paddingBottom: 32, justifyContent: "flex-start" },
-        logoRow: { flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 10, marginBottom: 32 },
-        logoIcon: {
-          width: 36,
-          height: 36,
-          borderRadius: 12,
-          backgroundColor: colors.primary,
+        logoRow: {
+          flexDirection: "row",
           alignItems: "center",
           justifyContent: "center",
+          marginBottom: 32,
         },
-        logoTitle: { fontSize: 20, fontWeight: "600", color: colors.foreground, letterSpacing: -0.5 },
+        logoImage: {
+          width: 220,
+          height: 52,
+          resizeMode: "contain",
+        },
         cardTitle: { fontSize: 18, fontWeight: "600", color: colors.foreground, marginBottom: 4 },
         cardSubtitle: { fontSize: 14, color: colors.mutedForeground, marginBottom: 20 },
         label: {
@@ -205,18 +207,14 @@ export const AuthScreen: FC = () => {
       behavior={Platform.OS === "ios" ? "padding" : undefined}
     >
       <View style={styles.inner}>
-        {/* Logo – matches web PaceIQ header */}
         <View style={styles.logoRow}>
-          <View style={styles.logoIcon}>
-            <Ionicons name="flash" size={22} color={colors.primaryForeground} />
-          </View>
-          <Text style={styles.logoTitle}>PaceIQ</Text>
+          <Image source={require("../assets/cade-logo.png")} style={styles.logoImage} />
         </View>
 
         <GlassCard padding={28}>
           <Text style={styles.cardTitle}>Welcome back</Text>
           <Text style={styles.cardSubtitle}>
-            {isSignInMode ? "Sign in to your PaceIQ account" : "Create your PaceIQ account"}
+            {isSignInMode ? "Sign in to your Cade account" : "Create your Cade account"}
           </Text>
 
           {!isSignInMode && (

@@ -60,7 +60,7 @@ export const FriendsList: FC<{
         <TouchableOpacity
           style={[
             styles.searchBtn,
-            { backgroundColor: "#1C1C1E", opacity: searchQuery.trim().length < 2 ? 0.5 : 1 },
+            { backgroundColor: theme.textPrimary, opacity: searchQuery.trim().length < 2 ? 0.5 : 1 },
           ]}
           onPress={handleSearch}
           disabled={searchQuery.trim().length < 2 || search.isPending}
@@ -84,7 +84,7 @@ export const FriendsList: FC<{
             >
               <View style={styles.rowLeft}>
                 <View style={[styles.avatar, { backgroundColor: "#0f172a0d" }]}>
-                  <Text style={[styles.avatarText, { color: "#1C1C1E" }]}>
+                  <Text style={[styles.avatarText, { color: theme.textPrimary }]}>
                     {result.name.charAt(0).toUpperCase()}
                   </Text>
                 </View>
@@ -109,7 +109,7 @@ export const FriendsList: FC<{
                 </Text>
               ) : (
                 <TouchableOpacity
-                  style={[styles.addBtn, { borderColor: "#1C1C1E" }]}
+                  style={[styles.addBtn, { borderColor: theme.textPrimary }]}
                   onPress={() => {
                     sendRequest.mutate(result.id, {
                       onSuccess: () => {
@@ -123,8 +123,8 @@ export const FriendsList: FC<{
                   disabled={sendRequest.isPending}
                   activeOpacity={0.8}
                 >
-                  <Ionicons name="person-add-outline" size={14} color="#1C1C1E" />
-                  <Text style={[styles.addBtnText, { color: "#1C1C1E" }]}>Add</Text>
+                  <Ionicons name="person-add-outline" size={14} color={theme.textPrimary} />
+                  <Text style={[styles.addBtnText, { color: theme.textPrimary }]}>Add</Text>
                 </TouchableOpacity>
               )}
             </View>
@@ -168,7 +168,7 @@ export const FriendsList: FC<{
               </View>
               <View style={styles.requestActions}>
                 <TouchableOpacity
-                  style={[styles.acceptBtn, { backgroundColor: "#1C1C1E" }]}
+                  style={[styles.acceptBtn, { backgroundColor: theme.textPrimary }]}
                   onPress={() =>
                     respond.mutate(
                       { requestId: req.id, action: "accept" },
@@ -243,7 +243,7 @@ export const FriendsList: FC<{
         </Text>
         {friendsLoading ? (
           <View style={styles.emptyContainer}>
-            <ActivityIndicator size="small" color="#1C1C1E" />
+            <ActivityIndicator size="small" color={theme.textPrimary} />
           </View>
         ) : friends.length === 0 ? (
           <View style={styles.emptyContainer}>
@@ -265,7 +265,7 @@ export const FriendsList: FC<{
                   <View
                     style={[styles.avatar, { backgroundColor: "#0f172a0d" }]}
                   >
-                    <Text style={[styles.avatarText, { color: "#1C1C1E" }]}>
+                    <Text style={[styles.avatarText, { color: theme.textPrimary }]}>
                       {friend.name.charAt(0).toUpperCase()}
                     </Text>
                   </View>

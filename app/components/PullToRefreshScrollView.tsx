@@ -1,4 +1,4 @@
-import { PropsWithChildren, useRef, useState } from "react";
+import { PropsWithChildren, useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
   Animated,
@@ -45,6 +45,12 @@ export function PullToRefreshScrollView(props: PullToRefreshScrollViewProps) {
   const opacity = useRef(new Animated.Value(0)).current;
 
   const threshold = pullThreshold;
+
+  useEffect(() => {
+    return () => {
+      if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    };
+  }, []);
 
   const resetSpinner = () => {
     setPullDistance(0);

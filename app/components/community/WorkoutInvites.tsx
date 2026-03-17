@@ -93,9 +93,9 @@ function NewInviteModal({
                       styles.friendChip,
                       {
                         borderColor:
-                          selectedFriend === f.id ? "#1C1C1E" : theme.cardBorder,
+                          selectedFriend === f.id ? theme.textPrimary : theme.cardBorder,
                         backgroundColor:
-                          selectedFriend === f.id ? "#1C1C1E" : "transparent",
+                          selectedFriend === f.id ? theme.textPrimary : "transparent",
                       },
                     ]}
                   onPress={() => setSelectedFriend(f.id)}
@@ -125,9 +125,9 @@ function NewInviteModal({
                   styles.typeCard,
                   {
                     borderColor:
-                      inviteType === "combined" ? "#1C1C1E" : theme.cardBorder,
+                      inviteType === "combined" ? theme.textPrimary : theme.cardBorder,
                     backgroundColor:
-                      inviteType === "combined" ? "#1C1C1E" : "transparent",
+                      inviteType === "combined" ? theme.textPrimary : "transparent",
                   },
                 ]}
                 onPress={() => setInviteType("combined")}
@@ -146,9 +146,9 @@ function NewInviteModal({
                   styles.typeCard,
                   {
                     borderColor:
-                      inviteType === "parallel" ? "#1C1C1E" : theme.cardBorder,
+                      inviteType === "parallel" ? theme.textPrimary : theme.cardBorder,
                     backgroundColor:
-                      inviteType === "parallel" ? "#1C1C1E" : "transparent",
+                      inviteType === "parallel" ? theme.textPrimary : "transparent",
                   },
                 ]}
                 onPress={() => setInviteType("parallel")}
@@ -188,7 +188,7 @@ function NewInviteModal({
               style={[
                 styles.sendBtn,
                 {
-                  backgroundColor: "#1C1C1E",
+                  backgroundColor: theme.textPrimary,
                   opacity: !selectedFriend || sendInvite.isPending ? 0.5 : 1,
                 },
               ]}
@@ -233,29 +233,43 @@ export const WorkoutInvites: FC<{ friends: FriendProfile[] }> = ({ friends }) =>
   const pendingReceived = received.filter((r) => r.status === "pending");
 
   const fetchPreview = async (inviteId: string) => {
-    setPreviewInviteId(inviteId);
+    if (previewInviteId === inviteId && previewData) return;
     setPreviewLoading(true);
-    try {
-      await supabase.auth.refreshSession();
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) return;
-      const resp = await fetch(`${SUPABASE_URL}/functions/v1/combined-workout`, {
+    setPreviewInviteId(inviteId);
+    setPreviewData(null);
+
+    const doFetch = async (): Promise<Response> => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("No session — sign in first");
+      return fetch(`${SUPABASE_URL}/functions/v1/combined-workout`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${session.access_token}`,
-          ...(SUPABASE_ANON_KEY ? { apikey: SUPABASE_ANON_KEY } : {}),
+          apikey: SUPABASE_ANON_KEY,
         },
         body: JSON.stringify({ invite_id: inviteId, preview: true }),
       });
-      if (resp.ok) {
-        const json = await resp.json();
-        setPreviewData(json.combined_workout ?? null);
+    };
+
+    try {
+      await supabase.auth.refreshSession();
+      let res = await doFetch();
+      if (res.status === 401) {
+        await supabase.auth.refreshSession();
+        res = await doFetch();
       }
-    } catch {
-      // ignore
+      if (res.ok) {
+        const json = await res.json();
+        setPreviewData(json.combined_workout ?? null);
+      } else {
+        const body = await res.json().catch(() => null);
+        const msg = body?.error ?? body?.message ?? `Server error (${res.status})`;
+        Alert.alert("Error", msg);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : "Could not load workout preview";
+      Alert.alert("Error", msg);
     } finally {
       setPreviewLoading(false);
     }
@@ -264,7 +278,7 @@ export const WorkoutInvites: FC<{ friends: FriendProfile[] }> = ({ friends }) =>
   if (isLoading) {
     return (
       <View style={styles.emptyContainer}>
-        <ActivityIndicator size="small" color="#1C1C1E" />
+        <ActivityIndicator size="small" color={theme.textPrimary} />
       </View>
     );
   }
@@ -276,7 +290,7 @@ export const WorkoutInvites: FC<{ friends: FriendProfile[] }> = ({ friends }) =>
           RUN TOGETHER
         </Text>
         <TouchableOpacity
-          style={[styles.newBtn, { backgroundColor: "#1C1C1E" }]}
+          style={[styles.newBtn, { backgroundColor: theme.textPrimary }]}
           onPress={() => setShowNewInvite(true)}
           disabled={friends.length === 0}
           activeOpacity={0.8}

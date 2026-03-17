@@ -19,9 +19,11 @@ export type ColorPalette = {
 };
 
 export const lightColors: ColorPalette = {
-  background: "hsl(0, 0%, 96.5%)",
+  // Darker cool blue‑grey so glossy white cards pop harder
+  background: "hsl(215, 25%, 92%)",
   foreground: "hsl(0, 0%, 11.4%)",
-  card: "hsl(0, 0%, 100%)",
+  // very bright, slightly cool card to emphasize gloss
+  card: "#FFFFFF",
   // electric blue, still readable on white
   primary: "hsl(211, 100%, 55%)",
   primaryForeground: "hsl(0, 0%, 100%)",
@@ -34,15 +36,17 @@ export const lightColors: ColorPalette = {
   destructive: "hsl(0, 100%, 60%)",
   // bright neon orange/yellow
   warning: "hsl(36, 100%, 55%)",
-  border: "hsla(0, 0%, 0%, 0.06)",
-  surface: "rgba(255, 255, 255, 0.95)",
-  glassBg: "rgba(255, 255, 255, 0.8)",
+  // stronger edge + slightly cool white for a very glossy card look
+  border: "hsla(0, 0%, 0%, 0.12)",
+  surface: "rgba(248, 250, 255, 0.99)", // tiny blue hint
+  glassBg: "rgba(248, 250, 255, 0.97)",
   textPrimary: "#1f2937",
   textSecondary: "#6b7280",
 };
 
 export const darkColors: ColorPalette = {
-  background: "hsl(0, 0%, 7%)",
+  // Very dark blue‑grey instead of pure neutral
+  background: "hsl(215, 25%, 6%)",
   foreground: "hsl(0, 0%, 96%)",
   card: "hsl(0, 0%, 10%)",
   // full-on neon electric blue
@@ -81,7 +85,6 @@ export const typography = {
   sectionHeader: {
     fontSize: 11,
     fontWeight: "600" as const,
-    color: "#9CA3AF",
     letterSpacing: 0.8,
     textTransform: "uppercase" as const,
     marginTop: 20,

@@ -197,7 +197,7 @@ export const ActivitiesScreen: FC = () => {
           borderColor: "transparent",
         },
         dayLabel: { fontSize: 13, marginBottom: 4 },
-        dayLabelToday: { color: "#1C1C1E", fontWeight: "600" },
+        dayLabelToday: { color: theme.textPrimary, fontWeight: "600" },
         dayLabelMuted: { color: theme.textSecondary },
         dotRow: { flexDirection: "row", flexWrap: "wrap", justifyContent: "center", gap: 2 },
         dayHint: {
@@ -388,12 +388,12 @@ export const ActivitiesScreen: FC = () => {
                         {
                           backgroundColor:
                             hasActivities && inMonth
-                              ? "#1C1C1E" +
+                              ? theme.accentBlue +
                                 Math.round(0x12 * (0.4 + 0.6 * intensity))
                                   .toString(16)
                                   .padStart(2, "0")
                               : "transparent",
-                          borderColor: today ? "#1C1C1E" : "transparent",
+                          borderColor: today ? theme.accentBlue : "transparent",
                           opacity: inMonth ? 1 : 0.4,
                         },
                       ]}
@@ -438,7 +438,7 @@ export const ActivitiesScreen: FC = () => {
                             const st = s.session_type?.toLowerCase() ?? "";
                             let bg = theme.cardBorder;
                             if (st.includes("easy") || st.includes("recovery")) bg = theme.accentGreen;
-                            else if (st.includes("tempo") || st.includes("threshold")) bg = "#1C1C1E";
+                            else if (st.includes("tempo") || st.includes("threshold")) bg = theme.accentBlue;
                             else if (st.includes("interval") || st.includes("vo2")) bg = theme.negative;
                             else if (st.includes("long")) bg = theme.warning;
                             return (
