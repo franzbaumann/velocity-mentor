@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
-  Zap,
+  Footprints,
   Activity,
   BarChart2,
   Calendar,
@@ -71,7 +71,7 @@ export default function LandingPage() {
         <div className="max-w-[1100px] mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center">
-              <Zap className="w-4 h-4 text-primary-foreground" />
+              <Footprints className="w-4 h-4 text-primary-foreground" />
             </div>
             <span className="text-lg font-semibold text-foreground tracking-tight">Cade</span>
           </Link>
@@ -439,7 +439,7 @@ export default function LandingPage() {
         <div className="max-w-[1100px] mx-auto flex flex-col sm:flex-row items-center justify-between gap-3 text-sm text-muted-foreground">
           <div className="flex items-center gap-2">
             <div className="w-5 h-5 rounded-md bg-primary flex items-center justify-center">
-              <Zap className="w-3 h-3 text-primary-foreground" />
+              <Footprints className="w-3 h-3 text-primary-foreground" />
             </div>
             <span className="font-medium text-foreground">Cade</span>
             <span>© 2026</span>

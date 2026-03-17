@@ -2,7 +2,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
-import { Zap } from "lucide-react";
+import { Footprints } from "lucide-react";
 import { Link } from "react-router-dom";
 
 const USERNAME_REGEX = /^[a-zA-Z0-9_]{3,30}$/;
@@ -74,7 +74,7 @@ export default function SetUsername() {
         <div className="max-w-6xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
           <Link to="/" className="flex items-center gap-2.5">
             <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center">
-              <Zap className="w-4 h-4 text-primary-foreground" />
+              <Footprints className="w-4 h-4 text-primary-foreground" />
             </div>
             <span className="text-lg font-semibold text-foreground tracking-tight">Cade</span>
           </Link>

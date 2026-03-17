@@ -8,7 +8,7 @@ import {
   BarChart3,
   BookOpen,
   Settings,
-  Zap,
+  Footprints,
   LogOut,
   Sun,
   Moon,
@@ -88,7 +88,7 @@ export function AppSidebar() {
     >
       <div className="flex items-center gap-2.5 px-4 h-16 border-b border-border flex-shrink-0">
         <div className="w-8 h-8 rounded-xl bg-primary flex items-center justify-center flex-shrink-0">
-          <Zap className="w-4 h-4 text-primary-foreground" />
+          <Footprints className="w-4 h-4 text-primary-foreground" />
         </div>
         <span
           className={`text-lg font-semibold text-foreground tracking-tight transition-opacity duration-200 whitespace-nowrap ${
