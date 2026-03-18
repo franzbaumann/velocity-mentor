@@ -1,4 +1,4 @@
-import { addDays, addWeeks, format, nextMonday } from "date-fns";
+import { addDays, addWeeks, format } from "date-fns";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 /** Intake shape used by buildPlanFromIntake (aligned with web + app onboarding) */
@@ -22,6 +22,13 @@ export type PlanIntake = Record<
 function parseRaceDate(val: string | string[] | undefined): Date | null {
   const s = typeof val === "string" ? val : Array.isArray(val) ? val[0] : "";
   if (!s || /no date|not sure|n\/a/i.test(s)) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
+function parsePlanStartDate(val: unknown): Date | null {
+  const s = typeof val === "string" ? val : Array.isArray(val) ? val[0] : "";
+  if (!s) return null;
   const d = new Date(s);
   return isNaN(d.getTime()) ? null : d;
 }
@@ -115,7 +122,12 @@ export function buildPlanFromIntake(
       )
     : 8;
 
-  const planStart = nextMonday(new Date());
+  const requestedStart =
+    parsePlanStartDate(
+      (raw as Record<string, unknown>).plan_start_date ??
+        (raw as Record<string, unknown>).start_date,
+    );
+  const planStart = requestedStart ?? new Date();
   const weeks: BuiltPlanWeek[] = [];
 
   for (let w = 0; w < weeksTotal; w++) {
@@ -217,7 +229,8 @@ export async function savePlanToSupabase(
 
     for (let i = 0; i < week.sessions.length; i++) {
       const s = week.sessions[i];
-      const offset = s.day_of_week === 0 ? 6 : s.day_of_week - 1;
+      const weekStartDow = weekStart.getDay(); // 0=Sun..6=Sat
+      const offset = (s.day_of_week - weekStartDow + 7) % 7;
       const scheduledDate = format(
         addDays(weekStart, offset),
         "yyyy-MM-dd",

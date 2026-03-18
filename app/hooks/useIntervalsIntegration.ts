@@ -42,7 +42,10 @@ export function useIntervalsIntegration() {
       } = await supabase.auth.getUser();
       if (!user) throw new Error("Sign in to save intervals.icu settings.");
       const cleanAthlete = athleteId.trim();
-      const safeAthlete = cleanAthlete || "0";
+      // Intervals UI sometimes shows athlete IDs like "i401784".
+      // Backend expects digits for /athlete/{id}. Treat athlete_id as optional.
+      const digitsOnly = cleanAthlete.replace(/\D/g, "");
+      const safeAthlete = digitsOnly || "0";
       const { error } = await supabase
         .from("integrations")
         .upsert(

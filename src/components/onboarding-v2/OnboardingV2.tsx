@@ -23,6 +23,8 @@ import type {
   StepWithDataProps,
 } from "./types";
 import { DEFAULT_STATE, getStepOrder } from "./types";
+import { buildPlanFromIntake, savePlanToSupabase } from "@/lib/generate-plan";
+import { getFallbackPhilosophy, mapOnboardingAnswersToIntake } from "../../../shared/onboarding-plan";
 
 const STORAGE_KEY = "paceiq_onboarding_v2";
 
@@ -175,12 +177,43 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
         .then(async (r) => {
           const data = await r.json().catch(() => ({}));
           if (!r.ok || !data?.primary) {
-            setPhiloError(data.error ?? "Failed to get recommendation");
+            // Fallback to the same rule-based recommendation used on mobile.
+            setState((prev) => ({
+              ...prev,
+              recommendedPhilosophy: getFallbackPhilosophy({
+                weeklyKm: prev.answers.weeklyKm ?? 0,
+                daysPerWeek: prev.answers.daysPerWeek ?? 0,
+                raceDistance: prev.answers.raceDistance,
+                raceDate: prev.answers.raceDate,
+                hasIntervalsData: intervalsData.isConnected && (intervalsData.activities.length > 0 || intervalsData.readiness.length > 0),
+                injuries: prev.answers.injuries,
+                injuryDetail: prev.answers.injuryDetail,
+                experienceLevel: prev.answers.experienceLevel,
+                goal: prev.answers.goal,
+              }) as PhilosophyRecommendation,
+            }));
+            setPhiloError(null);
           } else {
             setState((prev) => ({ ...prev, recommendedPhilosophy: data as PhilosophyRecommendation }));
           }
         })
-        .catch((e) => setPhiloError(e.message ?? "Network error"))
+        .catch(() => {
+          setState((prev) => ({
+            ...prev,
+            recommendedPhilosophy: getFallbackPhilosophy({
+              weeklyKm: prev.answers.weeklyKm ?? 0,
+              daysPerWeek: prev.answers.daysPerWeek ?? 0,
+              raceDistance: prev.answers.raceDistance,
+              raceDate: prev.answers.raceDate,
+              hasIntervalsData: intervalsData.isConnected && (intervalsData.activities.length > 0 || intervalsData.readiness.length > 0),
+              injuries: prev.answers.injuries,
+              injuryDetail: prev.answers.injuryDetail,
+              experienceLevel: prev.answers.experienceLevel,
+              goal: prev.answers.goal,
+            }) as PhilosophyRecommendation,
+          }));
+          setPhiloError(null);
+        })
         .finally(() => setPhiloLoading(false));
     });
   }, [state.currentStep, state.recommendedPhilosophy, state.answers, philoRetryCount]);
@@ -211,7 +244,18 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
     setPlanError(null);
 
     const apikey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
-    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/paceiq-generate-plan`;
+    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/coach-generate-plan`;
+    const intakeAnswers = mapOnboardingAnswersToIntake({
+      raceDate: state.answers.raceDate,
+      raceDistance: state.answers.raceDistance,
+      goalTime: state.answers.goalTime,
+      daysPerWeek: state.answers.daysPerWeek,
+      preferredDays: (state.answers as unknown as { preferredDays?: string[] }).preferredDays,
+      schedulingNote: state.answers.schedulingNote,
+      injuryDetail: state.answers.injuryDetail,
+      trainingHistoryNote: state.answers.trainingHistoryNote,
+      philosophy: state.selectedPhilosophy,
+    });
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       fetch(url, {
@@ -222,19 +266,44 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
           ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
         },
         body: JSON.stringify({
-          answers: state.answers,
-          philosophy: state.selectedPhilosophy,
+          intakeAnswers,
+          conversationContext: [],
         }),
       })
         .then(async (r) => {
           const data = await r.json().catch(() => ({}));
           if (!r.ok || data.error) {
-            setPlanError(data.error ?? "Failed to generate plan");
+            throw new Error(data.error ?? "Failed to generate plan");
           } else {
             setState((prev) => ({ ...prev, generatedPlan: data as PlanResult }));
           }
         })
-        .catch((e) => setPlanError(e.message ?? "Network error"))
+        .catch(async () => {
+          // Fallback: deterministic client-side plan + save to Supabase
+          try {
+            const { data: { user } } = await supabase.auth.getUser();
+            if (!user) throw new Error("Unauthorized");
+            const built = buildPlanFromIntake(intakeAnswers);
+            const planId = await savePlanToSupabase(supabase, user.id, built);
+            setState((prev) => ({
+              ...prev,
+              generatedPlan: {
+                plan_id: planId,
+                plan_name: intakeAnswers.plan_name ?? "Training Plan",
+                philosophy: prev.selectedPhilosophy ?? "unknown",
+                total_weeks: built.weeks.length,
+                peak_weekly_km: null,
+                start_date: built.weeks[0]?.start_date ?? new Date().toISOString().slice(0, 10),
+                first_workout: built.weeks[0]?.sessions?.[0]
+                  ? { name: built.weeks[0].sessions[0].description, date: built.weeks[0].start_date }
+                  : null,
+              },
+            }));
+            setPlanError(null);
+          } catch (e) {
+            setPlanError(e instanceof Error ? e.message : "Network error");
+          }
+        })
         .finally(() => setPlanLoading(false));
     });
   }, [state.currentStep, state.selectedPhilosophy, state.generatedPlan, state.answers, planRetryCount]);

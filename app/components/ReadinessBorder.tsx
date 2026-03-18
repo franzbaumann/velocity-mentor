@@ -10,7 +10,7 @@ import Animated, {
 } from "react-native-reanimated";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "../context/ThemeContext";
-import type { AppTheme } from "../theme/themes";
+import { readinessColorForScore } from "../lib/readinessColors";
 
 const AnimatedPath = Animated.createAnimatedComponent(Path);
 
@@ -24,12 +24,6 @@ type ReadinessBorderProps = {
   style?: ViewStyle;
   children?: React.ReactNode;
 };
-
-function getReadinessColor(score: number, t: AppTheme): string {
-  if (score < 50) return t.negative;
-  if (score < 75) return t.accentOrange;
-  return t.positive;
-}
 
 function createPath(w: number, h: number, r: number): string {
   return `M ${w / 2} 0 H ${w - r} Q ${w} 0 ${w} ${r} V ${h - r} Q ${w} ${h} ${w - r} ${h} H ${r} Q 0 ${h} 0 ${h - r} V ${r} Q 0 0 ${r} 0 H ${w / 2}`;
@@ -57,7 +51,7 @@ export function ReadinessBorder({
   const p = useSharedValue(0);
   const glow = useSharedValue(0);
 
-  const resolvedColor = color ?? getReadinessColor(readiness, theme);
+  const resolvedColor = color ?? readinessColorForScore(readiness);
   const clamped = Math.max(0, Math.min(1, readiness / 100));
 
   const w = dims.w || 1;

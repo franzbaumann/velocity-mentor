@@ -19,6 +19,7 @@ import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
 import { ReadinessRing } from "../components/ReadinessRing";
 import { ReadinessBorder } from "../components/ReadinessBorder";
+import { readinessColorForScore } from "../lib/readinessColors";
 import { WorkoutBadge } from "../components/WorkoutBadge";
 import { Sparkline } from "../components/Sparkline";
 import { SkeletonCard, SkeletonLine } from "../components/Skeleton";
@@ -29,6 +30,7 @@ import { useRacePredictions } from "../hooks/useRacePredictions";
 import { useDailyStreak } from "../hooks/useDailyStreak";
 import { getLocalDateString } from "../lib/date";
 import { formatDuration, formatSleepHours } from "../lib/format";
+import { getWorkoutTypeTintGradientColors } from "../lib/workoutTypeTint";
 import { spacing, typography } from "../theme/theme";
 import { formatRaceTime, formatPace } from "../lib/race-prediction";
 import type { AppTabsParamList } from "../navigation/RootNavigator";
@@ -37,7 +39,7 @@ import { addDays as addDaysFns, isWithinInterval, parseISO, startOfWeek as start
 const SCROLL_PADDING_BELOW_BUBBLE = 96;
 
 const cleanColors = {
-  background: "#f0f4f8",
+  background: "#ffffff",
   surface: "#ffffff",
   surfaceAlt: "#f8fafc",
   border: "rgba(0,0,0,0.07)",
@@ -353,7 +355,7 @@ export const HomeScreen: FC = () => {
         },
         headerRow: {
           flexDirection: "row",
-          alignItems: "center",
+          alignItems: "flex-start",
           justifyContent: "space-between",
           gap: 12,
         },
@@ -508,7 +510,7 @@ export const HomeScreen: FC = () => {
           borderWidth: 0,
           backgroundColor: cleanColors.surface,
         },
-        readinessRow: { flexDirection: "row", alignItems: "center", gap: 20 },
+        readinessRow: { flexDirection: "row", alignItems: "center", gap: 10 },
         readinessBody: { flex: 1, minWidth: 0 },
         readinessTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
         readinessTitle: { fontSize: 16, fontWeight: "600", color: theme.textPrimary },
@@ -531,8 +533,7 @@ export const HomeScreen: FC = () => {
         },
         activityCard: { padding: 20 },
         activityCardWrap: {
-          borderLeftWidth: 3,
-          borderRadius: 16,
+          borderRadius: 14,
           overflow: "hidden",
         },
         activityTitleRow: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 },
@@ -693,19 +694,19 @@ export const HomeScreen: FC = () => {
         recoveryHeaderDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: theme.accentGreen },
         recoveryTrendNegative: { fontSize: 11, color: theme.accentOrange },
         recoveryTrendPositive: { fontSize: 11, color: theme.accentGreen },
-        recoveryStatsContainer: {
-          marginTop: 12,
-          paddingTop: 12,
-          borderTopWidth: StyleSheet.hairlineWidth,
-          borderTopColor: theme.cardBorder,
-        },
         recoveryStatsRow: {
           flexDirection: "row",
+          justifyContent: "space-between",
+          alignItems: "flex-start",
+          gap: 12,
+          width: "100%",
         },
         recoveryStatColumn: {
           flex: 1,
+          minWidth: 0,
           alignItems: "center",
-          gap: 4,
+          gap: 6,
+          paddingVertical: 4,
         },
         recoveryStatLabel: {
           fontSize: 9,
@@ -1066,7 +1067,6 @@ export const HomeScreen: FC = () => {
   const loadZoneLabel =
     tsbVal < -15 ? "Overreaching" : tsbVal < -5 ? "High load" : tsbVal > 5 ? "Fresh" : "Optimal";
   const readinessPct = Math.max(0, Math.min(100, readiness.score ?? 0));
-  const readinessColor = getReadinessColor(readinessPct);
   const readinessDelta = readiness.scoreDelta;
   const readinessTrendText =
     readinessDelta == null
@@ -1076,6 +1076,20 @@ export const HomeScreen: FC = () => {
         : readinessDelta < 0
           ? `↓ ${readinessDelta} from yesterday`
           : "↔ Same as yesterday";
+  // Live data (no mock) for today's readiness metrics
+  const displayReadinessScore = readinessPct;
+  const displayHrvScore = hrvScore;
+  const displaySleepScore = sleepScore;
+  const displayHrvValue =
+    readiness.hrv != null && readiness.hrv !== 0 ? `${readiness.hrv}` : "—";
+  const displaySleepHours = readiness.sleepHours;
+
+  // Keep mobile card accent colors aligned with web readiness ring thresholds.
+  const readinessColor = readinessColorForScore(displayReadinessScore);
+  const readinessAccentColor = readinessColor;
+  const readinessTintBg =
+    displayReadinessScore >= 75 ? "#f0fdf4" : displayReadinessScore >= 50 ? "#fffdf7" : "#fff1f2";
+
   const isRestDay =
     (todaysPlan && (todaysPlan.type === "recovery" || /rest/i.test(todaysPlan.title ?? ""))) ||
     (todaysActual &&
@@ -1104,6 +1118,10 @@ export const HomeScreen: FC = () => {
         ? theme.accentOrange
         : theme.accentGreen;
   const workoutBorderColor = workoutAccent(todaysWorkout?.type, theme);
+  const todayWorkoutTintGradientColors = getWorkoutTypeTintGradientColors(
+    todaysPlan?.type ?? todaysWorkout?.type ?? todaysActual?.type,
+    colors,
+  );
   const sessionsDone = Math.max(0, Math.min(7, Math.round((weekStats.actualKm / Math.max(weekStats.plannedKm, 1)) * 7)));
   const lastActivityDetailId =
     (lastActivity as unknown as { detailId?: string | null }).detailId ?? null;
@@ -1356,12 +1374,39 @@ export const HomeScreen: FC = () => {
                   { transform: [{ rotateY: frontRotation }, { scale: readinessScale }] },
                 ]}
               >
-                <ReadinessBorder readiness={readiness.score} radius={theme.cardRadius}>
-                  <GlassCard style={styles.readinessCard}>
+                <ReadinessBorder readiness={displayReadinessScore} radius={theme.cardRadius}>
+                  <GlassCard
+                    style={[
+                      styles.readinessCard,
+                      {
+                        borderWidth: 2,
+                        borderColor: readinessAccentColor,
+                        borderRadius: 20,
+                        backgroundColor: readinessTintBg,
+                        shadowColor: readinessAccentColor,
+                        shadowOffset: { width: 0, height: 6 },
+                        shadowOpacity: 0.28,
+                        shadowRadius: 18,
+                        elevation: 8,
+                      },
+                    ]}
+                  >
+                    <View
+                      style={{
+                        height: 3,
+                        backgroundColor: readinessAccentColor,
+                        borderTopLeftRadius: 18,
+                        borderTopRightRadius: 18,
+                        width: "100%",
+                        marginBottom: 14,
+                      }}
+                    />
                     <View style={styles.readinessRow}>
                       <ReadinessRing
-                        score={readiness.score}
+                        score={displayReadinessScore}
                         size={80}
+                        strokeWidth={10}
+                        trackColor="#f1f5f9"
                         statusLabel={
                           readiness.tsb != null
                             ? Number(readiness.tsb) > 5
@@ -1371,15 +1416,14 @@ export const HomeScreen: FC = () => {
                                 : "NEUTRAL"
                             : undefined
                         }
-                        statusColor={
-                          readiness.tsb != null
-                            ? Number(readiness.tsb) > 5
-                              ? theme.positive
-                              : Number(readiness.tsb) <= -10
-                                ? theme.negative
-                                : theme.warning
-                            : undefined
-                        }
+                        statusColor={readinessAccentColor}
+                        centerTextStyle={{ fontSize: 32, fontWeight: "800" }}
+                        labelTextStyle={{
+                          fontSize: 10,
+                          letterSpacing: 2,
+                          textTransform: "uppercase",
+                          color: readinessAccentColor,
+                        }}
                       />
                       <View style={styles.readinessBody}>
                         <View style={styles.readinessTitleRow}>
@@ -1398,7 +1442,8 @@ export const HomeScreen: FC = () => {
                           </Text>
                         )}
                         <Text style={styles.readinessSummary}>{readiness.aiSummary}</Text>
-                        <View style={styles.recoveryStatsContainer}>
+                        <View style={{ height: 1, backgroundColor: "#f1f5f9", marginVertical: 12 }} />
+                        <View>
                           <TouchableOpacity
                             activeOpacity={0.8}
                             onPress={() => navigation.navigate("Stats" as never)}
@@ -1406,33 +1451,64 @@ export const HomeScreen: FC = () => {
                             <View style={styles.recoveryStatsRow}>
                               <View style={styles.recoveryStatColumn}>
                                 <ReadinessRing
-                                  score={hrvScore}
-                                  size={60}
+                                  score={displayHrvScore}
+                                  size={128}
+                                  strokeWidth={10}
+                                  trackColor="#f1f5f9"
                                   centerText={
-                                    readiness.hrv != null && readiness.hrv !== 0
-                                      ? `${readiness.hrv}`
-                                      : "—"
+                                    displayHrvValue
                                   }
                                   statusLabel={hrvTrendLabel}
-                                  statusColor="#FB2D4A"
+                                  statusColor={
+                                    recoveryMetrics.hrv == null || recoveryMetrics.hrv === 0
+                                      ? "#94a3b8"
+                                      : hrvDelta < 0
+                                        ? "#ef4444"
+                                        : hrvDelta > 0
+                                          ? "#22c55e"
+                                          : "#94a3b8"
+                                  }
+                                  centerTextStyle={{ fontSize: 16, fontWeight: "700" }}
+                                  labelTextStyle={{
+                                    fontSize: 9,
+                                    textTransform: "uppercase",
+                                    color:
+                                      recoveryMetrics.hrv == null || recoveryMetrics.hrv === 0
+                                        ? "#94a3b8"
+                                        : hrvDelta < 0
+                                          ? "#ef4444"
+                                          : hrvDelta > 0
+                                            ? "#22c55e"
+                                            : "#94a3b8",
+                                  }}
                                 />
                                 <Text style={styles.recoveryStatLabel}>HRV</Text>
                               </View>
                               <View style={styles.recoveryStatColumn}>
                                 <ReadinessRing
-                                  score={sleepScore}
-                                  size={60}
-                                  centerText={formatSleepHours(readiness.sleepHours)}
-                                  centerScale={0.18}
+                                  score={displaySleepScore}
+                                  size={128}
+                                  strokeWidth={10}
+                                  trackColor="#f1f5f9"
+                                  centerText={formatSleepHours(displaySleepHours)}
+                                  centerScale={0.1}
                                   statusLabel={sleepTrendLabel}
-                                  statusColor="#2563FF"
+                                  statusColor={sleepStatus.color}
+                                  centerTextStyle={{ fontSize: 11, fontWeight: "700" }}
+                                  labelTextStyle={{
+                                    fontSize: 9,
+                                    textTransform: "uppercase",
+                                    color: sleepStatus.color,
+                                  }}
                                 />
                                 <Text style={styles.recoveryStatLabel}>Sleep</Text>
                               </View>
                               <View style={styles.recoveryStatColumn}>
                                 <ReadinessRing
                                   score={tsbScore}
-                                  size={60}
+                                  size={128}
+                                  strokeWidth={10}
+                                  trackColor="#f1f5f9"
                                   centerText={
                                     readiness.tsb != null
                                       ? Number(readiness.tsb).toFixed(0)
@@ -1440,6 +1516,12 @@ export const HomeScreen: FC = () => {
                                   }
                                   statusLabel={tsbTrendLabel}
                                   statusColor={tsbStatus.color}
+                                  centerTextStyle={{ fontSize: 16, fontWeight: "700" }}
+                                  labelTextStyle={{
+                                    fontSize: 9,
+                                    textTransform: "uppercase",
+                                    color: tsbStatus.color,
+                                  }}
                                 />
                                 <Text style={styles.recoveryStatLabel}>TSB</Text>
                               </View>
@@ -1448,7 +1530,7 @@ export const HomeScreen: FC = () => {
                         </View>
                       </View>
                     </View>
-                    <Text style={{ fontSize: 11, color: theme.textMuted, marginTop: 4 }}>
+                    <Text style={{ fontSize: 11, color: "#94a3b8", marginTop: 4, alignSelf: "flex-end" }}>
                       {relativeMinsLabel(lastFetchedAt)}
                     </Text>
                   </GlassCard>
@@ -1494,11 +1576,11 @@ export const HomeScreen: FC = () => {
               </Text>
             </View>
             <Image
-              source={require("../assets/cade-logo.png")}
+              source={require("../assets/cade-logo-transparent.png")}
               style={{
                 width: 150,
                 height: 40,
-                backgroundColor: cleanColors.background,
+                marginTop: -2,
               }}
               resizeMode="contain"
             />
@@ -1600,7 +1682,7 @@ export const HomeScreen: FC = () => {
                     >
                       <View style={styles.readinessRow}>
                         <ReadinessRing
-                          score={readinessPct}
+                          score={displayReadinessScore}
                           size={84}
                           statusLabel={
                             readiness.tsb != null
@@ -1643,16 +1725,16 @@ export const HomeScreen: FC = () => {
                                   letterSpacing: 0.7,
                                   textTransform: "uppercase",
                                   color:
-                                    readinessPct >= 70
+                                    displayReadinessScore >= 70
                                       ? cleanColors.accentGreen
-                                      : readinessPct >= 40
+                                      : displayReadinessScore >= 40
                                         ? cleanColors.accentOrange
                                         : cleanColors.accentRed,
                                 }}
                               >
-                                {readinessPct >= 70
+                                  {displayReadinessScore >= 70
                                   ? "READY"
-                                  : readinessPct >= 40
+                                    : displayReadinessScore >= 40
                                     ? "MANAGE LOAD"
                                     : "PROTECT RECOVERY"}
                               </Text>
@@ -1690,24 +1772,21 @@ export const HomeScreen: FC = () => {
                               borderTopWidth: StyleSheet.hairlineWidth,
                               borderTopColor: cleanColors.border,
                               flexDirection: "row",
-                              justifyContent: "space-between",
+                              justifyContent: "flex-start",
                             }}
                           >
                             {[
                               {
                                 label: "HRV",
-                                score: hrvScore,
-                                value:
-                                  readiness.hrv != null && readiness.hrv !== 0
-                                    ? `${readiness.hrv}`
-                                    : "—",
+                                score: displayHrvScore,
+                                value: displayHrvValue,
                                 status: hrvTrendLabel,
                                 color: cleanColors.accentGreen,
                               },
                               {
                                 label: "Sleep",
-                                score: sleepScore,
-                                value: formatSleepHours(readiness.sleepHours),
+                                score: displaySleepScore,
+                                value: formatSleepHours(displaySleepHours),
                                 status: sleepTrendLabel,
                                 color: cleanColors.accentBlue,
                               },
@@ -1729,14 +1808,16 @@ export const HomeScreen: FC = () => {
                               >
                                 <Reanimated.View
                                   entering={FadeInDown.delay(470 + idx * 150).springify()}
-                                  style={{ alignItems: "center", minWidth: 80 }}
+                                  style={{ alignItems: "center", minWidth: 72, marginRight: 6 }}
                                 >
                                   <ReadinessRing
                                     score={miniRingProgress.value ? m.score : 0}
-                                    size={56}
+                                    size={68}
+                                    centerScale={0.18}
                                     centerText={m.value}
                                     statusLabel={m.status}
                                     statusColor={m.color}
+                                    centerTextStyle={{ fontSize: 14, fontWeight: "700" }}
                                   />
                                   <Text
                                     style={{
@@ -1786,23 +1867,29 @@ export const HomeScreen: FC = () => {
               }}
             >
               <View style={styles.activityCardWrap}>
-                <LinearGradient
-                  colors={[
-                    `${cleanColors.accentBlue}1A`,
-                    "rgba(59,130,246,0)",
+                <GlassCard
+                  style={[
+                    styles.activityCard,
+                    {
+                      backgroundColor: colors.card,
+                      borderRadius: 14,
+                      borderWidth: StyleSheet.hairlineWidth,
+                      borderColor: colors.border,
+                      shadowOpacity: 0,
+                      shadowRadius: 0,
+                      shadowOffset: { width: 0, height: 0 },
+                      elevation: 0,
+                    },
                   ]}
-                  locations={[0, 0.55]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 0 }}
-                  style={{
-                    position: "absolute",
-                    top: 0,
-                    bottom: 0,
-                    left: 0,
-                    right: 0,
-                  }}
-                />
-                <GlassCard style={[styles.activityCard, { backgroundColor: cleanColors.surface }]}>
+                >
+                  <LinearGradient
+                    pointerEvents="none"
+                    colors={todayWorkoutTintGradientColors}
+                    locations={[0, 0.35, 0.7]}
+                    start={{ x: 0, y: 0 }}
+                    end={{ x: 1, y: 0 }}
+                    style={StyleSheet.absoluteFillObject}
+                  />
                   <View style={{ flexDirection: "row", justifyContent: "space-between", alignItems: "flex-start" }}>
                     <View style={{ flex: 1, paddingRight: 8 }}>
                       <Text

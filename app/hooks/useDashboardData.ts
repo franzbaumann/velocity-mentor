@@ -73,6 +73,21 @@ export type ReadinessRow = {
   icu_ramp_rate?: number | null;
 };
 
+/** Resolve CTL/ATL/TSB with icu_* fallbacks and derive TSB = CTL - ATL when null (match web). */
+function resolveCtlAtlTsb(r: {
+  ctl?: number | null;
+  atl?: number | null;
+  tsb?: number | null;
+  icu_ctl?: number | null;
+  icu_atl?: number | null;
+  icu_tsb?: number | null;
+}) {
+  const ctl = r.ctl ?? r.icu_ctl ?? null;
+  const atl = r.atl ?? r.icu_atl ?? null;
+  const tsb = r.tsb ?? r.icu_tsb ?? (ctl != null && atl != null ? ctl - atl : null);
+  return { ctl, atl, tsb };
+}
+
 function subDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setDate(d.getDate() - days);
@@ -335,6 +350,7 @@ export function useDashboardData(selectedDate?: string) {
         hrvVals.length >= 7 ? hrvVals.slice(-7) : mockRecoveryMetrics.hrvTrend,
       sleepHours: latest.sleep_hours ?? mockRecoveryMetrics.sleepHours,
       sleepQuality: latest.sleep_quality ?? mockRecoveryMetrics.sleepQuality,
+      sleepScore: latest.sleep_score ?? (mockRecoveryMetrics as { sleepScore?: number | null }).sleepScore ?? null,
       restingHrTrend:
         rhrVals.length >= 7
           ? rhrVals.slice(-7)
@@ -347,17 +363,18 @@ export function useDashboardData(selectedDate?: string) {
     const rowsUpToAnchor = readinessRows.filter((r) => r.date <= anchorDateStr);
     const latest = rowsUpToAnchor.length > 0 ? rowsUpToAnchor[rowsUpToAnchor.length - 1] : null;
     if (!latest) return mockReadiness;
+    const { ctl, atl, tsb } = resolveCtlAtlTsb(latest);
     const hasReal =
       latest.hrv != null ||
       latest.sleep_hours != null ||
-      latest.ctl != null ||
-      latest.atl != null ||
-      latest.tsb != null ||
-      latest.resting_hr != null;
+      ctl != null ||
+      atl != null ||
+      tsb != null ||
+      latest.resting_hr != null ||
+      latest.sleep_score != null ||
+      latest.readiness != null ||
+      latest.score != null;
     if (!hasReal) return mockReadiness;
-    const tsb = latest.tsb != null ? latest.tsb : null;
-    const ctl = latest.ctl ?? null;
-    const atl = latest.atl ?? null;
     const hrv = latest.hrv ?? null;
     const sleep = latest.sleep_hours ?? null;
     const rhr = latest.resting_hr ?? null;
@@ -365,6 +382,8 @@ export function useDashboardData(selectedDate?: string) {
     const derivedScore =
       explicitScore != null
         ? Math.round(Math.min(100, Math.max(0, explicitScore)))
+        : latest.readiness != null
+        ? Math.round(Math.min(100, Math.max(0, latest.readiness)))
         : tsb != null
         ? Math.round(Math.min(100, Math.max(0, 50 + tsb * 2.5)))
         : ctl != null
@@ -379,7 +398,14 @@ export function useDashboardData(selectedDate?: string) {
     const isToday = latest.date === todayStr;
 
     const previousRow = rowsUpToAnchor.length >= 2 ? rowsUpToAnchor[rowsUpToAnchor.length - 2] : null;
-    const previousScore = previousRow?.score ?? (previousRow?.tsb != null ? Math.round(Math.min(100, Math.max(0, 50 + previousRow.tsb * 2.5))) : null);
+    const { tsb: prevTsb } = previousRow ? resolveCtlAtlTsb(previousRow) : { tsb: null as number | null };
+    const previousScore =
+      previousRow?.score ??
+      (previousRow?.readiness != null
+        ? Math.round(Math.min(100, Math.max(0, previousRow.readiness)))
+        : prevTsb != null
+          ? Math.round(Math.min(100, Math.max(0, 50 + prevTsb * 2.5)))
+          : null);
     const scoreDelta = previousScore != null && score != null ? score - previousScore : null;
 
     return {
@@ -388,6 +414,7 @@ export function useDashboardData(selectedDate?: string) {
       hrvBaseline: latest.hrv_baseline ?? mockReadiness.hrvBaseline,
       sleepHours: sleep ?? mockReadiness.sleepHours,
       sleepQuality: latest.sleep_quality ?? mockReadiness.sleepQuality,
+      sleepScore: latest.sleep_score ?? (mockReadiness as { sleepScore?: number | null }).sleepScore ?? null,
       restingHr: rhr ?? mockReadiness.restingHr,
       ctl: ctl ?? mockReadiness.ctl,
       atl: atl ?? mockReadiness.atl,

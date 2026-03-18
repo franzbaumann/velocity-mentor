@@ -35,6 +35,10 @@ import {
   savePlanToSupabase,
   type PlanIntake,
 } from "../lib/generate-plan";
+import {
+  getFallbackPhilosophy,
+  mapOnboardingAnswersToIntake,
+} from "../../shared/onboarding-plan";
 
 // --- Types mirrored from web Onboarding V2 ---
 
@@ -46,6 +50,10 @@ type OnboardingV2Answers = {
   raceDate: string;
   raceDistance: string;
   goalTime: string;
+  /** Plan start date (snapped to Monday, YYYY-MM-DD) */
+  planStartDate: string;
+  /** Alias for PlanIntake plan_start_date */
+  plan_start_date?: string;
   /** Alias for PlanIntake goal_race_date */
   goal_race_date?: string;
   /** Alias for PlanIntake goal_time */
@@ -107,6 +115,7 @@ const DEFAULT_ANSWERS: OnboardingV2Answers = {
   raceDate: "",
   raceDistance: "",
   goalTime: "",
+  planStartDate: "",
   weeklyKm: 30,
   recentRaceType: "",
   recentRaceTime: "",
@@ -199,72 +208,25 @@ const ANALYSE_STEPS = [
 
 
 /** Toggle when paceiq-philosophy edge function is deployed. When false, use rule-based fallback. */
-const PACEIQ_PHILOSOPHY_ENABLED = false;
+const PACEIQ_PHILOSOPHY_ENABLED = true;
 
 const PHILOSOPHY_FETCH_TIMEOUT_MS = 10000;
 
-/** Rule-based philosophy recommendation when edge function is unavailable or fails. */
-function getFallbackPhilosophy(answers: OnboardingV2Answers): PhilosophyRecommendation {
-  const weeklyKm = answers.weeklyKm ?? 0;
-  let primary: { philosophy: string; reason: string; confidence: number };
-  const alternatives: { philosophy: string; reason: string }[] = [];
-
-  if (weeklyKm < 30) {
-    primary = {
-      philosophy: "80_20_polarized",
-      reason: "At under 30 km/week, 80/20 keeps intensity balanced and reduces injury risk while you build volume.",
-      confidence: 0.85,
-    };
-    alternatives.push(
-      { philosophy: "jack_daniels", reason: "VDOT-based training gives clear paces as you increase volume." },
-      { philosophy: "lydiard", reason: "Base-first approach suits lower volume; add intensity later." },
-    );
-  } else if (weeklyKm <= 60) {
-    primary = {
-      philosophy: "jack_daniels",
-      reason: "In the 30–60 km/week range, Jack Daniels VDOT provides structured zones and proven progressions.",
-      confidence: 0.85,
-    };
-    alternatives.push(
-      { philosophy: "80_20_polarized", reason: "Polarized model works well at this volume for race-focused training." },
-      { philosophy: "lydiard", reason: "Lydiard base-building fits if you prefer a long aerobic phase." },
-    );
-  } else {
-    primary = {
-      philosophy: "lydiard",
-      reason: "Above 60 km/week, Lydiard base-building leverages your volume and periodizes intensity effectively.",
-      confidence: 0.85,
-    };
-    alternatives.push(
-      { philosophy: "jack_daniels", reason: "VDOT structure pairs well with high volume for sharpening." },
-      { philosophy: "pfitzinger", reason: "Pfitzinger suits high mileage with lactate threshold focus." },
-    );
-  }
-
-  return { primary, alternatives };
-}
-
-/** Map onboarding answers to intake shape for coach-generate-plan and buildPlanFromIntake */
-function mapAnswersToIntake(answers: OnboardingV2Answers): PlanIntake {
-  const freqStr =
-    answers.daysPerWeek >= 6 ? "6-7" : answers.daysPerWeek >= 1 ? `${answers.daysPerWeek} days` : "4 days";
-  const days =
-    answers.preferredDays && answers.preferredDays.length > 0
-      ? answers.preferredDays
-      : ["Monday", "Wednesday", "Friday", "Saturday"];
-  return {
-    race_date: answers.raceDate || answers.goal_race_date,
-    race_goal: answers.raceDistance,
-    target_time: answers.goalTime || answers.goal_time,
-    goal_race_date: answers.raceDate || answers.goal_race_date,
-    goal_time: answers.goalTime || answers.goal_time,
-    weekly_frequency: freqStr,
-    long_run_day: /sunday/i.test(answers.schedulingNote || "") ? "Sunday" : "Saturday",
-    available_days: days,
-    detailed_injuries: answers.injuryDetail || answers.detailed_injuries,
-    availability_notes: answers.schedulingNote || answers.availability_notes,
-    training_history_notes: answers.trainingHistoryNote || answers.training_history_notes,
-  };
+function getFallbackPhilosophyForMobile(
+  answers: OnboardingV2Answers,
+  hasIntervalsData: boolean,
+): PhilosophyRecommendation {
+  return getFallbackPhilosophy({
+    weeklyKm: answers.weeklyKm ?? 0,
+    daysPerWeek: answers.daysPerWeek ?? 0,
+    raceDistance: answers.raceDistance,
+    raceDate: answers.raceDate || answers.goal_race_date,
+    hasIntervalsData,
+    injuries: answers.injuries,
+    injuryDetail: answers.injuryDetail || answers.detailed_injuries,
+    experienceLevel: answers.experienceLevel,
+    goal: answers.goal,
+  }) as PhilosophyRecommendation;
 }
 
 export const PlanOnboardingScreen: FC = () => {
@@ -285,6 +247,7 @@ export const PlanOnboardingScreen: FC = () => {
 
   const [visibleAnalyseSteps, setVisibleAnalyseSteps] = useState(0);
   const [showRaceDatePicker, setShowRaceDatePicker] = useState(false);
+  const [showPlanStartDatePicker, setShowPlanStartDatePicker] = useState(false);
   const [planProgress, setPlanProgress] = useState(0);
   const [manualOverrideFitness, setManualOverrideFitness] = useState(false);
   const [injurySeverity, setInjurySeverity] = useState<
@@ -564,7 +527,7 @@ export const PlanOnboardingScreen: FC = () => {
     if (!PACEIQ_PHILOSOPHY_ENABLED) {
       setState((prev) => ({
         ...prev,
-        recommendedPhilosophy: getFallbackPhilosophy(prev.answers),
+        recommendedPhilosophy: getFallbackPhilosophyForMobile(prev.answers, currentStats.hasData),
       }));
       setPhiloLoading(false);
       return;
@@ -588,13 +551,13 @@ export const PlanOnboardingScreen: FC = () => {
         } else {
           setState((prev) => ({
             ...prev,
-            recommendedPhilosophy: getFallbackPhilosophy(prev.answers),
+            recommendedPhilosophy: getFallbackPhilosophyForMobile(prev.answers, currentStats.hasData),
           }));
         }
       } catch {
         setState((prev) => ({
           ...prev,
-          recommendedPhilosophy: getFallbackPhilosophy(prev.answers),
+          recommendedPhilosophy: getFallbackPhilosophyForMobile(prev.answers, currentStats.hasData),
         }));
       } finally {
         setPhiloLoading(false);
@@ -665,11 +628,31 @@ export const PlanOnboardingScreen: FC = () => {
     setPlanLoading(true);
     setPlanError(null);
 
-    const intake = mapAnswersToIntake(state.answers);
+    const intake = mapOnboardingAnswersToIntake({
+      raceDate: state.answers.raceDate || state.answers.goal_race_date,
+      raceDistance: state.answers.raceDistance,
+      goalTime: state.answers.goalTime || state.answers.goal_time,
+      planStartDate: state.answers.planStartDate || state.answers.plan_start_date,
+      daysPerWeek: state.answers.daysPerWeek,
+      preferredDays: state.answers.preferredDays,
+      schedulingNote: state.answers.schedulingNote,
+      injuryDetail: state.answers.injuryDetail || state.answers.detailed_injuries,
+      trainingHistoryNote: state.answers.trainingHistoryNote || state.answers.training_history_notes,
+      philosophy: state.selectedPhilosophy,
+    }) as PlanIntake;
 
     (async () => {
       try {
-        const json = await callEdgeFetchWithRetry<{ plan_id?: string; error?: string }>(
+        const json = await callEdgeFetchWithRetry<{
+          plan_id?: string;
+          plan_name?: string;
+          philosophy?: string;
+          total_weeks?: number;
+          peak_weekly_km?: number | null;
+          start_date?: string;
+          first_workout?: { name: string; date: string } | null;
+          error?: string;
+        }>(
           "coach-generate-plan",
           { intakeAnswers: intake, conversationContext: [] },
           { maxRetries: 3, timeout: 45000 },
@@ -679,12 +662,12 @@ export const PlanOnboardingScreen: FC = () => {
             ...prev,
             generatedPlan: {
               plan_id: json.plan_id,
-              plan_name: prev.selectedPhilosophy ?? "",
-              philosophy: prev.selectedPhilosophy ?? "",
-              total_weeks: 0,
-              peak_weekly_km: null,
-              start_date: "",
-              first_workout: null,
+              plan_name: json.plan_name ?? prev.selectedPhilosophy ?? "Training Plan",
+              philosophy: json.philosophy ?? prev.selectedPhilosophy ?? "unknown",
+              total_weeks: json.total_weeks ?? 0,
+              peak_weekly_km: json.peak_weekly_km ?? null,
+              start_date: json.start_date ?? "",
+              first_workout: json.first_workout ?? null,
             },
           }));
           return;
@@ -2410,6 +2393,59 @@ export const PlanOnboardingScreen: FC = () => {
                 </View>
               </View>
 
+              {/* Plan start date */}
+              <View
+                style={{
+                  borderRadius: 18,
+                  backgroundColor: colors.card,
+                  paddingHorizontal: 16,
+                  paddingVertical: 14,
+                  shadowColor: "#000",
+                  shadowOpacity: 0.04,
+                  shadowRadius: 8,
+                  shadowOffset: { width: 0, height: 3 },
+                }}
+              >
+                <Text
+                  style={{
+                    fontSize: 11,
+                    letterSpacing: 1,
+                    textTransform: "uppercase",
+                    color: colors.mutedForeground,
+                    fontWeight: "600",
+                    marginBottom: 8,
+                  }}
+                >
+                  Plan start
+                </Text>
+                <TouchableOpacity
+                  activeOpacity={0.85}
+                  onPress={() => setShowPlanStartDatePicker(true)}
+                >
+                  <View
+                    style={[
+                      styles.input,
+                      {
+                        height: 48,
+                        justifyContent: "center",
+                      },
+                    ]}
+                  >
+                    <Text
+                      style={{
+                        fontSize: 15,
+                        color: answers.planStartDate ? colors.foreground : colors.mutedForeground,
+                      }}
+                    >
+                      {answers.planStartDate || format(new Date(), "yyyy-MM-dd")}
+                    </Text>
+                    <Text style={{ fontSize: 11, color: colors.mutedForeground, marginTop: 4 }}>
+                      Week 1 starts on this day.
+                    </Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
+
               {/* Longest session */}
               <View
                 style={{
@@ -2702,6 +2738,68 @@ export const PlanOnboardingScreen: FC = () => {
                 </Text>
               </View>
             </View>
+
+            {showPlanStartDatePicker &&
+              (Platform.OS === "ios" ? (
+                <Modal transparent animationType="fade" visible>
+                  <TouchableWithoutFeedback onPress={() => setShowPlanStartDatePicker(false)}>
+                    <View
+                      style={{
+                        flex: 1,
+                        justifyContent: "flex-end",
+                        backgroundColor: "rgba(0,0,0,0.15)",
+                      }}
+                    >
+                      <TouchableWithoutFeedback onPress={() => {}}>
+                        <View
+                          style={{
+                            backgroundColor: colors.background,
+                            paddingBottom: 24,
+                            paddingTop: 8,
+                          }}
+                        >
+                          <DateTimePicker
+                            mode="date"
+                            display="spinner"
+                            value={
+                              answers.planStartDate &&
+                              !Number.isNaN(new Date(answers.planStartDate).getTime())
+                                ? new Date(answers.planStartDate)
+                                : new Date()
+                            }
+                            onChange={(event, date) => {
+                              if (date) {
+                                updateAnswers({ planStartDate: format(date, "yyyy-MM-dd") });
+                              }
+                            }}
+                          />
+                        </View>
+                      </TouchableWithoutFeedback>
+                    </View>
+                  </TouchableWithoutFeedback>
+                </Modal>
+              ) : (
+                <DateTimePicker
+                  mode="date"
+                  display="default"
+                  value={
+                    answers.planStartDate && !Number.isNaN(new Date(answers.planStartDate).getTime())
+                      ? new Date(answers.planStartDate)
+                      : new Date()
+                  }
+                  onChange={(event, date) => {
+                    const e = event as DateTimePickerAndroidEvent;
+                    if (e.type === "dismissed") {
+                      setShowPlanStartDatePicker(false);
+                      return;
+                    }
+                    setShowPlanStartDatePicker(false);
+                    if (date) {
+                      updateAnswers({ planStartDate: format(date, "yyyy-MM-dd") });
+                    }
+                  }}
+                />
+              ))}
           </>
         );
       case 6: {

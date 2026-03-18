@@ -7,6 +7,7 @@ import Animated, { useAnimatedStyle, withSpring, withTiming } from "react-native
 import { BlurView } from "expo-blur";
 import * as Haptics from "expo-haptics";
 import { useTheme } from "../context/ThemeContext";
+import { usePendingInvitesCount } from "../hooks/useCommunity";
 
 const MAIN_ROUTES = ["Dashboard", "Plan", "Coach", "Community", "ActivitiesStack"] as const;
 const SECONDARY_ROUTES = ["Stats", "Settings", "Philosophy", "Season"] as const;
@@ -32,6 +33,8 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
   const isDark = resolved === "dark";
   const ACTIVE_COLOR = theme.textPrimary;
   const INACTIVE_COLOR = theme.textMuted;
+  const { data: pendingInvitesCount = 0 } = usePendingInvitesCount();
+  const communityBadgeLabel = pendingInvitesCount > 99 ? "99+" : String(pendingInvitesCount);
   const [isExpanded, setIsExpanded] = useState(false);
 
   const primaryRoutes = useMemo(
@@ -159,13 +162,21 @@ export function FloatingTabBar({ state, descriptors, navigation }: BottomTabBarP
         <View style={styles.barInner}>
           {primaryRoutes.map(({ key, index }) => {
             const isFocused = state.index === index;
+            const showCommunityBadge = key === "Community" && pendingInvitesCount > 0;
             const content = (
               <>
-                <Ionicons
-                  name={ICONS[key]}
-                  size={isFocused ? 24 : 22}
-                  color={isFocused ? ACTIVE_COLOR : INACTIVE_COLOR}
-                />
+                <View style={{ position: "relative" }}>
+                  <Ionicons
+                    name={ICONS[key]}
+                    size={isFocused ? 24 : 22}
+                    color={isFocused ? ACTIVE_COLOR : INACTIVE_COLOR}
+                  />
+                  {showCommunityBadge && (
+                    <View style={[styles.iconBadge, { backgroundColor: theme.accentRed }]}>
+                      <Text style={styles.iconBadgeText}>{communityBadgeLabel}</Text>
+                    </View>
+                  )}
+                </View>
                 <Text
                   style={[
                     styles.label,
@@ -243,6 +254,22 @@ const styles = StyleSheet.create({
   },
   label: {
     fontSize: 8.5,
+  },
+  iconBadge: {
+    position: "absolute",
+    top: -6,
+    right: -10,
+    minWidth: 14,
+    height: 14,
+    borderRadius: 999,
+    alignItems: "center",
+    justifyContent: "center",
+    paddingHorizontal: 3,
+  },
+  iconBadgeText: {
+    fontSize: 9,
+    fontWeight: "800",
+    color: "#fff",
   },
   moreBtn: {
     alignItems: "center",

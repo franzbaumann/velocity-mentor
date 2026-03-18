@@ -208,7 +208,7 @@ export const AuthScreen: FC = () => {
     >
       <View style={styles.inner}>
         <View style={styles.logoRow}>
-          <Image source={require("../assets/cade-logo.png")} style={styles.logoImage} />
+          <Image source={require("../assets/cade-logo-transparent.png")} style={styles.logoImage} />
         </View>
 
         <GlassCard padding={28}>

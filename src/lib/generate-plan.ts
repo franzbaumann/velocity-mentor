@@ -1,4 +1,4 @@
-import { addDays, addWeeks, format, nextMonday } from "date-fns";
+import { addDays, addWeeks, format } from "date-fns";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 function parseRaceDate(val: string | string[] | undefined): Date | null {
@@ -25,6 +25,13 @@ function getLongRunDay(val: string | string[] | undefined): number {
   return 6; // Saturday default
 }
 
+function parsePlanStartDate(val: unknown): Date | null {
+  const s = typeof val === "string" ? val : Array.isArray(val) ? val[0] : "";
+  if (!s) return null;
+  const d = new Date(s);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 export function buildPlanFromIntake(intake: Record<string, string | string[]>) {
   const raceDate = parseRaceDate(intake.race_date);
   const raceType = (typeof intake.race_goal === "string" ? intake.race_goal : intake.race_goal?.[0]) || "General";
@@ -39,7 +46,11 @@ export function buildPlanFromIntake(intake: Record<string, string | string[]>) {
     ? Math.max(8, Math.min(16, Math.ceil((raceDate.getTime() - Date.now()) / (7 * 24 * 60 * 60 * 1000))))
     : 8;
 
-  const planStart = nextMonday(new Date());
+  const requestedStart = parsePlanStartDate(
+    (intake as Record<string, unknown>).plan_start_date ??
+      (intake as Record<string, unknown>).start_date,
+  );
+  const planStart = requestedStart ?? new Date();
   const weeks: { week_number: number; start_date: string; sessions: { day_of_week: number; session_type: string; description: string; duration_min?: number; distance_km?: number; pace_target?: string }[] }[] = [];
 
   for (let w = 0; w < weeksTotal; w++) {
@@ -109,7 +120,8 @@ export async function savePlanToSupabase(
 
     for (let i = 0; i < week.sessions.length; i++) {
       const s = week.sessions[i];
-      const offset = s.day_of_week === 0 ? 6 : s.day_of_week - 1;
+      const weekStartDow = weekStart.getDay();
+      const offset = (s.day_of_week - weekStartDow + 7) % 7;
       const scheduledDate = format(addDays(weekStart, offset), "yyyy-MM-dd");
       const { error: sessErr } = await supabase.from("training_session").insert({
         week_id: weekId,

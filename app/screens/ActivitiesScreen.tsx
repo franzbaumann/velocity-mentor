@@ -5,6 +5,7 @@ import type { NativeStackNavigationProp } from "@react-navigation/native-stack";
 import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
 import { useTheme } from "../context/ThemeContext";
+import { getWorkoutTypeTintGradientColors } from "../lib/workoutTypeTint";
 import { useActivitiesList, type ActivityListItem } from "../hooks/useActivities";
 import { useMergedActivities } from "../hooks/useMergedActivities";
 import { useActivityStreamsSync } from "../hooks/useActivityStreamsSync";
@@ -13,6 +14,7 @@ import { dailyTSSFromActivities, getRunTypeLabelForDisplay, isRunningActivity } 
 import type { ActivitiesStackParamList } from "../navigation/RootNavigator";
 import { useTrainingPlan, type TrainingPlanSession } from "../hooks/useTrainingPlan";
 import { SkeletonCard, SkeletonLine } from "../components/Skeleton";
+import { LinearGradient } from "expo-linear-gradient";
 import {
   addDays,
   addMonths,
@@ -47,8 +49,18 @@ function activityTypeToColor(
   return theme.accentBlue;
 }
 
+function activityLoadProxy(a: ActivityListItem): number {
+  // Use a stable proxy that roughly matches what drives daily TSS in analytics.ts,
+  // but prioritize "icuTrainingLoad" then "trimp", then duration and finally km.
+  if (typeof a.icuTrainingLoad === "number" && a.icuTrainingLoad > 0) return a.icuTrainingLoad;
+  if (typeof a.trimp === "number" && a.trimp > 0) return a.trimp;
+  if (typeof a.durationSeconds === "number" && a.durationSeconds > 0) return a.durationSeconds / 36;
+  if (typeof a.km === "number" && a.km > 0) return a.km * 10;
+  return 0;
+}
+
 export const ActivitiesScreen: FC = () => {
-  const { theme } = useTheme();
+  const { theme, colors } = useTheme();
   const { isConnected } = useIntervalsIntegration();
   const { data: items = [], isLoading, isEmpty, isRefetching, refetch } = useMergedActivities(730);
   const { plan } = useTrainingPlan();
@@ -58,6 +70,7 @@ export const ActivitiesScreen: FC = () => {
   const navigation = useNavigation<ActivitiesNav>();
   const [viewMonth, setViewMonth] = useState(() => new Date());
   const [selectedDayKey, setSelectedDayKey] = useState<string | null>(null);
+  const todayKey = format(new Date(), "yyyy-MM-dd");
 
   const activitiesByDate = useMemo(() => {
     const map = new Map<string, ActivityListItem[]>();
@@ -189,6 +202,7 @@ export const ActivitiesScreen: FC = () => {
           minHeight: 72,
           marginHorizontal: 2,
           borderRadius: 10,
+          overflow: "hidden",
           paddingVertical: 6,
           paddingHorizontal: 4,
           alignItems: "center",
@@ -378,7 +392,50 @@ export const ActivitiesScreen: FC = () => {
                   const planSessions = planSessionsByDate.get(key) ?? [];
                   const hasActivities = dayActivities.length > 0;
                   const hasPlan = planSessions.length > 0;
-                  const hasAny = hasActivities || hasPlan;
+                  const showCompletedFade = hasActivities && inMonth;
+                  const showUpcomingFade = !hasActivities && hasPlan && inMonth && key >= todayKey;
+                  const showFade = showCompletedFade || showUpcomingFade;
+
+                  // Derive type string for getWorkoutTypeTintGradientColors (matches Plan SessionCard)
+                  let typeForGradient: string | null = null;
+                  if (showCompletedFade) {
+                    const best = dayActivities.reduce(
+                      (acc, a) => {
+                        const load = activityLoadProxy(a);
+                        return load > acc.load ? { activity: a, load } : acc;
+                      },
+                      { activity: dayActivities[0], load: -1 },
+                    );
+                    const bestActivity = best.activity;
+                    typeForGradient = isRunningActivity(bestActivity.type)
+                      ? getRunTypeLabelForDisplay({
+                          type: bestActivity.type,
+                          avg_hr: bestActivity.hr,
+                          max_hr: bestActivity.maxHr,
+                        })
+                      : bestActivity.type;
+                  } else if (showUpcomingFade) {
+                    // Same priority as plan pill: interval > tempo/long > easy
+                    let bestPriority = -1;
+                    let bestType = planSessions[0]?.session_type ?? null;
+                    for (const s of planSessions) {
+                      const st = s.session_type?.toLowerCase() ?? "";
+                      let p = -1;
+                      if (st.includes("interval") || st.includes("vo2")) p = 2;
+                      else if (st.includes("tempo") || st.includes("threshold") || st.includes("long")) p = 1;
+                      else if (st.includes("easy") || st.includes("recovery")) p = 0;
+                      if (p > bestPriority) {
+                        bestPriority = p;
+                        bestType = s.session_type;
+                      }
+                    }
+                    typeForGradient = bestType;
+                  }
+
+                  const tintGradientColors =
+                    typeForGradient != null
+                      ? getWorkoutTypeTintGradientColors(typeForGradient, colors)
+                      : null;
 
                   return (
                     <TouchableOpacity
@@ -386,13 +443,6 @@ export const ActivitiesScreen: FC = () => {
                       style={[
                         styles.dayCell,
                         {
-                          backgroundColor:
-                            hasActivities && inMonth
-                              ? theme.accentBlue +
-                                Math.round(0x12 * (0.4 + 0.6 * intensity))
-                                  .toString(16)
-                                  .padStart(2, "0")
-                              : "transparent",
                           borderColor: today ? theme.accentBlue : "transparent",
                           opacity: inMonth ? 1 : 0.4,
                         },
@@ -400,6 +450,16 @@ export const ActivitiesScreen: FC = () => {
                       activeOpacity={hasActivities ? 0.8 : 1}
                       onPress={hasActivities ? () => setSelectedDayKey(key) : undefined}
                     >
+                      {showFade && tintGradientColors && (
+                        <LinearGradient
+                          colors={tintGradientColors}
+                          locations={[0, 0.35, 0.7]}
+                          start={{ x: 0, y: 0 }}
+                          end={{ x: 1, y: 0 }}
+                          pointerEvents="none"
+                          style={StyleSheet.absoluteFillObject}
+                        />
+                      )}
                       <Text
                         style={[
                           styles.dayLabel,

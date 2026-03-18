@@ -20,7 +20,7 @@ export type ColorPalette = {
 
 export const lightColors: ColorPalette = {
   // Darker cool blue‑grey so glossy white cards pop harder
-  background: "hsl(215, 25%, 92%)",
+  background: "hsl(210, 40%, 98%)",
   foreground: "hsl(0, 0%, 11.4%)",
   // very bright, slightly cool card to emphasize gloss
   card: "#FFFFFF",

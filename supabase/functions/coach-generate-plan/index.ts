@@ -29,13 +29,25 @@ interface PlanOutput {
   weeks: PlanWeek[];
 }
 
+type PlanResult = {
+  plan_id: string;
+  plan_name: string;
+  philosophy: string;
+  total_weeks: number;
+  peak_weekly_km: number | null;
+  start_date: string;
+  first_workout: { name: string; date: string } | null;
+};
+
 function createFallbackPlan(intake: Record<string, unknown>): PlanOutput {
   const freq = Array.isArray(intake.weekly_frequency) ? 4 : 3;
-  const nextMon = new Date();
-  nextMon.setDate(nextMon.getDate() + ((8 - nextMon.getDay()) % 7) || 7);
+  const requestedStart =
+    typeof intake.plan_start_date === "string" ? new Date(intake.plan_start_date) : null;
+  const startDate =
+    requestedStart && !isNaN(requestedStart.getTime()) ? requestedStart : new Date();
   const weeks: PlanWeek[] = [];
   for (let w = 0; w < 8; w++) {
-    const start = new Date(nextMon);
+    const start = new Date(startDate);
     start.setDate(start.getDate() + w * 7);
     const sessions: PlanSession[] = [
       { day_of_week: 1, session_type: "easy", description: "Easy 30-40 min", duration_min: 35, pace_target: "comfortable" },
@@ -77,7 +89,10 @@ Output JSON format:
 
 Rules:
 - day_of_week: 0=Sun, 1=Mon, ..., 6=Sat. Use athlete's available_days and long_run_day.
-- start_date: MUST be the Monday (YYYY-MM-DD) of each week. If race_date exists, work backward: race week = taper, then count back. If no race, start from next Monday from today.
+- start_date: MUST be the Monday (YYYY-MM-DD) of each week.
+  If intake includes plan_start_date, Week 1 start_date MUST equal that date.
+  Else if race_date exists, work backward: race week = taper, then count back.
+  Else start from today (or next day) — but keep start_date consistent week to week (start_date + 7d).
 - Plan length: weeks until race (if known), else 8 weeks. If no race, 8 weeks.
 - Sessions per week: match weekly_frequency from intake. Include rest days.
 - Progress: base → intensity → taper. Recovery weeks every 3-4 weeks.
@@ -284,7 +299,9 @@ serve(async (req) => {
         const startDate = new Date(wk.start_date);
         const sessionDate = new Date(startDate);
         const dow = s.day_of_week ?? 1;
-        const offset = dow === 0 ? -1 : dow - 1;
+        // Week start can be any day; schedule on next occurrence of requested weekday.
+        const weekStartDow = startDate.getDay(); // 0=Sun..6=Sat
+        const offset = (dow - weekStartDow + 7) % 7;
         sessionDate.setDate(sessionDate.getDate() + offset);
         const scheduledDate = sessionDate.toISOString().slice(0, 10);
 
@@ -302,7 +319,47 @@ serve(async (req) => {
       }
     }
 
-    return new Response(JSON.stringify({ plan_id: planRow.id }), {
+    // Return a richer payload so web + app can render immediately.
+    const philosophy =
+      (typeof (intakeAnswers as Record<string, unknown>)?.philosophy === "string"
+        ? String((intakeAnswers as Record<string, unknown>).philosophy)
+        : "") || "unknown";
+
+    const { data: firstSession } = await supabase
+      .from("training_session")
+      .select("description, scheduled_date")
+      .in(
+        "week_id",
+        (
+          await supabase
+            .from("training_week")
+            .select("id")
+            .eq("plan_id", planRow.id)
+        ).data?.map((w: { id: string }) => w.id) ?? [],
+      )
+      .order("scheduled_date", { ascending: true })
+      .limit(1)
+      .maybeSingle();
+
+    const result: PlanResult = {
+      plan_id: planRow.id,
+      plan_name:
+        (typeof (intakeAnswers as Record<string, unknown>)?.plan_name === "string"
+          ? String((intakeAnswers as Record<string, unknown>).plan_name)
+          : null) ??
+        (typeof (intakeAnswers as Record<string, unknown>)?.race_goal === "string"
+          ? `Plan for ${String((intakeAnswers as Record<string, unknown>).race_goal)}`
+          : "Training Plan"),
+      philosophy,
+      total_weeks: plan.weeks.length,
+      peak_weekly_km: null,
+      start_date: plan.weeks[0]?.start_date ?? new Date().toISOString().slice(0, 10),
+      first_workout: firstSession?.scheduled_date
+        ? { name: firstSession.description ?? "Workout", date: String(firstSession.scheduled_date).slice(0, 10) }
+        : null,
+    };
+
+    return new Response(JSON.stringify(result), {
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (e) {

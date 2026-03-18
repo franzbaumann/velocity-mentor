@@ -4,6 +4,7 @@ import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useTheme } from "../../context/ThemeContext";
 import { TrainingPlanSession } from "../../hooks/useTrainingPlan";
+import { getWorkoutTypeBaseColor, getWorkoutTypeTintGradientColors } from "../../lib/workoutTypeTint";
 
 type Props = {
   session: TrainingPlanSession;
@@ -23,15 +24,8 @@ export const SessionCard: FC<Props> = ({
   const { colors } = useTheme();
   const completed = !!session.completed_at;
   const sessionType = String(session.session_type ?? "").toLowerCase();
-  const borderColor = sessionType.includes("interval")
-    ? "#ef4444"
-    : sessionType.includes("tempo") || sessionType.includes("threshold")
-    ? "#3b82f6"
-    : sessionType.includes("easy") || sessionType.includes("recovery")
-    ? "#22c55e"
-    : sessionType.includes("long")
-    ? "#f97316"
-    : colors.primary;
+  const borderColor = getWorkoutTypeBaseColor(session.session_type, colors);
+  const tintGradientColors = getWorkoutTypeTintGradientColors(session.session_type, colors);
 
   const styles = useMemo(
     () =>
@@ -165,7 +159,7 @@ export const SessionCard: FC<Props> = ({
       onPress={handlePress}
     >
       <LinearGradient
-        colors={[`${borderColor}2e`, `${borderColor}10`, `${borderColor}00`]}
+        colors={tintGradientColors}
         locations={[0, 0.35, 0.7]}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 0 }}

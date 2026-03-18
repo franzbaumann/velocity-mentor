@@ -2,8 +2,9 @@ import React, { memo, useEffect, useMemo } from "react";
 import { View } from "react-native";
 import Svg, { Circle, Defs, LinearGradient, Stop } from "react-native-svg";
 import { StyleSheet, Text } from "react-native";
+import type { TextStyle } from "react-native";
 import { useTheme } from "../context/ThemeContext";
-import type { AppTheme } from "../theme/themes";
+import { readinessColorForScore, readinessStatusForScore } from "../lib/readinessColors";
 import Animated, {
   Easing as ReEasing,
   useAnimatedProps,
@@ -21,19 +22,12 @@ type ReadinessRingProps = {
   centerText?: string;
   /** Optional scale factor for center text size (default 0.24 * size) */
   centerScale?: number;
+  strokeWidth?: number;
+  trackColor?: string;
+  innerTrackColor?: string;
+  centerTextStyle?: TextStyle;
+  labelTextStyle?: TextStyle;
 };
-
-function getColor(score: number, t: AppTheme) {
-  if (score >= 75) return t.positive;
-  if (score >= 50) return t.warning;
-  return t.negative;
-}
-
-function getStatusLabel(score: number) {
-  if (score >= 75) return "Ready";
-  if (score >= 50) return "Neutral";
-  return "Fatigued";
-}
 
 const AnimatedCircle = Animated.createAnimatedComponent(Circle);
 
@@ -49,14 +43,26 @@ const styles = StyleSheet.create({
   label: { fontSize: 10, textTransform: "uppercase", letterSpacing: 0.5, marginTop: 2 },
 });
 
-export const ReadinessRing = memo(function ReadinessRing({ score, size = 100, statusLabel, statusColor, centerText, centerScale }: ReadinessRingProps) {
+export const ReadinessRing = memo(function ReadinessRing({
+  score,
+  size = 100,
+  statusLabel,
+  statusColor,
+  centerText,
+  centerScale,
+  strokeWidth = 4,
+  trackColor,
+  innerTrackColor,
+  centerTextStyle,
+  labelTextStyle,
+}: ReadinessRingProps) {
   const { theme } = useTheme();
-  const strokeWidth = 4;
   const radius = (size - strokeWidth) / 2;
+  const innerTrackRadius = Math.max(1, radius - Math.max(1, strokeWidth * 0.8));
   const circumference = 2 * Math.PI * radius;
   const clampedScore = Math.max(0, Math.min(100, score));
-  const ringColor = statusColor ?? getColor(clampedScore, theme);
-  const labelText = statusLabel ?? getStatusLabel(clampedScore);
+  const ringColor = statusColor ?? readinessColorForScore(clampedScore);
+  const labelText = statusLabel ?? readinessStatusForScore(clampedScore);
   const gradientId = useMemo(
     () => `readiness-ring-${ringColor.replace(/[^a-zA-Z0-9]/g, "")}-${size}`,
     [ringColor, size],
@@ -91,10 +97,22 @@ export const ReadinessRing = memo(function ReadinessRing({ score, size = 100, st
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke={theme.surfaceOverlay ?? theme.cardBorder}
+          stroke={trackColor ?? (theme as any).surfaceOverlay ?? theme.cardBorder}
           strokeWidth={strokeWidth}
+          strokeLinecap="butt"
         />
-        {/* Animated progress arc with subtle shade */}
+        {innerTrackColor ? (
+          <Circle
+            cx={size / 2}
+            cy={size / 2}
+            r={innerTrackRadius}
+            fill="none"
+            stroke={innerTrackColor}
+            strokeWidth={Math.max(1, strokeWidth * 0.6)}
+            strokeLinecap="butt"
+          />
+        ) : null}
+        {/* Animated progress arc with rounded caps */}
         <AnimatedCircle
           cx={size / 2}
           cy={size / 2}
@@ -109,13 +127,25 @@ export const ReadinessRing = memo(function ReadinessRing({ score, size = 100, st
       </Svg>
       <View style={styles.center} pointerEvents="none">
         <Text
-          style={[styles.score, { fontSize: size * (centerScale ?? 0.24), color: theme.textPrimary }]}
+          style={[
+            styles.score,
+            { fontSize: size * (centerScale ?? 0.24), color: theme.textPrimary },
+            centerTextStyle,
+          ]}
           numberOfLines={1}
           adjustsFontSizeToFit
         >
           {centerText ?? Math.round(clampedScore)}
         </Text>
-        <Text style={[styles.label, { color: statusColor ?? ringColor ?? theme.textMuted, fontSize: Math.max(7, size * 0.1) }]}>{labelText}</Text>
+        <Text
+          style={[
+            styles.label,
+            { color: statusColor ?? ringColor ?? theme.textMuted, fontSize: Math.max(7, size * 0.1) },
+            labelTextStyle,
+          ]}
+        >
+          {labelText}
+        </Text>
       </View>
     </View>
   );

@@ -94,10 +94,46 @@ export function useIntervalsSync() {
           functionName: "intervals-proxy",
           headers: { Authorization: `Bearer ${token}` },
           body,
-          timeoutMs: 20000,
+          // Edge Functions can cold-start or briefly stall under load; give it room.
+          timeoutMs: 60000,
           maxRetries: 3,
           logContext: "useIntervalsSync:start_sync",
         });
+
+      const startPolling = () => {
+        const poll = async () => {
+          const { data, error } = await invoke({ action: "get_sync_progress" });
+          if (error) return;
+          const row = data as SyncProgressRow | null;
+          const mapped = mapProgressRow(row);
+          setProgress(mapped);
+
+          if (mapped.done || mapped.stage === "error") {
+            if (pollRef.current) {
+              clearInterval(pollRef.current);
+              pollRef.current = null;
+            }
+            setSyncing(false);
+            const refetchOpts = { refetchType: "all" as const };
+            await Promise.all([
+              queryClient.invalidateQueries({ queryKey: ["activities"], ...refetchOpts }),
+              queryClient.invalidateQueries({ queryKey: ["daily_readiness"], ...refetchOpts }),
+              queryClient.invalidateQueries({ queryKey: ["activities-dashboard"], ...refetchOpts }),
+              queryClient.invalidateQueries({ queryKey: ["daily_readiness-dashboard"], ...refetchOpts }),
+              queryClient.invalidateQueries({ queryKey: ["intervals-activities-chunked"], ...refetchOpts }),
+              queryClient.invalidateQueries({ queryKey: ["intervals-data"], ...refetchOpts }),
+              queryClient.invalidateQueries({ queryKey: ["weekStats"], ...refetchOpts }),
+              queryClient.invalidateQueries({ queryKey: ["athlete_profile"], ...refetchOpts }),
+              queryClient.invalidateQueries({ queryKey: ["activityCount"], ...refetchOpts }),
+              queryClient.invalidateQueries({ queryKey: ["personal_records"], ...refetchOpts }),
+              queryClient.invalidateQueries({ queryKey: ["sync_progress"], ...refetchOpts }),
+            ]);
+          }
+        };
+
+        pollRef.current = setInterval(poll, POLL_INTERVAL_MS);
+        poll();
+      };
 
       const { data: startData, error: startError } = await invoke({ action: "start_sync" });
 
@@ -111,6 +147,22 @@ export function useIntervalsSync() {
             // keep default msg
           }
         }
+        const isLikelyTransient =
+          /timed out/i.test(msg) ||
+          /Failed to send a request/i.test(msg);
+        if (isLikelyTransient) {
+          // start_sync is fire-and-forget; even if the response times out, the sync may still be running.
+          setProgress({
+            stage: "starting",
+            detail: "Sync started (waiting for progress…) — connection is slow, polling status.",
+            done: false,
+            runsCount: 0,
+            wellnessDays: 0,
+          });
+          startPolling();
+          return;
+        }
+
         const hint =
           msg.includes("Refresh Token") || msg.includes("401") || msg.includes("403")
             ? " Sign out and sign back in, then try again."
@@ -135,38 +187,7 @@ export function useIntervalsSync() {
         return;
       }
 
-      const poll = async () => {
-        const { data, error } = await invoke({ action: "get_sync_progress" });
-        if (error) return;
-        const row = data as SyncProgressRow | null;
-        const mapped = mapProgressRow(row);
-        setProgress(mapped);
-
-        if (mapped.done || mapped.stage === "error") {
-          if (pollRef.current) {
-            clearInterval(pollRef.current);
-            pollRef.current = null;
-          }
-          setSyncing(false);
-          const refetchOpts = { refetchType: "all" as const };
-          await Promise.all([
-            queryClient.invalidateQueries({ queryKey: ["activities"], ...refetchOpts }),
-            queryClient.invalidateQueries({ queryKey: ["daily_readiness"], ...refetchOpts }),
-            queryClient.invalidateQueries({ queryKey: ["activities-dashboard"], ...refetchOpts }),
-            queryClient.invalidateQueries({ queryKey: ["daily_readiness-dashboard"], ...refetchOpts }),
-            queryClient.invalidateQueries({ queryKey: ["intervals-activities-chunked"], ...refetchOpts }),
-            queryClient.invalidateQueries({ queryKey: ["intervals-data"], ...refetchOpts }),
-            queryClient.invalidateQueries({ queryKey: ["weekStats"], ...refetchOpts }),
-            queryClient.invalidateQueries({ queryKey: ["athlete_profile"], ...refetchOpts }),
-            queryClient.invalidateQueries({ queryKey: ["activityCount"], ...refetchOpts }),
-            queryClient.invalidateQueries({ queryKey: ["personal_records"], ...refetchOpts }),
-            queryClient.invalidateQueries({ queryKey: ["sync_progress"], ...refetchOpts }),
-          ]);
-        }
-      };
-
-      pollRef.current = setInterval(poll, POLL_INTERVAL_MS);
-      poll();
+      startPolling();
     } catch (e) {
       setProgress({
         stage: "error",
@@ -212,7 +233,7 @@ export function useIntervalsSync() {
         functionName: "intervals-proxy",
         headers: { Authorization: `Bearer ${session.access_token}` },
         body: { action: "quick_sync" },
-        timeoutMs: 20000,
+        timeoutMs: 60000,
         maxRetries: 3,
         logContext: "useIntervalsSync:quick_sync",
       });

@@ -342,7 +342,7 @@ export const SettingsScreen: FC = () => {
         functionName: "intervals-proxy",
         headers: { Authorization: `Bearer ${session.access_token}` },
         body: { action: "test_connection" },
-        timeoutMs: 15000,
+        timeoutMs: 30000,
         maxRetries: 3,
         logContext: "SettingsScreen:test_connection",
       });
@@ -391,7 +391,7 @@ export const SettingsScreen: FC = () => {
         functionName: "intervals-proxy",
         headers: { Authorization: `Bearer ${session.access_token}` },
         body: { action: "sync_streams" },
-        timeoutMs: 30000,
+        timeoutMs: 60000,
         maxRetries: 3,
         logContext: "SettingsScreen:sync_streams",
       });
@@ -425,7 +425,7 @@ export const SettingsScreen: FC = () => {
         functionName: "intervals-proxy",
         headers: { Authorization: `Bearer ${session.access_token}` },
         body: { action: "sync_pbs" },
-        timeoutMs: 30000,
+        timeoutMs: 60000,
         maxRetries: 3,
         logContext: "SettingsScreen:sync_pbs",
       });
@@ -1076,6 +1076,11 @@ export const SettingsScreen: FC = () => {
             placeholderTextColor={colors.mutedForeground}
             value={athleteId}
             onChangeText={setAthleteId}
+            onBlur={() => {
+              // Normalize common "i123456" → "123456" so what you see matches what we save.
+              const digits = athleteId.replace(/\D/g, "");
+              if (digits !== athleteId) setAthleteId(digits);
+            }}
             editable={!isSaving}
           />
           <TextInput
