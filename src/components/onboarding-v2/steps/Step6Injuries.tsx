@@ -29,13 +29,13 @@ export function Step6Injuries({ answers, onUpdate, onNext, onBack }: StepProps) 
 
   const selectedNames = answers.injuries
     .filter((id) => id !== "none")
-    .map((id) => INJURIES.find((i) => i.id === id)?.label?.toLowerCase())
-    .filter(Boolean);
+    .map((id) => INJURIES.find((i) => i.id === id)?.label)
+    .filter(Boolean) as string[];
 
   const injuryPrompt =
     selectedNames.length === 1
-      ? `Tell me the full story about your ${selectedNames[0]}:`
-      : "Tell me the full story — when each started, severity, what you've tried:";
+      ? `Tell me more about your ${selectedNames[0]}`
+      : "Tell me more about your injuries";
 
   return (
     <TwoColumnLayout
@@ -80,7 +80,7 @@ export function Step6Injuries({ answers, onUpdate, onNext, onBack }: StepProps) 
             <textarea
               value={answers.injuryDetail}
               onChange={(e) => onUpdate({ injuryDetail: e.target.value })}
-              placeholder="E.g. Left achilles since October 2024, worse in the morning, tried physio for 6 weeks, can run but flares up after intervals..."
+              placeholder="How long has it been bothering you? Does it affect your running?"
               rows={5}
               className="w-full rounded-xl border border-border bg-background px-4 py-3.5 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:border-primary/60 transition-colors resize-none leading-relaxed"
             />

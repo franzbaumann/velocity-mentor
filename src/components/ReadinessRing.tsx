@@ -40,7 +40,7 @@ export function ReadinessRing({ score, size = 100 }: ReadinessRingProps) {
         />
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="mono-text text-2xl font-bold text-foreground">{score}</span>
+        <span className="mono-text text-2xl font-semibold text-foreground tabular-nums">{Math.round(score)}</span>
         <span className="text-[10px] text-muted-foreground uppercase tracking-wider">Ready</span>
       </div>
     </div>

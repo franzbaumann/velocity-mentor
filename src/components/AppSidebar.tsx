@@ -86,11 +86,8 @@ export function AppSidebar() {
         expanded ? "w-60" : "w-16"
       } ${hoverExpanded ? "shadow-xl" : ""}`}
     >
-      <div className="flex items-center gap-2.5 px-4 h-16 border-b border-border flex-shrink-0">
-        <CadeLogo
-          variant={expanded ? "full" : "icon"}
-          size="md"
-        />
+      <div className={`flex items-center h-16 border-b border-border flex-shrink-0 ${expanded ? "gap-2.5 px-4" : "justify-center px-0"}`}>
+        <CadeLogo variant="icon" size="md" className={expanded ? "scale-110" : ""} />
       </div>
 
       <nav className="flex-1 py-4 px-2 space-y-1 overflow-y-auto overflow-x-hidden">
@@ -100,10 +97,18 @@ export function AppSidebar() {
             to={item.url}
             end={item.url === "/"}
             onClick={handleNavClick}
-            className="flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-muted-foreground hover:bg-secondary transition-colors relative"
-            activeClassName="bg-primary/10 text-primary font-medium"
+            className={
+              expanded
+                ? "flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm text-gray-600 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary transition-colors relative"
+                : "flex items-center justify-center px-0 py-2.5 rounded-xl text-gray-500 dark:text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary transition-colors relative"
+            }
+            activeClassName={
+              expanded
+                ? "bg-blue-50 text-blue-700 dark:bg-primary/10 dark:text-primary font-medium"
+                : "text-blue-600 dark:text-primary before:absolute before:left-0 before:top-1/2 before:-translate-y-1/2 before:w-0.5 before:h-5 before:rounded-full before:bg-blue-600 dark:before:bg-primary font-medium"
+            }
           >
-            <item.icon className="w-[18px] h-[18px] flex-shrink-0" />
+            <item.icon className={`${expanded ? "w-5 h-5" : "w-5 h-5"} flex-shrink-0`} />
             <span
               className={`transition-opacity duration-200 whitespace-nowrap ${
                 expanded ? "opacity-100" : "opacity-0 w-0 overflow-hidden"
@@ -150,25 +155,25 @@ export function AppSidebar() {
       {!expanded ? (
         <button
           onClick={cycleTheme}
-          className="flex items-center justify-center px-3 py-2.5 mx-2 mb-1 rounded-xl text-sm text-muted-foreground hover:bg-secondary hover:text-foreground transition-colors"
+          className="flex items-center justify-center px-3 py-2 mx-2 mb-1 rounded-lg text-xs text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
           title={`Theme: ${theme}`}
         >
           <ThemeIcon className="w-[18px] h-[18px]" />
         </button>
       ) : (
-        <div className="mx-2 mb-1 flex rounded-xl bg-secondary/60 p-1">
+        <div className="mx-2 mb-1 flex rounded-lg border border-border/60 bg-muted/30 p-0.5">
           {themeOptions.map((opt) => (
             <button
               key={opt.value}
               onClick={() => setTheme(opt.value)}
-              className={`flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+              className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-md text-xs text-muted-foreground transition-all ${
                 theme === opt.value
                   ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
+                  : "hover:text-foreground"
               }`}
             >
-              <opt.icon className="w-3.5 h-3.5" />
-              {opt.label}
+              <opt.icon className="w-3 h-3" />
+              <span className="truncate">{opt.label}</span>
             </button>
           ))}
         </div>

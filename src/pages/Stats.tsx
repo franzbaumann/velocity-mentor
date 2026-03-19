@@ -327,7 +327,10 @@ function FitnessChart({
     return (
       <div className="rounded-xl border border-border bg-card px-3 py-2 shadow-lg text-sm">
         <p className="font-medium text-foreground mb-1">{format(new Date(label), "MMM d, yyyy")}</p>
-        <p className="text-muted-foreground">CTL: {ctl?.toFixed(1)} · ATL: {atl?.toFixed(1)} · TSB: {tsb?.toFixed(1)}</p>
+        <p className="text-muted-foreground">
+          CTL: {ctl != null && typeof ctl === "number" ? ctl.toFixed(1) : "—"} · ATL: {atl != null && typeof atl === "number" ? atl.toFixed(1) : "—"} · TSB:{" "}
+          {tsb != null && typeof tsb === "number" ? tsb.toFixed(1) : "—"}
+        </p>
         <p className="text-xs mt-1 text-primary font-medium">{zone}</p>
       </div>
     );
@@ -359,6 +362,10 @@ function FitnessChart({
         </LineChart>
       </ResponsiveContainer>
       <div className="flex gap-4 mt-3 flex-wrap text-xs text-muted-foreground">
+        <span><span className="inline-block w-2 h-2 rounded-full bg-[hsl(211_100%_52%)] mr-1 align-middle" />CTL</span>
+        <span><span className="inline-block w-2 h-2 rounded-full bg-[hsl(36_100%_52%)] mr-1 align-middle" />ATL</span>
+        <span><span className="inline-block w-2 h-2 rounded-full bg-[hsl(141_72%_50%)] mr-1 align-middle" />TSB</span>
+        <span className="text-muted-foreground/80">·</span>
         <span><span className="inline-block w-2 h-2 rounded-full bg-[hsl(141_72%_50%)] mr-1" />Peak (TSB &gt; 5)</span>
         <span><span className="inline-block w-2 h-2 rounded-full bg-secondary mr-1" />Optimal (-10 to 5)</span>
         <span><span className="inline-block w-2 h-2 rounded-full bg-destructive/60 mr-1" />Fatigued (&lt; -10)</span>
@@ -1071,7 +1078,7 @@ function WellnessSection({ readiness }: { readiness: ReadinessRow[] }) {
   const hasScores = has.readinessScore || has.sleepScore;
   const hasRecovery = has.hrv || has.sleepResting;
   const hasFitness = has.vo2max || has.rampRate;
-  const hasBody = has.weight || has.steps;
+  const hasBody = has.weight;
   const hasWellnessCheck = has.stress || has.mood || has.energy || has.soreness;
   const hasAny = hasScores || hasRecovery || hasFitness || hasBody || hasWellnessCheck;
 
@@ -1088,7 +1095,7 @@ function WellnessSection({ readiness }: { readiness: ReadinessRow[] }) {
     <div className="flex flex-col gap-6">
       {hasScores && (
         <div className="flex flex-col gap-3">
-          <h2 className="section-header">Wellness scores</h2>
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest border-b border-gray-100 dark:border-border pb-2 mb-1">Wellness scores</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             {has.readinessScore && <ChartCard icon={Activity} title="Readiness Score" info="readiness"><ReadinessScoreChart readiness={readiness} /></ChartCard>}
             {has.sleepScore && <ChartCard icon={Moon} title="Sleep Score" info="sleep"><SleepScoreChart readiness={readiness} /></ChartCard>}
@@ -1097,7 +1104,7 @@ function WellnessSection({ readiness }: { readiness: ReadinessRow[] }) {
       )}
       {hasRecovery && (
         <div className="flex flex-col gap-3">
-          <h2 className="section-header">HR & recovery</h2>
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest border-b border-gray-100 dark:border-border pb-2 mb-1">HR & recovery</h2>
           <div className="grid gap-4 sm:grid-cols-2">
             {has.hrv && <ChartCard icon={Zap} title="HRV Trend" info="hrv"><HRVChart readiness={readiness} /></ChartCard>}
             {has.sleepResting && <ChartCard icon={Heart} title="Sleep & Resting HR" info="sleepResting"><SleepRestingChart readiness={readiness} /></ChartCard>}
@@ -1106,11 +1113,12 @@ function WellnessSection({ readiness }: { readiness: ReadinessRow[] }) {
       )}
       {(hasFitness || hasBody) && (
         <div className="flex flex-col gap-3">
-          <h2 className="section-header">{hasFitness && hasBody ? "Fitness & body" : hasFitness ? "Fitness metrics" : "Body & activity"}</h2>
+          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-widest border-b border-gray-100 dark:border-border pb-2 mb-1">
+            {hasFitness && hasBody ? "Fitness & body" : hasFitness ? "Fitness metrics" : "Body"}
+          </h2>
           <div className="grid gap-4 sm:grid-cols-2 sm:grid-flow-dense">
             {has.vo2max && <ChartCard icon={Wind} title="VO2max" info="vo2max"><VO2maxChart readiness={readiness} /></ChartCard>}
             {has.rampRate && <ChartCard icon={BarChart3} title="Ramp Rate" info="rampRate"><RampRateChart readiness={readiness} /></ChartCard>}
-            {has.steps && <ChartCard icon={Footprints} title="Steps" info="steps"><StepsChart readiness={readiness} /></ChartCard>}
             {has.weight && <ChartCard icon={Scale} title="Weight" info="weight"><WeightChart readiness={readiness} /></ChartCard>}
           </div>
         </div>

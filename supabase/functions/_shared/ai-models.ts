@@ -18,4 +18,7 @@ export const AI_LIMITS = {
   postWorkoutAnalysis: { model: AI_MODELS.SONNET, max_tokens: 250 },
   planGeneration: { model: AI_MODELS.SONNET, max_tokens: 8000 },
   philosophyMatch: { model: AI_MODELS.SONNET, max_tokens: 500 },
+  sessionSelector: { model: AI_MODELS.SONNET, max_tokens: 2000 },
+  sessionSelectorHaiku: { model: AI_MODELS.HAIKU, max_tokens: 2000 },
+  weekProposalMessage: { model: AI_MODELS.HAIKU, max_tokens: 150 },
 } as const;

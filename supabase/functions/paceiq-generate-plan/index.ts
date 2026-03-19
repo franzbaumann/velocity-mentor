@@ -17,6 +17,61 @@ function parsePaceToMinPerKm(pace: string | null | undefined): number | null {
   return min;
 }
 
+/** Civil date helpers (YYYY-MM-DD) — avoids server TZ shifting week boundaries. */
+function utcNoonMs(ymd: string): number {
+  const [y, m, d] = ymd.split("-").map((x) => parseInt(x, 10));
+  if (!y || !m || !d) return NaN;
+  return Date.UTC(y, m - 1, d, 12, 0, 0);
+}
+
+function utcYmdFromMs(ms: number): string {
+  const dt = new Date(ms);
+  return `${dt.getUTCFullYear()}-${String(dt.getUTCMonth() + 1).padStart(2, "0")}-${String(dt.getUTCDate()).padStart(2, "0")}`;
+}
+
+function addDaysYmd(ymd: string, days: number): string {
+  return utcYmdFromMs(utcNoonMs(ymd) + days * 86400000);
+}
+
+function ymdCmp(a: string, b: string): number {
+  if (a < b) return -1;
+  if (a > b) return 1;
+  return 0;
+}
+
+/** Monday (ISO) of the week containing ymd. day_of_week in plan: 1=Mon..7=Sun */
+function mondayOfWeekContaining(ymd: string): string {
+  const ms = utcNoonMs(ymd);
+  const dow = new Date(ms).getUTCDay();
+  const delta = dow === 0 ? -6 : 1 - dow;
+  return addDaysYmd(ymd, delta);
+}
+
+/** Next Monday strictly after today's UTC calendar date (aligned with legacy getNextMonday behaviour). */
+function getNextMondayYmd(): string {
+  const now = new Date();
+  const ymd = utcYmdFromMs(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 12, 0, 0));
+  const ms = utcNoonMs(ymd);
+  const dow = new Date(ms).getUTCDay();
+  const diff = dow === 0 ? 1 : 8 - dow;
+  return addDaysYmd(ymd, diff);
+}
+
+function dayNameToDow(name: string): number | null {
+  const id = name.trim().toLowerCase();
+  const map: Record<string, number> = {
+    monday: 1,
+    tuesday: 2,
+    wednesday: 3,
+    thursday: 4,
+    friday: 5,
+    saturday: 6,
+    sunday: 7,
+  };
+  const v = map[id];
+  return v ?? null;
+}
+
 const PLAN_PROMPT = `You are Coach Cade — an elite AI running coach built into Cade — building a training plan.
 Return ONLY valid JSON, no markdown, no explanation:
 {
@@ -86,6 +141,26 @@ function buildPlanUserPrompt(
   if (retryReason) {
     prompt += `RETRY: ${retryReason}\n\n`;
   }
+
+  const firstSched = typeof answers.firstSchedulableDate === "string" ? answers.firstSchedulableDate.trim() : "";
+  if (firstSched) {
+    prompt +=
+      `FIRST SCHEDULABLE DATE (inclusive): ${firstSched}. Do not assign any workout to a calendar date before this day. ` +
+      `Week 1 still uses day_of_week 1–7 relative to the plan week's Monday, but omit or reschedule sessions that would fall before ${firstSched}. ` +
+      `If a quality or long run would land before ${firstSched}, move it to the first allowed day on or after ${firstSched}.\n\n`;
+  }
+
+  const lr = typeof answers.preferredLongRunDay === "string" ? answers.preferredLongRunDay.trim().toLowerCase() : "";
+  const qd = typeof answers.preferredQualityDay === "string" ? answers.preferredQualityDay.trim().toLowerCase() : "";
+  const lrD = lr ? dayNameToDow(lr) : null;
+  const qD = qd ? dayNameToDow(qd) : null;
+  if (lrD != null && qD != null) {
+    prompt +=
+      `SCHEDULING (mandatory): Place the weekly LONG RUN on ${lr} (day_of_week=${lrD}). ` +
+      `Place the primary QUALITY session (tempo, threshold, intervals — not an easy run) on ${qd} (day_of_week=${qD}). ` +
+      `If philosophy-specific templates conflict, still honour these days whenever physiologically reasonable.\n\n`;
+  }
+
   if (raceDate && requiredWeeks != null && requiredWeeks > 0) {
     prompt += `RACE DATE: ${raceDate}. You MUST generate exactly ${requiredWeeks} weeks of training — output a "weeks" array with ${requiredWeeks} week objects. The last week must be taper ending on race day. Do NOT truncate. Do NOT return fewer weeks. The plan must cover every single week from start to race day.`;
   } else {
@@ -239,14 +314,6 @@ function parsePlanJson(content: string): Record<string, unknown> | null {
   }
 }
 
-function getNextMonday(): Date {
-  const d = new Date();
-  const day = d.getDay();
-  const diff = day === 0 ? 1 : 8 - day;
-  d.setDate(d.getDate() + diff);
-  return d;
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -280,16 +347,35 @@ serve(async (req) => {
 
     const rawRaceDate = (answers as { raceDate?: string }).raceDate;
     const raceDate = (typeof rawRaceDate === "string" && rawRaceDate.trim()) ? rawRaceDate.trim() : null;
-    const startDate = getNextMonday();
+    const planStartWhen = body?.planStartWhen ?? (answers as { planStartWhen?: string }).planStartWhen ?? "next_week";
+    const firstSchedulableDate =
+      typeof body?.firstSchedulableDate === "string" && body.firstSchedulableDate.trim()
+        ? body.firstSchedulableDate.trim()
+        : null;
+
+    const nowYmd = utcYmdFromMs(Date.now());
+    const anchorForThisWeek = firstSchedulableDate ?? nowYmd;
+    const planWeekStartYmd = planStartWhen === "this_week"
+      ? mondayOfWeekContaining(anchorForThisWeek)
+      : getNextMondayYmd();
+
+    const mergedAnswers: Record<string, unknown> = {
+      ...(answers as Record<string, unknown>),
+      ...(firstSchedulableDate ? { firstSchedulableDate } : {}),
+    };
+
     const requiredWeeks = raceDate
-      ? Math.max(8, Math.ceil((new Date(raceDate).getTime() - startDate.getTime()) / (7 * 24 * 60 * 60 * 1000)))
+      ? Math.max(
+        8,
+        Math.ceil((utcNoonMs(raceDate) - utcNoonMs(planWeekStartYmd)) / (7 * 86400000)),
+      )
       : null;
 
     // Priority: Claude (primary) → Groq → Gemini. Retry once if plan too short.
     const tryGenerate = async (retryReason?: string) =>
-      (await callClaude(answers, philosophy, raceDate, requiredWeeks, retryReason)) ??
-      (await callGroq(answers, philosophy, raceDate, requiredWeeks, retryReason)) ??
-      (await callGemini(answers, philosophy, raceDate, requiredWeeks, retryReason));
+      (await callClaude(mergedAnswers, philosophy, raceDate, requiredWeeks, retryReason)) ??
+      (await callGroq(mergedAnswers, philosophy, raceDate, requiredWeeks, retryReason)) ??
+      (await callGemini(mergedAnswers, philosophy, raceDate, requiredWeeks, retryReason));
 
     let planRaw = await tryGenerate();
     if (planRaw && requiredWeeks != null && requiredWeeks > 0) {
@@ -348,10 +434,12 @@ serve(async (req) => {
     );
 
     const goalTime = (answers as { goalTime?: string }).goalTime ?? null;
-    const goalDistance = (answers as { goalDistance?: string }).goalDistance ?? null;
+    const goalDistance =
+      (answers as { raceDistance?: string }).raceDistance ??
+      (answers as { goalDistance?: string }).goalDistance ??
+      null;
     const totalWeeks = requiredWeeks ?? plan.total_weeks ?? weeks.length;
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + totalWeeks * 7 - 1);
+    const endDateYmd = addDaysYmd(planWeekStartYmd, totalWeeks * 7 - 1);
 
     const { data: planRow, error: planErr } = await supabase
       .from("training_plan")
@@ -359,9 +447,9 @@ serve(async (req) => {
         user_id: user.id,
         plan_name: plan.plan_name ?? "Training Plan",
         philosophy: plan.philosophy ?? philosophy,
-        start_date: startDate.toISOString().slice(0, 10),
-        end_date: endDate.toISOString().slice(0, 10),
-        goal_race: goalDistance ?? null,
+        start_date: planWeekStartYmd,
+        end_date: endDateYmd,
+        goal_race: goalDistance,
         goal_date: raceDate || null,
         goal_time: goalTime,
         total_weeks: totalWeeks,
@@ -379,14 +467,21 @@ serve(async (req) => {
       });
     }
 
+    let firstWorkoutOut: { name: string; date: string } | null = null;
+
     for (const wk of weeks) {
-      const weekStart = new Date(startDate);
-      weekStart.setDate(weekStart.getDate() + ((wk.week_number ?? 1) - 1) * 7);
+      const wn = wk.week_number ?? 1;
+      const weekOffset = (wn - 1) * 7;
       const workouts = wk.workouts ?? [];
       for (const w of workouts) {
         const dow = w.day_of_week ?? 1;
-        const workoutDate = new Date(weekStart);
-        workoutDate.setDate(workoutDate.getDate() + (dow - 1));
+        const workoutYmd = addDaysYmd(planWeekStartYmd, weekOffset + (dow - 1));
+        if (firstSchedulableDate && ymdCmp(workoutYmd, firstSchedulableDate) < 0) {
+          continue;
+        }
+        if (!firstWorkoutOut) {
+          firstWorkoutOut = { name: (w.name ?? w.description ?? "Workout") as string, date: workoutYmd };
+        }
         let durationMinutes = w.duration_minutes ?? null;
         if (w.distance_km != null && w.distance_km > 0 && w.target_pace) {
           const minPerKm = parsePaceToMinPerKm(w.target_pace);
@@ -395,7 +490,7 @@ serve(async (req) => {
         await supabase.from("training_plan_workout").insert({
           user_id: user.id,
           plan_id: planRow.id,
-          date: workoutDate.toISOString().slice(0, 10),
+          date: workoutYmd,
           week_number: wk.week_number ?? 1,
           phase: wk.phase ?? "base",
           day_of_week: dow,
@@ -439,14 +534,8 @@ serve(async (req) => {
         philosophy: plan.philosophy ?? philosophy,
         total_weeks: totalWeeks,
         peak_weekly_km: plan.peak_weekly_km ?? null,
-        start_date: startDate.toISOString().slice(0, 10),
-        first_workout: (() => {
-          const first = weeks[0]?.workouts?.[0];
-          if (!first) return null;
-          const d = new Date(startDate);
-          d.setDate(d.getDate() + ((first.day_of_week ?? 1) - 1));
-          return { name: first.name ?? first.description, date: d.toISOString().slice(0, 10) };
-        })(),
+        start_date: planWeekStartYmd,
+        first_workout: firstWorkoutOut,
       }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } }
     );

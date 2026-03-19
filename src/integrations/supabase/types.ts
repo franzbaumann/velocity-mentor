@@ -56,6 +56,8 @@ export type Database = {
           pace_zone_times: Json | null
           perceived_exertion: number | null
           photos: Json | null
+          planned_session_label: string | null
+          planned_workout_id: string | null
           polyline: string | null
           source: Database["public"]["Enums"]["activity_source"] | null
           splits: Json | null
@@ -108,6 +110,8 @@ export type Database = {
           pace_zone_times?: Json | null
           perceived_exertion?: number | null
           photos?: Json | null
+          planned_session_label?: string | null
+          planned_workout_id?: string | null
           polyline?: string | null
           source?: Database["public"]["Enums"]["activity_source"] | null
           splits?: Json | null
@@ -160,6 +164,8 @@ export type Database = {
           pace_zone_times?: Json | null
           perceived_exertion?: number | null
           photos?: Json | null
+          planned_session_label?: string | null
+          planned_workout_id?: string | null
           polyline?: string | null
           source?: Database["public"]["Enums"]["activity_source"] | null
           splits?: Json | null
@@ -1289,6 +1295,7 @@ export type Database = {
           invite_type: string
           created_at: string
           responded_at: string | null
+          session_id: string | null
         }
         Insert: {
           id?: string
@@ -1303,6 +1310,7 @@ export type Database = {
           invite_type?: string
           created_at?: string
           responded_at?: string | null
+          session_id?: string | null
         }
         Update: {
           id?: string
@@ -1317,6 +1325,7 @@ export type Database = {
           invite_type?: string
           created_at?: string
           responded_at?: string | null
+          session_id?: string | null
         }
         Relationships: [
           {
@@ -1333,7 +1342,44 @@ export type Database = {
             referencedRelation: "training_plan_workout"
             referencedColumns: ["id"]
           },
+          {
+            foreignKeyName: "workout_invite_session_id_fkey"
+            columns: ["session_id"]
+            isOneToOne: false
+            referencedRelation: "workout_session"
+            referencedColumns: ["id"]
+          },
         ]
+      }
+      workout_session: {
+        Row: {
+          id: string
+          from_user: string
+          proposed_date: string
+          message: string | null
+          invite_type: string
+          combined_workout: Json | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          from_user: string
+          proposed_date: string
+          message?: string | null
+          invite_type?: string
+          combined_workout?: Json | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          from_user?: string
+          proposed_date?: string
+          message?: string | null
+          invite_type?: string
+          combined_workout?: Json | null
+          created_at?: string
+        }
+        Relationships: []
       }
       training_plan: {
         Row: {
@@ -1423,7 +1469,10 @@ export type Database = {
           phase: string | null
           plan_id: string
           session_library_id: string | null
+          session_id: string | null
+          session_structure: Json | null
           structure_detail: string | null
+          control_tool: string | null
           target_hr_zone: number | null
           target_pace: string | null
           target_pace_per_km: string | null
@@ -1456,7 +1505,10 @@ export type Database = {
           phase?: string | null
           plan_id: string
           session_library_id?: string | null
+          session_id?: string | null
+          session_structure?: Json | null
           structure_detail?: string | null
+          control_tool?: string | null
           target_hr_zone?: number | null
           target_pace?: string | null
           target_pace_per_km?: string | null
@@ -1489,7 +1541,10 @@ export type Database = {
           phase?: string | null
           plan_id?: string
           session_library_id?: string | null
+          session_id?: string | null
+          session_structure?: Json | null
           structure_detail?: string | null
+          control_tool?: string | null
           target_hr_zone?: number | null
           target_pace?: string | null
           target_pace_per_km?: string | null
@@ -1510,6 +1565,42 @@ export type Database = {
             referencedColumns: ["id"]
           },
         ]
+      }
+      week_proposals: {
+        Row: {
+          id: string
+          user_id: string
+          status: string
+          week_start_date: string
+          sessions_json: Json
+          week_summary_json: Json
+          coach_message: string
+          generated_at: string
+          responded_at: string | null
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          status?: string
+          week_start_date: string
+          sessions_json: Json
+          week_summary_json: Json
+          coach_message: string
+          generated_at?: string
+          responded_at?: string | null
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          status?: string
+          week_start_date?: string
+          sessions_json?: Json
+          week_summary_json?: Json
+          coach_message?: string
+          generated_at?: string
+          responded_at?: string | null
+        }
+        Relationships: []
       }
       training_session: {
         Row: {

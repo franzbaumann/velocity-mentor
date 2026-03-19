@@ -58,6 +58,8 @@ export interface ActivityDetail {
   photos?: { url: string; path?: string }[];
   /** Actual DB row id (for intervals activities, id is icu_xxx but dbId is the UUID) */
   dbId?: string;
+  planned_workout_id?: string | null;
+  planned_session_label?: string | null;
 }
 
 function parsePhotos(raw: unknown): { url: string; path?: string }[] {
@@ -372,6 +374,8 @@ export function useActivityDetail(activityId: string | undefined) {
             zone: iv.zone != null ? Number(iv.zone) : undefined,
             type: iv.type != null ? String(iv.type) : undefined,
           })),
+          planned_workout_id: (dbAct?.planned_workout_id as string | null | undefined) ?? null,
+          planned_session_label: (dbAct?.planned_session_label as string | null | undefined) ?? null,
         };
       }
 
@@ -440,11 +444,16 @@ export function useActivityDetail(activityId: string | undefined) {
       let edgeStreamError: string | null = null;
       if (!dbStreams && rowUserId) {
         const extId = row.external_id as string | null;
+        const vitalId = row.vital_id as string | null;
         const garminId = row.garmin_id as string | null;
         const extIdNumeric = extId != null && extId.startsWith("i") && extId.length > 1 ? extId.slice(1) : null;
-        const candidateKeys: string[] = [extId, extIdNumeric, id, garminId != null ? `garmin_${garminId}` : null].filter(
-          (k): k is string => k != null && k !== ""
-        );
+        const candidateKeys: string[] = [
+          extId,
+          vitalId,
+          extIdNumeric,
+          id,
+          garminId != null ? `garmin_${garminId}` : null,
+        ].filter((k): k is string => k != null && k !== "");
         const seen = new Set<string>();
         const keysToTry = candidateKeys.filter((k) => {
           if (seen.has(k)) return false;
@@ -569,6 +578,8 @@ export function useActivityDetail(activityId: string | undefined) {
         ...(edgeStreamError ? { streamFetchError: edgeStreamError } : {}),
         ...(edgeLikes ? { edgeLikes } : {}),
         ...(edgeComments ? { edgeComments } : {}),
+        planned_workout_id: (row.planned_workout_id as string | null | undefined) ?? null,
+        planned_session_label: (row.planned_session_label as string | null | undefined) ?? null,
       };
     },
     enabled: !!activityId,

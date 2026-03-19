@@ -18,7 +18,7 @@ function useProfileFeed(userId: string | undefined) {
       if (!userId) return [];
       const { data } = await supabase
         .from("activity")
-        .select("id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, user_id, photos, polyline")
+        .select("id, date, type, name, distance_km, duration_seconds, avg_pace, avg_hr, user_id, photos, polyline, planned_session_label")
         .eq("user_id", userId)
         .order("date", { ascending: false })
         .limit(50);

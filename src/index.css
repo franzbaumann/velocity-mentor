@@ -4,7 +4,8 @@
 
 @layer base {
   :root {
-    --background: 0 0% 96.5%;
+    /* App shell ~ #F8F9FA */
+    --background: 210 20% 98%;
     --foreground: 0 0% 11.4%;
 
     --card: 0 0% 100%;
@@ -13,8 +14,8 @@
     --popover: 0 0% 100%;
     --popover-foreground: 0 0% 11.4%;
 
-    /* Accent: #0A84FF */
-    --primary: 211 100% 52%;
+    /* Cade primary blue #2563EB */
+    --primary: 221 83% 53%;
     --primary-foreground: 0 0% 100%;
 
     --secondary: 0 0% 94%;
@@ -69,7 +70,7 @@
     --card-foreground: 0 0% 96%;
     --popover: 0 0% 10%;
     --popover-foreground: 0 0% 96%;
-    --primary: 211 100% 52%;
+    --primary: 221 83% 53%;
     --primary-foreground: 0 0% 100%;
     --secondary: 0 0% 15%;
     --secondary-foreground: 0 0% 96%;
@@ -122,8 +123,8 @@
     backdrop-filter: blur(var(--glass-blur));
     -webkit-backdrop-filter: blur(var(--glass-blur));
     box-shadow: none;
-    border: 1px solid #E5E7EB;
-    border-radius: 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
     transition: border-color var(--transition-smooth);
   }
   .dark .glass-card {
@@ -131,7 +132,10 @@
   }
 
   .glass-card-hover:hover {
-    border-color: hsl(var(--primary) / 0.3);
+    border-color: #d1d5db;
+  }
+  .dark .glass-card-hover:hover {
+    border-color: hsl(var(--muted-foreground) / 0.35);
   }
 
   .mono-text {
@@ -181,7 +185,7 @@
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.08em;
-    color: #6B7280;
+    @apply text-muted-foreground;
   }
   .card-title {
     font-size: 16px;
@@ -192,8 +196,8 @@
   /* Design system: cards - one standard */
   .card-standard {
     background: white;
-    border: 1px solid #E5E7EB;
-    border-radius: 12px;
+    border: 1px solid #e5e7eb;
+    border-radius: 0.75rem;
     padding: 24px;
     box-shadow: none;
   }

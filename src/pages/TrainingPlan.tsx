@@ -7,7 +7,7 @@ import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, Grip
 import { UnifiedCalendar } from "@/components/UnifiedCalendar";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { format, parseISO, isWithinInterval } from "date-fns";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -19,6 +19,8 @@ import {
 import { DateWheelPicker } from "@/components/ui/date-wheel-picker";
 import { plannedWorkoutDurationMinutes, plannedWorkoutSummary } from "@/lib/format";
 import { parseSteps, WorkoutStepsDisplay, type WorkoutStep } from "@/lib/workout-steps";
+import { SessionCard } from "@/components/training/SessionCard";
+import type { SessionStructureStored } from "@/lib/training/sessionStructureUi";
 
 /** Match app theme for session badges */
 const SESSION_COLORS: Record<string, string> = {
@@ -32,109 +34,11 @@ const SESSION_COLORS: Record<string, string> = {
   strides: "bg-accent/15 text-accent",
 };
 
-function SessionCard({
-  session,
-  onReschedule,
-  onMarkDone,
-  onAskCoachCade,
-  onSessionClick,
-}: {
-  session: SessionLike;
-  onReschedule: (args: { sessionId: string; newDate: string }) => void;
-  onMarkDone: (args: { sessionId: string; done: boolean }) => void;
-  onAskCoachCade?: (session: SessionLike) => void;
-  onSessionClick?: (session: SessionLike) => void;
-}) {
-  const [editing, setEditing] = useState(false);
-  const [newDate, setNewDate] = useState(session.scheduled_date || "");
-
-  const badgeClass = SESSION_COLORS[session.session_type] || "bg-primary/10 text-primary";
-  const isDone = !!session.completed_at;
-  const durationMin = plannedWorkoutDurationMinutes(session);
-
-  return (
-    <div
-      className={`flex items-start gap-3 p-4 card-standard hover:border-primary/20 transition-colors group cursor-pointer ${isDone ? "opacity-75" : ""}`}
-      onClick={() => onSessionClick?.(session)}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => e.key === "Enter" && onSessionClick?.(session)}
-    >
-      <button
-        type="button"
-        onClick={(e) => { e.stopPropagation(); onMarkDone({ sessionId: session.id, done: !isDone }); }}
-        className={`shrink-0 mt-0.5 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors ${isDone ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40 hover:border-primary/50"}`}
-        title={isDone ? "Mark not done" : "Mark done"}
-      >
-        {isDone && <Check className="w-3.5 h-3.5" />}
-      </button>
-      <GripVertical className="w-4 h-4 text-muted-foreground shrink-0 mt-0.5 opacity-0 group-hover:opacity-100 transition-opacity cursor-grab" />
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${badgeClass}`}>
-            {session.session_type}
-          </span>
-          {session.scheduled_date && (
-            <span className="text-xs text-muted-foreground">
-              {format(parseISO(session.scheduled_date), "EEE MMM d")}
-            </span>
-          )}
-        </div>
-        <p className="text-sm font-medium text-foreground mt-1">{plannedWorkoutSummary(session)}</p>
-        <div className="flex gap-3 mt-1 text-xs text-muted-foreground">
-          {session.distance_km != null && <span>{session.distance_km} km</span>}
-          {durationMin != null && <span>{durationMin} min</span>}
-          {session.pace_target && <span>@{session.pace_target}</span>}
-        </div>
-        {editing ? (
-          <div className="flex gap-2 mt-3 items-center" onClick={(e) => e.stopPropagation()}>
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="outline" size="sm" className="h-8 text-xs font-normal">
-                  {newDate ? format(parseISO(newDate), "MMM d, yyyy") : "Pick date"}
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent className="w-auto p-0" align="start">
-                <DateWheelPicker
-                  value={newDate ? parseISO(newDate) : new Date()}
-                  onChange={(d) => setNewDate(format(d, "yyyy-MM-dd"))}
-                  size="sm"
-                />
-              </PopoverContent>
-            </Popover>
-            <Button size="sm" onClick={() => { onReschedule({ sessionId: session.id, newDate }); setEditing(false); }}>
-              Save
-            </Button>
-            <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>Cancel</Button>
-          </div>
-        ) : (
-          <div className="flex gap-2 mt-2">
-            <button
-              onClick={(e) => { e.stopPropagation(); setEditing(true); }}
-              className="text-xs text-primary hover:underline"
-            >
-              Move session
-            </button>
-            {onAskCoachCade && (
-              <button
-                onClick={(e) => { e.stopPropagation(); onAskCoachCade(session); }}
-                className="text-xs text-muted-foreground hover:text-primary flex items-center gap-1"
-              >
-                <MessageCircle className="w-3 h-3" />
-                Ask Coach Cade
-              </button>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 type SessionLike = {
   id: string;
   scheduled_date: string | null;
   session_type: string;
+  name?: string | null;
   description: string;
   distance_km: number | null;
   duration_min: number | null;
@@ -146,7 +50,112 @@ type SessionLike = {
   adjustment_notes?: string | null;
   supportsCoachNote?: boolean;
   workout_steps?: unknown;
+  session_structure?: SessionStructureStored | null;
+  week_number?: number | null;
+  phase?: string | null;
 };
+
+function TrainingPlanSessionRow({
+  session,
+  expanded,
+  onToggleExpand,
+  moving,
+  onStartMove,
+  onCancelMove,
+  newDate,
+  onNewDate,
+  onSaveMove,
+  onMarkDone,
+  onAskCoachCade,
+  onSessionClick,
+}: {
+  session: SessionLike;
+  expanded: boolean;
+  onToggleExpand: () => void;
+  moving: boolean;
+  onStartMove: () => void;
+  onCancelMove: () => void;
+  newDate: string;
+  onNewDate: (d: string) => void;
+  onSaveMove: () => void;
+  onMarkDone: (args: { sessionId: string; done: boolean }) => void;
+  onAskCoachCade?: (session: SessionLike) => void;
+  onSessionClick?: (session: SessionLike) => void;
+}) {
+  const isDone = !!session.completed_at;
+
+  return (
+    <div
+      className={`flex items-start gap-3 p-2 ${session.completed_at ? "opacity-75" : ""}`}
+    >
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation();
+          onMarkDone({ sessionId: session.id, done: !isDone });
+        }}
+        className={`shrink-0 mt-3 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors ${isDone ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40 hover:border-primary/50"}`}
+        title={isDone ? "Mark not done" : "Mark done"}
+      >
+        {isDone && <Check className="w-3.5 h-3.5" />}
+      </button>
+      <div className="flex-1 min-w-0 space-y-2">
+        <SessionCard
+          workout={{
+            id: session.id,
+            scheduled_date: session.scheduled_date,
+            session_type: session.session_type,
+            name: session.name,
+            description: session.description,
+            distance_km: session.distance_km,
+            duration_min: session.duration_min,
+            pace_target: session.pace_target,
+            target_hr_zone: session.target_hr_zone,
+            key_focus: session.key_focus,
+            session_structure: session.session_structure ?? null,
+          }}
+          isExpanded={expanded}
+          onToggle={onToggleExpand}
+          onMove={onStartMove}
+          onAskCoach={() => onAskCoachCade?.(session)}
+        />
+        {onSessionClick ? (
+          <button
+            type="button"
+            className="text-xs font-medium text-primary hover:underline pl-1"
+            onClick={() => onSessionClick(session)}
+          >
+            Steps &amp; coach note…
+          </button>
+        ) : null}
+        {moving ? (
+          <div className="flex gap-2 flex-wrap items-center pl-1">
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="outline" size="sm" className="h-8 text-xs font-normal">
+                  {newDate ? format(parseISO(newDate), "MMM d, yyyy") : "Pick date"}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-auto p-0" align="start">
+                <DateWheelPicker
+                  value={newDate ? parseISO(newDate) : new Date()}
+                  onChange={(d) => onNewDate(format(d, "yyyy-MM-dd"))}
+                  size="sm"
+                />
+              </PopoverContent>
+            </Popover>
+            <Button size="sm" onClick={onSaveMove}>
+              Save
+            </Button>
+            <Button size="sm" variant="ghost" onClick={onCancelMove}>
+              Cancel
+            </Button>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
 
 function SessionDetailModal({
   session,
@@ -410,6 +419,9 @@ export default function TrainingPlan() {
     }
   }, [weeks]);
   const [selectedSession, setSelectedSession] = useState<SessionLike | null>(null);
+  const [expandedPlanSessions, setExpandedPlanSessions] = useState<Set<string>>(new Set());
+  const [movingSessionId, setMovingSessionId] = useState<string | null>(null);
+  const [moveDateDraft, setMoveDateDraft] = useState("");
   const navigate = useNavigate();
   const queryClient = useQueryClient();
 
@@ -595,7 +607,7 @@ export default function TrainingPlan() {
                         <ChevronRight className="w-4 h-4 text-muted-foreground shrink-0" />
                       )}
                       <Activity className="w-4 h-4 text-primary shrink-0" />
-                      <span className="font-semibold text-foreground shrink-0">Week {week.week_number}</span>
+                      <span className="font-semibold text-base text-foreground shrink-0">Week {week.week_number}</span>
                       {(week as { phase?: string }).phase && (
                         <span className="text-xs px-2 py-0.5 rounded-full bg-primary/10 text-primary capitalize shrink-0">
                           {(week as { phase?: string }).phase}
@@ -613,10 +625,30 @@ export default function TrainingPlan() {
                   {isExpanded && (
                     <div className="px-5 pb-5 pt-0 space-y-2 border-t border-border max-h-[85vh] overflow-y-auto">
                       {week.sessions.map((session) => (
-                        <SessionCard
+                        <TrainingPlanSessionRow
                           key={session.id}
-                          session={session}
-                          onReschedule={rescheduleSession}
+                          session={session as SessionLike}
+                          expanded={expandedPlanSessions.has(session.id)}
+                          onToggleExpand={() =>
+                            setExpandedPlanSessions((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(session.id)) next.delete(session.id);
+                              else next.add(session.id);
+                              return next;
+                            })
+                          }
+                          moving={movingSessionId === session.id}
+                          onStartMove={() => {
+                            setMovingSessionId(session.id);
+                            setMoveDateDraft(session.scheduled_date || "");
+                          }}
+                          onCancelMove={() => setMovingSessionId(null)}
+                          newDate={moveDateDraft}
+                          onNewDate={setMoveDateDraft}
+                          onSaveMove={() => {
+                            rescheduleSession({ sessionId: session.id, newDate: moveDateDraft });
+                            setMovingSessionId(null);
+                          }}
                           onMarkDone={markSessionDone}
                           onAskCoachCade={handleAskCoachCade}
                           onSessionClick={setSelectedSession}

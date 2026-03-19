@@ -20,6 +20,7 @@ import { useTrainingPlan } from "@/hooks/use-training-plan";
 import { format, addDays, isToday, startOfWeek } from "date-fns";
 import { isRunningActivity } from "@/lib/analytics";
 import { formatDistance } from "@/lib/format";
+import { formatCoachText } from "@/lib/format-coach-text";
 import { checkDailyLimit } from "@/lib/ai/usageGuard";
 import { ChatStatCharts } from "@/components/ChatStatChart";
 
@@ -240,6 +241,7 @@ async function streamChat({
   messages,
   intakeAnswers,
   intervalsContext,
+  prependContext,
   token,
   onDelta,
   onDone,
@@ -248,6 +250,7 @@ async function streamChat({
   messages: Msg[];
   intakeAnswers: Record<string, string | string[]> | null;
   intervalsContext: { wellness?: unknown[]; activities?: unknown[] } | null;
+  prependContext?: string | null;
   token: string | null;
   onDelta: (text: string, meta?: { isLimitMessage?: boolean }) => void;
   onDone: () => void;
@@ -269,7 +272,13 @@ async function streamChat({
     resp = await fetch(CHAT_URL, {
       method: "POST",
       headers,
-      body: JSON.stringify({ messages, intakeAnswers, intervalsContext, stream: false }),
+      body: JSON.stringify({
+        messages,
+        intakeAnswers,
+        intervalsContext,
+        prependContext: prependContext ?? undefined,
+        stream: false,
+      }),
     });
   } catch (e) {
     console.error("[Coach Cade] fetch error:", e);
@@ -352,6 +361,27 @@ function getNextMonday(): Date {
 }
 
 const INTENSE_TYPES = new Set(["interval", "intervals", "tempo", "long", "race"]);
+
+/** Update coaching_memory with the new plan's goal so Coach Cade knows the current target. */
+async function updateCoachMemoryFromPlan(userId: string, plan: Record<string, unknown>): Promise<void> {
+  const goalRace = (plan.goal_race as string) ?? "marathon";
+  const goalTime = (plan.goal_time as string) ?? null;
+  const totalWeeks = (plan.total_weeks as number) ?? (Array.isArray(plan.weeks) ? (plan.weeks as unknown[]).length : 12);
+  const raceLabel = String(goalRace).replace(/\b\w/g, (c) => c.toUpperCase());
+
+  const goalContent = goalTime
+    ? `Targeting a ${raceLabel.toLowerCase()} finish time of ${goalTime}`
+    : `Aims to run the ${raceLabel} in ${totalWeeks} weeks`;
+
+  await supabase.from("coaching_memory").delete().eq("user_id", userId).eq("category", "goal");
+  await supabase.from("coaching_memory").insert({
+    user_id: userId,
+    category: "goal",
+    content: goalContent,
+    importance: 8,
+    source: "plan",
+  });
+}
 
 async function savePlanFromChat(plan: Record<string, unknown>, isAdjustment: boolean, adjustmentReason?: string): Promise<boolean> {
   const { data: { session } } = await supabase.auth.getSession();
@@ -1051,7 +1081,12 @@ export default function Coach() {
     allSessions.sort((a, b) => a.date.localeCompare(b.date));
     const next = allSessions.find((s) => s.date >= todayStr);
     const nextSession = next
-      ? { date: next.date, desc: next.description || next.session_type || "Workout", focus: next.key_focus ?? (next.target_hr_zone ? `Keep HR zone ${next.target_hr_zone}` : "") }
+      ? {
+          date: next.date,
+          desc: next.description || next.session_type || "Workout",
+          focus: next.key_focus ?? (next.target_hr_zone ? `Keep HR zone ${next.target_hr_zone}` : ""),
+          sessionType: String(next.session_type ?? "easy").toLowerCase(),
+        }
       : null;
     const doneSessions = runs.filter((a) => a.date >= monStr && a.date <= sunStr).length;
 
@@ -1115,11 +1150,18 @@ export default function Coach() {
       });
     };
 
+    let prependContext: string | null = null;
+    try {
+      prependContext = sessionStorage.getItem("coach_proposal_context");
+      if (prependContext) sessionStorage.removeItem("coach_proposal_context");
+    } catch { /* ignore */ }
+
     try {
       await streamChat({
         messages: newMessages,
         intakeAnswers,
         intervalsContext,
+        prependContext,
         token,
         onDelta: upsert,
         onDone: () => {
@@ -1178,6 +1220,11 @@ export default function Coach() {
         }
         const ok = await savePlanFromChat(plan, isAdjustment, adjustmentReason);
         if (ok) {
+          const { data: { session } } = await supabase.auth.getSession();
+          if (session?.user) {
+            await updateCoachMemoryFromPlan(session.user.id, plan);
+            queryClient.invalidateQueries({ queryKey: ["coaching_memory"] });
+          }
           queryClient.invalidateQueries({ queryKey: ["training-plan"] });
           toast.success("Plan updated! View it on the Training Plan page.", {
             action: { label: "View Plan", onClick: () => navigate("/plan") },
@@ -1436,17 +1483,17 @@ export default function Coach() {
               <>
                 {chatFilter !== "analyses" && (
                   <div className="flex gap-3 max-w-lg">
-                    <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <span className="text-xs font-semibold text-primary">K</span>
+                    <div className="w-8 h-8 rounded-full bg-[#2563EB] flex items-center justify-center flex-shrink-0">
+                      <span className="text-xs font-semibold text-white">C</span>
                     </div>
-                    <div className="glass-card p-4 text-sm text-foreground leading-relaxed">
+                    <div className="bg-gray-50 dark:bg-card/80 border border-gray-100 dark:border-border rounded-2xl rounded-tl-sm p-4 text-sm text-foreground leading-relaxed">
                       {openingLoading ? (
                         <div className="flex items-center gap-2 text-muted-foreground">
                           <Loader2 className="w-4 h-4 animate-spin" />
                           <span>Coach Cade is reading your data…</span>
                         </div>
                       ) : (
-                        <ReactMarkdown components={markdownComponents}>{displayOpener}</ReactMarkdown>
+                        <ReactMarkdown components={markdownComponents}>{formatCoachText(displayOpener)}</ReactMarkdown>
                       )}
                     </div>
                   </div>
@@ -1501,8 +1548,8 @@ export default function Coach() {
                 <div key={i} className={`flex flex-col gap-2 ${msg.role === "user" ? "items-end" : ""} max-w-2xl ${msg.role === "user" ? "ml-auto" : ""}`}>
                   <div className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""} w-full`}>
                     {msg.role === "assistant" && (
-                      <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                        <span className="text-xs font-semibold text-primary">K</span>
+                      <div className="w-8 h-8 rounded-full bg-[#2563EB] flex items-center justify-center flex-shrink-0">
+                        <span className="text-xs font-semibold text-white">C</span>
                       </div>
                     )}
                     <div className={`p-4 text-sm leading-relaxed rounded-2xl flex-1 ${
@@ -1510,7 +1557,7 @@ export default function Coach() {
                         ? "bg-primary text-primary-foreground"
                         : msg.isLimitMessage
                           ? "bg-muted/50 text-muted-foreground border border-border"
-                          : "glass-card text-foreground"
+                          : "bg-gray-50 dark:bg-card/80 border border-gray-100 dark:border-border text-foreground rounded-2xl rounded-tl-sm"
                     }`}>
                       {msg.role === "assistant" ? (
                         <div className="coach-message text-sm text-foreground [&>*:first-child]:mt-0 [&>*:last-child]:mb-0">
@@ -1518,7 +1565,7 @@ export default function Coach() {
                             <NutritionCard content={msg.content} />
                           ) : (
                             <ReactMarkdown components={markdownComponents}>
-                              {displayContent || (extractedPlan ? "Here are the suggested changes:" : "Thinking…")}
+                              {formatCoachText(displayContent || (extractedPlan ? "Here are the suggested changes:" : "Thinking…"))}
                             </ReactMarkdown>
                           )}
                         </div>
@@ -1569,12 +1616,12 @@ export default function Coach() {
 
           {/* Quick chips */}
           {messages.length === 0 && (
-            <div className="px-6 pb-2 flex flex-wrap gap-2">
+            <div className="px-6 pb-2 flex flex-wrap gap-2 max-h-[4.5rem] overflow-x-auto overflow-y-hidden">
               {quickPrompts.map((prompt) => (
                 <button
                   key={prompt}
                   onClick={() => send(prompt)}
-                  className="pill-button bg-secondary text-secondary-foreground text-xs hover:bg-primary/10 hover:text-primary"
+                  className="shrink-0 text-sm rounded-full border border-gray-200 dark:border-border bg-background px-3 py-1.5 text-foreground hover:bg-gray-50 dark:hover:bg-muted transition-colors"
                 >
                   {prompt}
                 </button>
@@ -1678,11 +1725,28 @@ export default function Coach() {
 
             {contextSnapshot.nextSession && (
               <>
-                <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider pt-2">Next session</h3>
-                <div className="rounded-lg border border-border bg-card/50 p-3 text-sm">
-                  <p className="font-medium text-foreground">{format(new Date(contextSnapshot.nextSession.date), "EEE MMM d")}</p>
-                  <p className="text-muted-foreground mt-0.5">{contextSnapshot.nextSession.desc}</p>
-                  {contextSnapshot.nextSession.focus && <p className="text-xs text-primary mt-1">{contextSnapshot.nextSession.focus}</p>}
+                <h3 className="text-xs font-medium text-muted-foreground uppercase tracking-wide pt-2">Next session</h3>
+                <div className="rounded-lg border border-border bg-card/50 p-3 text-sm space-y-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span
+                      className={`text-xs font-medium px-2 py-0.5 rounded-full capitalize ${
+                        ["easy", "strides", "recovery"].includes(contextSnapshot.nextSession.sessionType)
+                          ? "bg-[#16A34A]/15 text-[#16A34A]"
+                          : contextSnapshot.nextSession.sessionType === "long"
+                            ? "bg-[#EA580C]/15 text-[#EA580C]"
+                            : ["tempo"].includes(contextSnapshot.nextSession.sessionType)
+                              ? "bg-[#CA8A04]/15 text-[#CA8A04]"
+                              : ["interval", "intervals"].includes(contextSnapshot.nextSession.sessionType)
+                                ? "bg-[#DC2626]/15 text-[#DC2626]"
+                                : "bg-muted text-muted-foreground"
+                      }`}
+                    >
+                      {contextSnapshot.nextSession.sessionType}
+                    </span>
+                    <p className="font-medium text-foreground">{format(new Date(contextSnapshot.nextSession.date), "EEE MMM d")}</p>
+                  </div>
+                  <p className="text-sm text-muted-foreground">{contextSnapshot.nextSession.desc}</p>
+                  {contextSnapshot.nextSession.focus && <p className="text-xs text-blue-600 dark:text-primary mt-1">{contextSnapshot.nextSession.focus}</p>}
                 </div>
               </>
             )}

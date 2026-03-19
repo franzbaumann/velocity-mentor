@@ -76,6 +76,8 @@ export function Step4CurrentTraining({ answers, onUpdate, onNext, onBack, interv
   const stats = useMemo(() => computeStats(intervalsData), [intervalsData]);
   const [manualOverride, setManualOverride] = useState(false);
   const showDataCard = stats.hasData && !manualOverride;
+  const showEmptyFitnessCard =
+    !showDataCard && !manualOverride && (!intervalsData.isConnected || !stats.hasData);
 
   const leftContent = showDataCard ? (
     <div className="space-y-3">
@@ -118,6 +120,16 @@ export function Step4CurrentTraining({ answers, onUpdate, onNext, onBack, interv
       >
         This looks wrong →
       </button>
+    </div>
+  ) : showEmptyFitnessCard ? (
+    <div className="rounded-2xl border border-border bg-muted/30 p-5 space-y-2">
+      <p className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider">
+        Your current fitness
+      </p>
+      <p className="text-sm text-muted-foreground/80 leading-relaxed">
+        No data yet — we&apos;ll build your baseline from scratch once you connect Intervals or describe your
+        training on the right.
+      </p>
     </div>
   ) : null;
 

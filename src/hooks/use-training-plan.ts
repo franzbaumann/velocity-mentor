@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { resolveSessionStructureForWorkout } from "@/lib/training/sessionStructureUi";
 
 async function triggerNutritionMessage(sessionId: string): Promise<void> {
   const { data: session } = await supabase.from("training_session").select("*").eq("id", sessionId).maybeSingle();
@@ -143,10 +144,19 @@ export function useTrainingPlan() {
           });
         }
         const rec = weekMap.get(wn)!;
+        const row = w as {
+          session_structure?: unknown;
+          structure_json?: unknown;
+          pace_guidance_json?: unknown;
+          primary_metric?: string | null;
+          control_tool?: string | null;
+          why_this_session?: string | null;
+        };
         rec.sessions.push({
           id: w.id,
           scheduled_date: w.date,
           session_type: w.type ?? "easy",
+          name: (w as { name?: string | null }).name ?? null,
           description: w.description ?? w.name ?? "",
           distance_km: w.distance_km,
           duration_min: w.duration_minutes,
@@ -159,6 +169,22 @@ export function useTrainingPlan() {
           adjustment_notes: (w as { notes?: string | null }).notes ?? null,
           workout_steps: (w as { workout_steps?: unknown }).workout_steps ?? null,
           supportsCoachNote: true,
+          week_number: w.week_number ?? null,
+          phase: w.phase ?? null,
+          session_structure: resolveSessionStructureForWorkout({
+            session_structure: row.session_structure,
+            structure_json: row.structure_json,
+            pace_guidance_json: row.pace_guidance_json,
+            primary_metric: row.primary_metric ?? null,
+            control_tool: row.control_tool ?? null,
+            why_this_session: row.why_this_session ?? null,
+            coach_note: (w as { coach_note?: string | null }).coach_note ?? null,
+            key_focus: w.key_focus ?? null,
+            description: w.description ?? null,
+            distance_km: w.distance_km ?? null,
+            duration_minutes: w.duration_minutes ?? null,
+            target_pace: w.target_pace ?? null,
+          }),
         });
       }
       for (const rec of weekMap.values()) {

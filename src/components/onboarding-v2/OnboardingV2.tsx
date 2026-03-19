@@ -1,6 +1,9 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { addDays, format } from "date-fns";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { enrichTrainingPlanWorkoutsFromLibrary } from "@/lib/training/enrichPlanSessions";
+import { AUTH_SESSION_EXPIRED_USER_MESSAGE } from "@/lib/supabase-auth-safe";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useActivities } from "@/hooks/useActivities";
 import { useReadiness } from "@/hooks/useReadiness";
@@ -24,7 +27,8 @@ import type {
   StepProps,
   StepWithDataProps,
 } from "./types";
-import { DEFAULT_STATE, getStepOrder } from "./types";
+import { DEFAULT_ANSWERS, DEFAULT_STATE, getStepOrder } from "./types";
+import { filterPhilosophyRecommendation } from "@/lib/onboarding/philosophyConstraints";
 
 const STORAGE_KEY = "cade_onboarding_v2";
 
@@ -32,9 +36,16 @@ function loadSavedState(): OnboardingV2State | null {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (!raw) return null;
-    const parsed = JSON.parse(raw);
-    if (parsed?.answers && typeof parsed.currentStep === "number") return parsed;
-  } catch { /* ignore corrupt data */ }
+    const parsed = JSON.parse(raw) as Partial<OnboardingV2State>;
+    if (parsed?.answers && typeof parsed.currentStep === "number") {
+      return {
+        ...parsed,
+        answers: { ...DEFAULT_ANSWERS, ...parsed.answers },
+      } as OnboardingV2State;
+    }
+  } catch {
+    /* ignore corrupt data */
+  }
   return null;
 }
 
@@ -57,6 +68,9 @@ export interface OnboardingV2Props {
 
 export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
   const [state, setState] = useState<OnboardingV2State>(() => loadSavedState() ?? { ...DEFAULT_STATE });
+  /** Latest answers for plan POST — avoids re-firing step-9 effect when `answers` object identity churns. */
+  const answersRef = useRef(state.answers);
+  answersRef.current = state.answers;
   const [direction, setDirection] = useState<"forward" | "backward">("forward");
 
   const [philoLoading, setPhiloLoading] = useState(false);
@@ -163,8 +177,9 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
 
     (async () => {
       try {
+        const answersPayload = answersRef.current;
         const { data, error } = await supabase.functions.invoke("paceiq-philosophy", {
-          body: { answers: state.answers },
+          body: { answers: answersPayload },
         });
         if (error) {
           let msg = error.message ?? "Failed to get recommendation";
@@ -183,14 +198,54 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
           setPhiloError((data as { error?: string })?.error ?? "Failed to get recommendation");
           return;
         }
-        setState((prev) => ({ ...prev, recommendedPhilosophy: data as PhilosophyRecommendation }));
+        const raw = data as PhilosophyRecommendation;
+        // #region agent log
+        fetch("http://127.0.0.1:7707/ingest/cba70274-43f3-47c4-bdfd-0db115d1b756", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "72c67a" },
+          body: JSON.stringify({
+            sessionId: "72c67a",
+            location: "OnboardingV2.tsx:philosophy-raw",
+            message: "paceiq-philosophy response before filter",
+            data: {
+              raceDistance: answersPayload.raceDistance,
+              primary: raw.primary?.philosophy,
+              alternatives: raw.alternatives?.map((a) => a.philosophy),
+            },
+            timestamp: Date.now(),
+            hypothesisId: "A",
+            runId: "pre-fix",
+          }),
+        }).catch(() => {});
+        // #endregion
+        const filtered = filterPhilosophyRecommendation(raw, answersPayload.raceDistance ?? "");
+        // #region agent log
+        fetch("http://127.0.0.1:7707/ingest/cba70274-43f3-47c4-bdfd-0db115d1b756", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "72c67a" },
+          body: JSON.stringify({
+            sessionId: "72c67a",
+            location: "OnboardingV2.tsx:philosophy-filtered",
+            message: "philosophy after distance constraints",
+            data: {
+              raceDistance: answersPayload.raceDistance,
+              primary: filtered.primary?.philosophy,
+              alternatives: filtered.alternatives?.map((a) => a.philosophy),
+            },
+            timestamp: Date.now(),
+            hypothesisId: "B",
+            runId: "pre-fix",
+          }),
+        }).catch(() => {});
+        // #endregion
+        setState((prev) => ({ ...prev, recommendedPhilosophy: filtered }));
       } catch (e) {
         setPhiloError(e instanceof Error ? e.message : "Network error");
       } finally {
         setPhiloLoading(false);
       }
     })();
-  }, [state.currentStep, state.recommendedPhilosophy, state.answers, philoRetryCount]);
+  }, [state.currentStep, state.recommendedPhilosophy, philoRetryCount]);
 
   const handleSelectPhilosophy = useCallback((philosophy: string) => {
     setDirection("forward");
@@ -212,57 +267,85 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
   // ---- Plan Generation API (Step 9) ----
   useEffect(() => {
     if (state.currentStep !== 9 || !state.selectedPhilosophy) return;
-    if (state.answers.goal === "plan_season") return; // season path: no plan generated
+    if (answersRef.current.goal === "plan_season") return; // season path: no plan generated
     if (state.generatedPlan) return;
 
+    let cancelled = false;
     setPlanLoading(true);
     setPlanError(null);
 
-    const apikey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
-    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/paceiq-generate-plan`;
-
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 110_000);
-
     (async () => {
       try {
-        const { data: { session } } = await supabase.auth.getSession();
-        const r = await fetch(url, {
-          method: "POST",
-          signal: controller.signal,
-          headers: {
-            "Content-Type": "application/json",
-            ...(apikey ? { apikey } : {}),
-            ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-          },
-          body: JSON.stringify({
-            answers: state.answers,
+        const a = answersRef.current;
+        const firstSchedulableDate =
+          (a.planStartWhen ?? "next_week") === "this_week"
+            ? format(addDays(new Date(), a.planFirstDayOffset ?? 0), "yyyy-MM-dd")
+            : undefined;
+
+        const { data, error } = await supabase.functions.invoke<
+          PlanResult & { plan_id?: string; error?: string }
+        >("paceiq-generate-plan", {
+          body: {
+            answers: a,
             philosophy: state.selectedPhilosophy,
-          }),
+            planStartWhen: a.planStartWhen ?? "next_week",
+            firstSchedulableDate,
+          },
         });
-        const data = await r.json().catch(() => ({}));
-        if (!r.ok || (data as { error?: string }).error) {
-          setPlanError((data as { error?: string }).error ?? "Failed to generate plan");
+
+        if (cancelled) return;
+
+        if (error) {
+          let msg = error.message ?? "Failed to generate plan";
+          let httpStatus = 0;
+          const fnCtx = error instanceof FunctionsHttpError ? error.context : undefined;
+          const fnRes = fnCtx instanceof Response ? fnCtx : null;
+          if (fnRes) {
+            try {
+              httpStatus = fnRes.status;
+              const body = (await fnRes.clone().json()) as { error?: string };
+              if (body?.error) msg = String(body.error);
+            } catch {
+              /* keep message */
+            }
+          }
+          if (httpStatus === 401 || /401|unauthorized|jwt|session/i.test(msg)) {
+            setPlanError(AUTH_SESSION_EXPIRED_USER_MESSAGE);
+          } else {
+            setPlanError(msg);
+          }
+        } else if (data && typeof data === "object" && "error" in data && (data as { error?: string }).error) {
+          const apiErr = String((data as { error?: string }).error);
+          if (/unauthorized/i.test(apiErr)) {
+            setPlanError(AUTH_SESSION_EXPIRED_USER_MESSAGE);
+          } else {
+            setPlanError(apiErr || "Failed to generate plan");
+          }
         } else {
-          setState((prev) => ({ ...prev, generatedPlan: data as PlanResult }));
+          const planPayload = data as PlanResult & { plan_id?: string };
+          if (!planPayload?.plan_id) {
+            setPlanError("Failed to generate plan");
+          } else {
+            setState((prev) => ({ ...prev, generatedPlan: planPayload }));
+            try {
+              await enrichTrainingPlanWorkoutsFromLibrary(planPayload.plan_id);
+            } catch (enrichErr) {
+              console.warn("[OnboardingV2] enrichPlanSessions:", enrichErr);
+            }
+          }
         }
       } catch (e) {
-        if (e instanceof Error && e.name === "AbortError") {
-          setPlanError("Plan generation timed out. Please try again.");
-        } else {
-          setPlanError(e instanceof Error ? e.message : "Network error");
-        }
+        if (cancelled) return;
+        setPlanError(e instanceof Error ? e.message : "Network error");
       } finally {
-        clearTimeout(timeoutId);
-        setPlanLoading(false);
+        if (!cancelled) setPlanLoading(false);
       }
     })();
 
     return () => {
-      controller.abort();
-      clearTimeout(timeoutId);
+      cancelled = true;
     };
-  }, [state.currentStep, state.selectedPhilosophy, state.generatedPlan, state.answers, planRetryCount]);
+  }, [state.currentStep, state.selectedPhilosophy, state.generatedPlan, planRetryCount]);
 
   const handleRetryPlan = useCallback(() => {
     setState((prev) => ({ ...prev, generatedPlan: null }));
@@ -371,7 +454,7 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
       <div key={state.currentStep} className={`pt-10 pb-16 ${animClass}`}>
         {state.currentStep === 1 && <Step1Welcome {...stepWithData} />}
         {state.currentStep === 2 && <Step2Goal {...stepProps} />}
-        {state.currentStep === 3 && <Step3RaceTarget {...stepProps} />}
+        {state.currentStep === 3 && <Step3RaceTarget {...stepWithData} />}
         {state.currentStep === 4 && <Step4CurrentTraining {...stepWithData} />}
         {state.currentStep === 5 && <Step5Availability {...stepProps} />}
         {state.currentStep === 6 && <Step6Injuries {...stepProps} />}

@@ -22,6 +22,14 @@ export interface OnboardingV2Answers {
   doubleRunsEnabled: boolean;
   doubleRunDays: string[];
   doubleRunDuration: number;
+  /** "this_week" = first workouts from firstSchedulableDate (never earlier days), "next_week" = start next Monday */
+  planStartWhen: "this_week" | "next_week";
+  /** When planStartWhen is "this_week": 0 = from today, 1 = from tomorrow (local calendar). */
+  planFirstDayOffset: 0 | 1;
+  /** monday..sunday — preferred long run day */
+  preferredLongRunDay: string;
+  /** monday..sunday — primary quality session (tempo/intervals; not the long run if volume allows) */
+  preferredQualityDay: string;
 }
 
 export interface IntervalsData {
@@ -92,6 +100,10 @@ export const DEFAULT_ANSWERS: OnboardingV2Answers = {
   doubleRunsEnabled: false,
   doubleRunDays: [],
   doubleRunDuration: 0,
+  planStartWhen: "next_week",
+  planFirstDayOffset: 0,
+  preferredLongRunDay: "sunday",
+  preferredQualityDay: "thursday",
 };
 
 export const DEFAULT_STATE: OnboardingV2State = {

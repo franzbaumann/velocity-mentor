@@ -5,6 +5,7 @@ import { Marquee } from "@/components/ui/marquee";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
+import { useVitalIntegration } from "@/hooks/useVitalIntegration";
 import { useIntervalsSync, SyncProgress } from "@/hooks/useIntervalsSync";
 import { useOnboardingProgress } from "@/hooks/useOnboardingProgress";
 import { CadeLogo } from "@/components/CadeLogo";
@@ -621,7 +622,9 @@ function Step5({
 export function IntervalsSetupGuide() {
   const navigate = useNavigate();
   const { progress, markStep } = useOnboardingProgress();
-  const { integration } = useIntervalsIntegration();
+  const { integration, isConnected: intervalsConnected } = useIntervalsIntegration();
+  const { isConnected: vitalConnected } = useVitalIntegration();
+  const hasDataSource = intervalsConnected || vitalConnected;
 
   // Resume from last incomplete step (minimum 1)
   const savedStep = progress?.step_completed ?? 0;
@@ -683,12 +686,12 @@ export function IntervalsSetupGuide() {
             <span className="text-xs text-muted-foreground">
               Step {currentStep} of {STEPS.length}
             </span>
-            {completedSteps.has(4) && (
+            {(completedSteps.has(4) || hasDataSource) && (
               <button
-                onClick={() => navigate("/")}
+                onClick={() => navigate(hasDataSource ? "/" : "/settings")}
                 className="text-xs text-muted-foreground hover:text-foreground transition-colors underline underline-offset-2"
               >
-                Skip to dashboard
+                {hasDataSource ? "Skip to dashboard" : "Go to settings"}
               </button>
             )}
           </div>

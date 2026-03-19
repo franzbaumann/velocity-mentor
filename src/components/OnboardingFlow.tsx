@@ -18,7 +18,13 @@ import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useMergedActivities } from "@/hooks/useMergedIntervalsData";
 import { useMergedReadiness } from "@/hooks/useMergedIntervalsData";
 import { format, parseISO, startOfWeek, addDays, isValid } from "date-fns";
-import { supabase } from "@/integrations/supabase/client";
+import { enrichTrainingPlanWorkoutsFromLibrary } from "@/lib/training/enrichPlanSessions";
+import {
+  AUTH_SESSION_EXPIRED_USER_MESSAGE,
+  AuthTokenError,
+  getSafeAccessToken,
+} from "@/lib/supabase-auth-safe";
+import { getSupabaseUrl } from "@/lib/supabase-url";
 
 const TOTAL_STEPS = 9;
 const GOALS_SKIP_RACE = ["aerobic_base", "return_injury", "stay_consistent"];
@@ -165,78 +171,114 @@ export function OnboardingFlow({
 
   useEffect(() => {
     if (step !== 8) return;
+    let cancelled = false;
     setPhilosophyLoading(true);
     setPhilosophyError(null);
     const apikey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
-    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/paceiq-philosophy`;
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(apikey ? { apikey } : {}),
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
-        body: JSON.stringify({ answers }),
-      })
-        .then(async (r) => {
-          const data = await r.json().catch(() => ({}));
-          if (!r.ok) {
-            setPhilosophyError(data.error ?? `Request failed (${r.status})`);
-            setPhilosophyResult(null);
-          } else if (data.error || !data?.primary) {
-            setPhilosophyError(data.error ?? "Invalid response from server");
-            setPhilosophyResult(null);
-          } else {
-            setPhilosophyResult(data);
-          }
-        })
-        .catch((e) => {
-          setPhilosophyError(e.message ?? "Failed to fetch");
+    const url = `${getSupabaseUrl()}/functions/v1/paceiq-philosophy`;
+
+    (async () => {
+      try {
+        const accessToken = await getSafeAccessToken();
+        if (cancelled) return;
+        const r = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(apikey ? { apikey } : {}),
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({ answers }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!r.ok) {
+          setPhilosophyError((data as { error?: string }).error ?? `Request failed (${r.status})`);
           setPhilosophyResult(null);
-        })
-        .finally(() => setPhilosophyLoading(false));
-    });
+        } else if ((data as { error?: string }).error || !(data as { primary?: unknown }).primary) {
+          setPhilosophyError((data as { error?: string }).error ?? "Invalid response from server");
+          setPhilosophyResult(null);
+        } else {
+          setPhilosophyResult(data);
+        }
+      } catch (e) {
+        if (cancelled) return;
+        setPhilosophyError(e instanceof AuthTokenError ? e.message : (e instanceof Error ? e.message : "Failed to fetch"));
+        setPhilosophyResult(null);
+      } finally {
+        if (!cancelled) setPhilosophyLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step]);
 
   useEffect(() => {
     if (step !== 9 || !philosophyForPlan) return;
+    let cancelled = false;
     setPlanLoading(true);
     setPlanError(null);
     const apikey = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? import.meta.env.VITE_SUPABASE_ANON_KEY;
-    const url = `${import.meta.env.VITE_SUPABASE_URL}/functions/v1/paceiq-generate-plan`;
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      fetch(url, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...(apikey ? { apikey } : {}),
-          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
-        },
-        body: JSON.stringify({
-          answers,
-          philosophy: philosophyForPlan,
-        }),
-      })
-        .then(async (r) => {
-          const data = await r.json().catch(() => ({}));
-          if (!r.ok) {
-            setPlanError(data.error ?? `Request failed (${r.status})`);
-            setPlanResult(null);
-          } else if (data.error) {
-            setPlanError(data.error);
-            setPlanResult(null);
+    const url = `${getSupabaseUrl()}/functions/v1/paceiq-generate-plan`;
+
+    (async () => {
+      try {
+        const accessToken = await getSafeAccessToken();
+        if (cancelled) return;
+        const r = await fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...(apikey ? { apikey } : {}),
+            Authorization: `Bearer ${accessToken}`,
+          },
+          body: JSON.stringify({
+            answers,
+            philosophy: philosophyForPlan,
+          }),
+        });
+        const data = await r.json().catch(() => ({}));
+        if (cancelled) return;
+        if (!r.ok) {
+          const apiErr = (data as { error?: string }).error ?? "";
+          if (r.status === 401 || /unauthorized/i.test(apiErr)) {
+            setPlanError(AUTH_SESSION_EXPIRED_USER_MESSAGE);
           } else {
-            setPlanResult(data);
+            setPlanError(apiErr || `Request failed (${r.status})`);
           }
-        })
-        .catch((e) => {
-          setPlanError(e.message ?? "Failed to generate plan");
           setPlanResult(null);
-        })
-        .finally(() => setPlanLoading(false));
-    });
+        } else if ((data as { error?: string }).error) {
+          const apiErr = (data as { error: string }).error;
+          setPlanError(/unauthorized/i.test(apiErr) ? AUTH_SESSION_EXPIRED_USER_MESSAGE : apiErr);
+          setPlanResult(null);
+        } else {
+          setPlanResult(data);
+          const pid = (data as { plan_id?: string }).plan_id;
+          if (pid) {
+            enrichTrainingPlanWorkoutsFromLibrary(pid).catch((e) =>
+              console.warn("[OnboardingFlow] enrichPlanSessions:", e)
+            );
+          }
+        }
+      } catch (e) {
+        if (cancelled) return;
+        if (e instanceof AuthTokenError) {
+          setPlanError(e.message);
+        } else {
+          setPlanError(e instanceof Error ? e.message : "Failed to generate plan");
+        }
+        setPlanResult(null);
+      } finally {
+        if (!cancelled) setPlanLoading(false);
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, philosophyForPlan, planRetryCount]);
 

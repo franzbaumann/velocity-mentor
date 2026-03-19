@@ -69,6 +69,16 @@ export interface TLSContextForPrompt {
   hasCheckedInToday: boolean;
 }
 
+/** Next incomplete planned run in the active plan (for contextual coaching). */
+export interface NextPlannedSessionForPrompt {
+  date: string;
+  title: string;
+  main_description: string | null;
+  purpose: string | null;
+  control_tool: string | null;
+  key_focus: string | null;
+}
+
 export interface AthleteContext {
   name: string;
   ctl: number | null;
@@ -92,6 +102,8 @@ export interface AthleteContext {
   prs: PersonalRecord[];
   plan: PlanSummary | null;
   plan_workouts_text: string;
+  /** Rich session structure for the next incomplete workout, when available. */
+  next_planned_session: NextPlannedSessionForPrompt | null;
   onboarding_answers: Record<string, unknown> | null;
   readiness_history_text: string;
   memories: CoachingMemory[];

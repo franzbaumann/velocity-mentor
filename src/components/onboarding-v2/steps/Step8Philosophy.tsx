@@ -1,6 +1,13 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import { differenceInWeeks, format, parseISO, isValid, startOfWeek, addDays } from "date-fns";
 import type { StepProps, PhilosophyRecommendation } from "../types";
 import { OnboardingLayout } from "../OnboardingLayout";
+import {
+  formatSummaryRaceDistance,
+  getPhilosophyHeadline,
+  getPhilosophyPitch,
+  normalizeRaceDistanceToConstraintKey,
+} from "@/lib/onboarding/philosophyConstraints";
 
 interface Step8Props extends StepProps {
   recommendation: PhilosophyRecommendation | null;
@@ -45,6 +52,8 @@ const ANALYSE_STEPS = [
 ];
 
 export function Step8Philosophy({
+  answers,
+  onUpdate,
   onBack,
   recommendation,
   loading,
@@ -53,6 +62,47 @@ export function Step8Philosophy({
   onRetry,
 }: Step8Props) {
   const [visibleAnalyse, setVisibleAnalyse] = useState(0);
+
+  const distKey = normalizeRaceDistanceToConstraintKey(answers.raceDistance);
+  const headline = getPhilosophyHeadline(distKey);
+
+  const summaryLine = useMemo(() => {
+    const distLabel = formatSummaryRaceDistance(answers.raceDistance);
+    let weeksPart: number | null = null;
+    if (answers.raceDate) {
+      try {
+        const d = parseISO(answers.raceDate);
+        if (isValid(d)) {
+          const w = differenceInWeeks(d, new Date());
+          weeksPart = w > 0 ? w : null;
+        }
+      } catch {
+        weeksPart = null;
+      }
+    }
+    const thisMonday = startOfWeek(new Date(), { weekStartsOn: 1 });
+    const planStart =
+      (answers.planStartWhen ?? "next_week") === "this_week"
+        ? addDays(new Date(), answers.planFirstDayOffset ?? 0)
+        : addDays(thisMonday, 7);
+    const startLabel = format(planStart, "MMM d");
+    const phil = recommendation
+      ? formatPhilosophyName(recommendation.primary.philosophy)
+      : "—";
+    const parts = [
+      distLabel,
+      weeksPart != null ? `${weeksPart} weeks` : null,
+      `Starting ${startLabel}`,
+      phil,
+    ].filter(Boolean);
+    return parts.join(" · ");
+  }, [
+    answers.raceDate,
+    answers.raceDistance,
+    answers.planStartWhen,
+    answers.planFirstDayOffset,
+    recommendation?.primary.philosophy,
+  ]);
 
   useEffect(() => {
     if (!loading) {
@@ -68,6 +118,29 @@ export function Step8Philosophy({
     }, 700);
     return () => clearInterval(interval);
   }, [loading]);
+
+  useEffect(() => {
+    if (!recommendation || loading || error) return;
+    // #region agent log
+    fetch("http://127.0.0.1:7707/ingest/cba70274-43f3-47c4-bdfd-0db115d1b756", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "X-Debug-Session-Id": "72c67a" },
+      body: JSON.stringify({
+        sessionId: "72c67a",
+        location: "Step8Philosophy.tsx:render-primary",
+        message: "philosophy UI primary",
+        data: {
+          raceDistance: answers.raceDistance,
+          primary: recommendation.primary.philosophy,
+          alternatives: recommendation.alternatives.map((a) => a.philosophy),
+        },
+        timestamp: Date.now(),
+        hypothesisId: "C",
+        runId: "pre-fix",
+      }),
+    }).catch(() => {});
+    // #endregion
+  }, [recommendation, loading, error, answers.raceDistance]);
 
   return (
     <OnboardingLayout fullWidth>
@@ -177,8 +250,79 @@ export function Step8Philosophy({
                 Based on your profile
               </p>
               <h1 className="text-[36px] lg:text-[44px] font-extrabold text-foreground tracking-tight leading-[1.05]">
-                Here&apos;s what fits you.
+                {headline}
               </h1>
+              <p className="text-sm text-muted-foreground/80 mt-3 leading-relaxed">{summaryLine}</p>
+            </div>
+
+            {/* When to start */}
+            <div className="rounded-2xl border border-border bg-card p-5 space-y-3">
+              <p className="text-[13px] font-semibold text-foreground">When do you want to start?</p>
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onUpdate({
+                      planStartWhen: "this_week",
+                      planFirstDayOffset: answers.planFirstDayOffset ?? 0,
+                    })
+                  }
+                  className={`flex-1 py-3 px-4 rounded-xl text-sm font-medium transition-all ${
+                    (answers.planStartWhen ?? "next_week") === "this_week"
+                      ? "bg-primary text-primary-foreground ring-2 ring-primary"
+                      : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  This week
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onUpdate({ planStartWhen: "next_week" })}
+                  className={`flex-1 py-3 px-4 rounded-xl text-sm font-medium transition-all ${
+                    (answers.planStartWhen ?? "next_week") === "next_week"
+                      ? "bg-primary text-primary-foreground ring-2 ring-primary"
+                      : "bg-muted/50 text-muted-foreground hover:bg-muted"
+                  }`}
+                >
+                  Next week
+                </button>
+              </div>
+              {(answers.planStartWhen ?? "next_week") === "this_week" && (
+                <div className="space-y-2 pt-1">
+                  <p className="text-[11px] font-medium text-foreground/90">First workout from:</p>
+                  <div className="flex gap-2">
+                    <button
+                      type="button"
+                      onClick={() => onUpdate({ planFirstDayOffset: 0 })}
+                      className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-semibold transition-all ${
+                        (answers.planFirstDayOffset ?? 0) === 0
+                          ? "bg-primary/15 text-primary ring-1 ring-primary/40"
+                          : "bg-muted/40 text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      Today
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => onUpdate({ planFirstDayOffset: 1 })}
+                      className={`flex-1 py-2.5 px-3 rounded-lg text-xs font-semibold transition-all ${
+                        answers.planFirstDayOffset === 1
+                          ? "bg-primary/15 text-primary ring-1 ring-primary/40"
+                          : "bg-muted/40 text-muted-foreground hover:bg-muted"
+                      }`}
+                    >
+                      Tomorrow
+                    </button>
+                  </div>
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground/70">
+                {(answers.planStartWhen ?? "next_week") === "this_week"
+                  ? (answers.planFirstDayOffset ?? 0) === 1
+                    ? "No sessions on calendar days before tomorrow — calendar weeks stay Mon–Sun."
+                    : "No sessions on days that have already passed — calendar weeks stay Mon–Sun."
+                  : "Plan starts next Monday (recommended)."}
+              </p>
             </div>
 
             {/* Primary recommendation — hero card */}
@@ -189,7 +333,6 @@ export function Step8Philosophy({
                 <p className="text-[11px] font-bold tracking-[0.2em] uppercase text-primary">
                   Best match for you
                 </p>
-                <ConfidenceChip confidence={recommendation.primary.confidence} />
               </div>
 
               <div className="flex items-center gap-4 relative">
@@ -207,7 +350,7 @@ export function Step8Philosophy({
               </div>
 
               <p className="text-[15px] text-muted-foreground leading-relaxed relative">
-                {recommendation.primary.reason}
+                {getPhilosophyPitch(recommendation.primary.philosophy, distKey)}
               </p>
 
               <button
@@ -246,7 +389,7 @@ export function Step8Philosophy({
                       </div>
 
                       <p className="text-[13px] text-muted-foreground/70 leading-relaxed line-clamp-3">
-                        {alt.reason}
+                        {getPhilosophyPitch(alt.philosophy, distKey)}
                       </p>
 
                       <button
@@ -264,33 +407,6 @@ export function Step8Philosophy({
         )}
       </div>
     </OnboardingLayout>
-  );
-}
-
-function ConfidenceChip({ confidence }: { confidence: number }) {
-  const clamp = Math.min(100, Math.max(0, confidence));
-  return (
-    <div className="flex items-center gap-2 bg-primary/10 rounded-full px-3 py-1">
-      <div className="relative w-4 h-4">
-        <svg viewBox="0 0 36 36" className="w-full h-full -rotate-90 text-primary">
-          <circle
-            cx="18" cy="18" r="15"
-            fill="none"
-            stroke="hsl(var(--primary) / 0.15)"
-            strokeWidth="3"
-          />
-          <circle
-            cx="18" cy="18" r="15"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="3"
-            strokeDasharray={`${(clamp / 100) * 94.25} 94.25`}
-            strokeLinecap="round"
-          />
-        </svg>
-      </div>
-      <span className="text-xs font-bold text-primary tabular-nums">{clamp}%</span>
-    </div>
   );
 }
 

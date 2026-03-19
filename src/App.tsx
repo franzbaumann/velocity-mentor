@@ -10,6 +10,7 @@ import { SidebarProvider } from "@/components/SidebarContext";
 import { DailyCheckInProvider } from "@/components/DailyCheckInContext";
 import { IntervalsAutoSync } from "@/components/IntervalsAutoSync";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
+import { useVitalIntegration } from "@/hooks/useVitalIntegration";
 import { useAthleteProfile } from "@/hooks/useAthleteProfile";
 import { IntervalsSetupGuide } from "@/components/onboarding/IntervalsSetupGuide";
 import Index from "./pages/Index";
@@ -22,6 +23,7 @@ import Philosophy from "./pages/Philosophy";
 import AuthPage from "./pages/AuthPage";
 import ContactPage from "./pages/ContactPage";
 import StravaCallback from "./pages/StravaCallback";
+import VitalCallback from "./pages/VitalCallback";
 import NotFound from "./pages/NotFound";
 
 // Chart-heavy pages: lazy load to avoid Recharts/ResizeObserver issues on initial hydration
@@ -42,12 +44,15 @@ function ThemeInit() {
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
   const { integration, isLoading: integrationLoading } = useIntervalsIntegration();
+  const { isConnected: vitalConnected, isLoading: vitalLoading } = useVitalIntegration();
   const { data: profile, isLoading: profileLoading } = useAthleteProfile();
   const location = useLocation();
   const onSetUsername = location.pathname === "/set-username";
   const onSetup = location.pathname === "/setup";
+  const onSettings = location.pathname === "/settings";
+  const hasDataSource = !!integration || vitalConnected;
 
-  if (loading || integrationLoading) {
+  if (loading || integrationLoading || vitalLoading) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" style={{ borderColor: "hsl(211 100% 52%)", borderTopColor: "transparent" }} />
@@ -56,7 +61,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   }
   if (!user) return <Navigate to="/auth" replace />;
 
-  if (!integration && !onSetup) {
+  if (!hasDataSource && !onSetup && !onSettings) {
     return <Navigate to="/setup" replace />;
   }
 
@@ -75,8 +80,10 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 function LandingOrDashboard() {
   const { user, loading } = useAuth();
   const { integration, isLoading: integrationLoading } = useIntervalsIntegration();
+  const { isConnected: vitalConnected, isLoading: vitalLoading } = useVitalIntegration();
   const { data: profile, isLoading: profileLoading } = useAthleteProfile();
-  if (loading || (user && integrationLoading)) {
+  const hasDataSource = !!integration || vitalConnected;
+  if (loading || (user && (integrationLoading || vitalLoading))) {
     return (
       <div className="min-h-screen bg-background flex items-center justify-center">
         <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" style={{ borderColor: "hsl(211 100% 52%)", borderTopColor: "transparent" }} />
@@ -84,7 +91,7 @@ function LandingOrDashboard() {
     );
   }
   if (user) {
-    if (!integration) return <Navigate to="/setup" replace />;
+    if (!hasDataSource) return <Navigate to="/setup" replace />;
     if (!profileLoading && profile && (profile.username == null || profile.username === "")) {
       return <Navigate to="/set-username" replace />;
     }
@@ -116,6 +123,7 @@ const App = () => (
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/auth/strava/callback" element={<StravaCallback />} />
+          <Route path="/auth/vital/callback" element={<VitalCallback />} />
           <Route path="/set-username" element={<AuthGuard><SetUsername /></AuthGuard>} />
           <Route path="/setup" element={<AuthGuard><IntervalsSetupGuide /></AuthGuard>} />
           <Route path="/" element={<LandingOrDashboard />} />

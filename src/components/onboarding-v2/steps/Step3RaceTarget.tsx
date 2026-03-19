@@ -1,13 +1,21 @@
 import { useMemo } from "react";
 import { differenceInWeeks, format, parseISO, isValid } from "date-fns";
-import type { StepProps } from "../types";
+import type { StepWithDataProps } from "../types";
 import { TwoColumnLayout } from "../OnboardingLayout";
 import { ExpandableText } from "../components/ExpandableText";
 import { DateWheelPicker } from "@/components/ui/date-wheel-picker";
 import { TimeWheelPicker } from "@/components/ui/time-wheel-picker";
 import { parseGoalTimeToSeconds, formatSecondsToGoalTime } from "@/lib/format";
+import { calculateVDOT } from "@/lib/training/vdot";
+import {
+  classifyGoalFeasibility,
+  estimateMaxVdotFromRecentRuns,
+  getRaceDistanceMetersForVdot,
+} from "@/lib/onboarding/estimateBaselineVdot";
 
 const DISTANCES = [
+  { id: "1500m", label: "1500m" },
+  { id: "Mile", label: "Mile" },
   { id: "5K", label: "5K" },
   { id: "10K", label: "10K" },
   { id: "Half Marathon", label: "Half" },
@@ -16,10 +24,13 @@ const DISTANCES = [
 ] as const;
 
 const DISTANCE_KM: Record<string, number> = {
+  "1500m": 1.5,
+  Mile: 1.60934,
   "5K": 5,
   "10K": 10,
   "Half Marathon": 21.0975,
   Marathon: 42.195,
+  Ultra: 50,
 };
 
 function formatPace(totalSeconds: number, distanceKm: number): string {
@@ -33,8 +44,26 @@ function formatPace(totalSeconds: number, distanceKm: number): string {
   return `${min}:${String(sec).padStart(2, "0")}/km`;
 }
 
-export function Step3RaceTarget({ answers, onUpdate, onNext, onBack }: StepProps) {
+function feasibilityLabel(f: ReturnType<typeof classifyGoalFeasibility>): {
+  text: string;
+  className: string;
+} | null {
+  if (!f) return null;
+  if (f === "achievable") return { text: "Achievable", className: "text-emerald-500 font-semibold" };
+  if (f === "stretch") return { text: "Stretch goal", className: "text-amber-500 font-semibold" };
+  return { text: "Very ambitious", className: "text-red-400 font-semibold" };
+}
+
+export function Step3RaceTarget({ answers, onUpdate, onNext, onBack, intervalsData }: StepWithDataProps) {
   const canProceed = answers.raceDistance && answers.raceDate;
+
+  const baselineVdot = useMemo(
+    () =>
+      answers.raceDistance
+        ? estimateMaxVdotFromRecentRunsForGoal(intervalsData.activities, answers.raceDistance)
+        : null,
+    [intervalsData.activities, answers.raceDistance]
+  );
 
   const preview = useMemo(() => {
     const weeksAway = (() => {
@@ -57,20 +86,36 @@ export function Step3RaceTarget({ answers, onUpdate, onNext, onBack }: StepProps
       return formatPace(totalSec, km);
     })();
 
-    const dateFormatted = (() => {
+    const dateShort = (() => {
       if (!answers.raceDate) return null;
       try {
         const d = parseISO(answers.raceDate);
-        return isValid(d) ? format(d, "MMMM d, yyyy") : null;
+        return isValid(d) ? format(d, "MMM d") : null;
       } catch {
         return null;
       }
     })();
 
-    return { weeksAway, pace, dateFormatted };
-  }, [answers.raceDate, answers.goalTime, answers.raceDistance]);
+    const goalVdot = (() => {
+      if (!answers.goalTime || !answers.raceDistance) return null;
+      const totalSec = parseGoalTimeToSeconds(answers.goalTime);
+      const meters = getRaceDistanceMetersForVdot(answers.raceDistance);
+      if (!totalSec || !meters) return null;
+      return calculateVDOT(meters, totalSec);
+    })();
+
+    const feasibility = goalVdot != null ? classifyGoalFeasibility(goalVdot, baselineVdot) : null;
+
+    return { weeksAway, pace, dateShort, goalVdot, feasibility };
+  }, [
+    answers.raceDate,
+    answers.goalTime,
+    answers.raceDistance,
+    baselineVdot,
+  ]);
 
   const hasPreviewData = answers.raceName || answers.raceDistance || answers.raceDate;
+  const feasibilityUi = feasibilityLabel(preview.feasibility);
 
   const leftContent = hasPreviewData ? (
     <div className="rounded-2xl border border-border bg-card p-5 space-y-2 onboarding-slide-forward">
@@ -78,14 +123,25 @@ export function Step3RaceTarget({ answers, onUpdate, onNext, onBack }: StepProps
         {answers.raceName || answers.raceDistance || "Your race"}
       </p>
       <div className="flex items-center gap-2 text-sm text-muted-foreground/70 flex-wrap">
-        {preview.dateFormatted && <span>{preview.dateFormatted}</span>}
+        {preview.dateShort && <span>{preview.dateShort}</span>}
         {preview.weeksAway && (
           <>
-            {preview.dateFormatted && <span className="text-muted-foreground/50">·</span>}
+            {preview.dateShort && <span className="text-muted-foreground/50">·</span>}
             <span className="text-primary font-semibold">{preview.weeksAway} weeks</span>
           </>
         )}
       </div>
+      {preview.goalVdot != null && (
+        <p className="text-sm text-muted-foreground">
+          Implied by your goal:{" "}
+          <span className="text-foreground font-semibold tabular-nums">~{Math.round(preview.goalVdot)} VDOT</span>
+        </p>
+      )}
+      {feasibilityUi && (
+        <p className={`text-sm ${feasibilityUi.className}`}>
+          {feasibilityUi.text}
+        </p>
+      )}
       {answers.goalTime && (
         <p className="text-sm text-muted-foreground">
           Target: <span className="text-foreground font-semibold">{answers.goalTime}</span>
@@ -110,7 +166,9 @@ export function Step3RaceTarget({ answers, onUpdate, onNext, onBack }: StepProps
       <div className="space-y-6">
         {/* Race name */}
         <div>
-          <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2.5">Race name</label>
+          <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2.5">
+            Race name
+          </label>
           <input
             type="text"
             value={answers.raceName}
@@ -122,11 +180,14 @@ export function Step3RaceTarget({ answers, onUpdate, onNext, onBack }: StepProps
 
         {/* Distance pills */}
         <div>
-          <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2.5">Distance</label>
+          <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2.5">
+            Distance
+          </label>
           <div className="flex gap-2 flex-wrap">
             {DISTANCES.map((d) => (
               <button
                 key={d.id}
+                type="button"
                 onClick={() => {
                   onUpdate({ raceDistance: d.id });
                   if (d.id === "Marathon" && answers.goal === "first_marathon" && !answers.raceName) {
@@ -147,7 +208,9 @@ export function Step3RaceTarget({ answers, onUpdate, onNext, onBack }: StepProps
 
         {/* Race date */}
         <div>
-          <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2.5">Race date</label>
+          <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2.5">
+            Race date
+          </label>
           <div className="rounded-2xl border border-border bg-card p-3">
             <DateWheelPicker
               value={answers.raceDate ? parseISO(answers.raceDate) : new Date()}
@@ -160,7 +223,9 @@ export function Step3RaceTarget({ answers, onUpdate, onNext, onBack }: StepProps
 
         {/* Goal time */}
         <div>
-          <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2.5">Goal time</label>
+          <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2.5">
+            Goal time
+          </label>
           <div className="rounded-2xl border border-border bg-card p-3">
             <TimeWheelPicker
               value={parseGoalTimeToSeconds(answers.goalTime)}
@@ -181,6 +246,7 @@ export function Step3RaceTarget({ answers, onUpdate, onNext, onBack }: StepProps
         {/* Continue */}
         {canProceed && (
           <button
+            type="button"
             onClick={onNext}
             className="group w-full py-3.5 rounded-2xl bg-primary text-primary-foreground font-semibold text-sm hover:bg-primary/90 active:scale-[0.98] transition-all mt-2"
           >

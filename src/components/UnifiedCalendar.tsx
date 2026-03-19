@@ -17,13 +17,26 @@ import {
 } from "date-fns";
 import { ChevronLeft, ChevronRight, Check, MessageCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { useNavigate } from "react-router-dom";
 import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { SessionCard } from "@/components/training/SessionCard";
+import type { SessionStructureStored } from "@/lib/training/sessionStructureUi";
 import { formatDistance, normalizePaceDisplay, plannedWorkoutDurationMinutes, plannedWorkoutSummary } from "@/lib/format";
 import { isNonDistanceActivity } from "@/lib/analytics";
 
@@ -62,6 +75,7 @@ export type PlannedWorkout = {
   scheduled_date: string | null;
   session_type: string;
   type?: string;
+  name?: string | null;
   description: string;
   distance_km: number | null;
   duration_min: number | null;
@@ -107,6 +121,7 @@ export function UnifiedCalendar({ defaultView = "plan", onAskCoachCade }: Unifie
         scheduled_date: s.scheduled_date,
         session_type: s.session_type ?? s.type ?? "easy",
         type: s.session_type ?? s.type,
+        name: (s as { name?: string | null }).name ?? null,
         description: s.description ?? "",
         distance_km: s.distance_km,
         duration_min: s.duration_min ?? s.duration_minutes,
@@ -116,6 +131,9 @@ export function UnifiedCalendar({ defaultView = "plan", onAskCoachCade }: Unifie
         completed: s.completed ?? !!s.completed_at,
         key_focus: s.key_focus,
         coach_note: s.coach_note,
+        session_structure: (s as { session_structure?: SessionStructureStored | null }).session_structure ?? null,
+        week_number: (s as { week_number?: number | null }).week_number ?? null,
+        phase: (s as { phase?: string | null }).phase ?? null,
       }))
     ) as PlannedWorkout[];
   }, [plan]);
@@ -245,6 +263,7 @@ export function UnifiedCalendar({ defaultView = "plan", onAskCoachCade }: Unifie
   };
 
   return (
+    <TooltipProvider delayDuration={350}>
     <div className="w-full">
       {/* Navigation */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-[#E5E7EB] dark:border-border">
@@ -357,18 +376,18 @@ export function UnifiedCalendar({ defaultView = "plan", onAskCoachCade }: Unifie
         </div>
       </div>
 
-      {/* Slide-up panel */}
-      <Sheet open={!!selectedDate} onOpenChange={(open) => !open && setSelectedDate(null)}>
-        <SheetContent side="bottom" className="max-h-[85vh] rounded-t-2xl">
-          <SheetHeader>
-            <SheetTitle>
+      {/* Centered day detail modal */}
+      <Dialog open={!!selectedDate} onOpenChange={(open) => !open && setSelectedDate(null)}>
+        <DialogContent className="max-w-sm rounded-2xl max-h-[85vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
               {selectedDate ? format(new Date(selectedDate), "EEEE, MMMM d, yyyy") : ""}
-            </SheetTitle>
-          </SheetHeader>
-          <div className="space-y-4 mt-4 max-h-[60vh] overflow-y-auto">
+            </DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 mt-2">
             {selectedDate && (
               <>
-                {selectedWorkouts.length > 0 && (
+                {selectedWorkouts.length > 0 ? (
                   <div className="card-standard">
                     <p className="section-header mb-2">
                       Planned workout{selectedWorkouts.length > 1 ? "s" : ""}
@@ -393,9 +412,23 @@ export function UnifiedCalendar({ defaultView = "plan", onAskCoachCade }: Unifie
                             {w.pace_target && <span>@{w.pace_target}</span>}
                             {w.target_hr_zone != null && <span>HR zone {w.target_hr_zone}</span>}
                           </div>
+                          {w.session_structure ? (
+                            <div className="mt-2">
+                              <SessionCard
+                                workout={plannedWorkoutToSessionCardModel(w)}
+                                compact
+                                alwaysExpanded
+                                className="border border-border shadow-none p-3"
+                              />
+                            </div>
+                          ) : null}
                         </div>
                       ); })}
                     </div>
+                  </div>
+                ) : (
+                  <div className="text-sm text-[#6B7280]">
+                    No session planned
                   </div>
                 )}
 
@@ -462,10 +495,40 @@ export function UnifiedCalendar({ defaultView = "plan", onAskCoachCade }: Unifie
               </>
             )}
           </div>
-        </SheetContent>
-      </Sheet>
+        </DialogContent>
+      </Dialog>
     </div>
+    </TooltipProvider>
   );
+}
+
+function plannedWorkoutToSessionCardModel(w: PlannedWorkout) {
+  return {
+    id: w.id,
+    scheduled_date: w.scheduled_date,
+    session_type: w.session_type ?? w.type ?? "easy",
+    name: w.name,
+    description: w.description,
+    distance_km: w.distance_km,
+    duration_min: w.duration_min ?? w.duration_minutes ?? null,
+    pace_target: w.pace_target ?? w.target_pace ?? null,
+    target_hr_zone: w.target_hr_zone,
+    key_focus: w.key_focus,
+    session_structure: w.session_structure ?? null,
+  };
+}
+
+function plannedWorkoutTooltipContent(w: PlannedWorkout): string {
+  const durationMin = plannedWorkoutDurationMinutes(w);
+  const parts = [
+    w.distance_km != null ? `${w.distance_km} km` : null,
+    durationMin != null ? `${durationMin} min` : null,
+    w.pace_target ? `@${w.pace_target}` : null,
+    w.target_hr_zone != null ? `HR z${w.target_hr_zone}` : null,
+  ].filter(Boolean);
+  const extra = w.description?.trim();
+  const summary = plannedWorkoutSummary(w);
+  return [summary, parts.length ? parts.join(" · ") : null, extra || null].filter(Boolean).join("\n");
 }
 
 function DayCell({
@@ -500,34 +563,34 @@ function DayCell({
       className={`
         relative flex flex-col items-stretch rounded-lg text-left p-2 transition-colors
         ${isWeekView ? "min-h-[80px] sm:min-h-[96px]" : "min-h-[72px] sm:min-h-[88px]"}
-        ${!inMonth ? "text-[#6B7280]/50" : "text-foreground"}
-        ${hasData ? "cursor-pointer hover:bg-[#0A84FF]/10" : "cursor-pointer"}
+        ${!inMonth ? "text-muted-foreground/50" : "text-foreground"}
+        ${hasData ? "cursor-pointer hover:bg-primary/10" : "cursor-pointer"}
+        ${today ? "ring-2 ring-[#2563EB] dark:ring-primary ring-offset-2 ring-offset-background" : ""}
       `}
     >
-      <span className={`text-sm mb-1 ${today ? "font-semibold text-[#0A84FF]" : ""}`}>
+      <span className={`text-sm mb-1 ${today ? "font-semibold text-[#2563EB] dark:text-primary" : ""}`}>
         {format(day, "d")}
       </span>
 
       <div className="flex flex-row flex-wrap gap-1 min-w-0">
-        {today && (
-          <span
-            className="text-[10px] px-2 py-0.5 rounded-full font-medium inline-flex items-center shrink-0"
-            style={{ backgroundColor: "#0A84FF", color: "#fff" }}
-          >
-            Today
-          </span>
-        )}
         {firstWorkout && (
-          <span
-            className="text-[10px] px-2 py-0.5 rounded-full truncate font-medium inline-flex items-center gap-1 shrink-0"
-            style={{
-              backgroundColor: getWorkoutColor(firstWorkout.session_type).bg,
-              color: getWorkoutColor(firstWorkout.session_type).text,
-            }}
-          >
-            {hasMatch && <Check className="w-2.5 h-2.5 shrink-0" />}
-            {firstWorkout.session_type} {firstWorkout.distance_km != null && `${firstWorkout.distance_km}km`}
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span
+                className="text-[10px] px-2 py-0.5 rounded-full truncate font-medium inline-flex items-center gap-1 shrink-0 cursor-default"
+                style={{
+                  backgroundColor: getWorkoutColor(firstWorkout.session_type).bg,
+                  color: getWorkoutColor(firstWorkout.session_type).text,
+                }}
+              >
+                {hasMatch && <Check className="w-2.5 h-2.5 shrink-0" />}
+                {firstWorkout.session_type} {firstWorkout.distance_km != null && `${firstWorkout.distance_km}km`}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top" className="max-w-[260px] whitespace-pre-line text-left">
+              {plannedWorkoutTooltipContent(firstWorkout)}
+            </TooltipContent>
+          </Tooltip>
         )}
         {firstActivity && (
           <span

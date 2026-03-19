@@ -90,18 +90,25 @@ export function useDashboardData() {
       (a) => isRunningActivity(a.type) && (a.distance_km ?? 0) >= 0.01 && (a.distance_km ?? 0) <= 150
     );
     const last = runs[runs.length - 1];
-    if (!last) return { ...mockLastActivity, detailId: null as string | null, hrZonesEstimated: false };
-    const maxHr = athleteProfile?.max_hr ?? last.max_hr ?? null;
+    if (!last) return { ...mockLastActivity, detailId: null as string | null, hrZonesEstimated: false, needsMaxHrForZones: false };
+    const maxHr = athleteProfile?.max_hr ?? null;
     const avgHr = last.avg_hr ?? null;
     const canUseAthleteZones = maxHr != null && avgHr != null && maxHr > 0 && avgHr > 0;
     let z: { z1: number; z2: number; z3: number; z4: number; z5: number } | null;
     let hrZonesEstimated = false;
+    const needsMaxHrForZones = !athleteProfile?.max_hr && avgHr != null;
     if (canUseAthleteZones) {
       z = estimateHrZoneDistributionFromAvgHr(avgHr, maxHr, athleteProfile?.resting_hr ?? null);
       hrZonesEstimated = true;
     } else {
-      z = normalizeHrZones(last);
-      if (z == null) z = { z1: 5, z2: 18, z3: 32, z4: 40, z5: 5 };
+      const normalized = normalizeHrZones(last);
+      if (normalized) {
+        z = normalized;
+      } else if (needsMaxHrForZones) {
+        z = { z1: 0, z2: 0, z3: 0, z4: 0, z5: 0 };
+      } else {
+        z = { z1: 5, z2: 18, z3: 32, z4: 40, z5: 5 };
+      }
     }
     const detailId = last.external_id && last.source === "intervals_icu"
       ? `icu_${last.external_id}`
@@ -122,6 +129,7 @@ export function useDashboardData() {
         z5: z.z5 ?? 0,
       },
       hrZonesEstimated,
+      needsMaxHrForZones: needsMaxHrForZones ?? false,
       detailId,
     };
   }, [activities, athleteProfile]);
@@ -230,6 +238,7 @@ export function useDashboardData() {
     const summary = latest.ai_summary ?? (tsb != null || hrv != null || sleep != null
       ? "Synced from intervals.icu"
       : mockReadiness.aiSummary);
+    const rampRate = latest.ramp_rate ?? (latest as { icu_ramp_rate?: number | null }).icu_ramp_rate ?? null;
     return {
       score,
       hrv: hrv ?? mockReadiness.hrv,
@@ -241,12 +250,13 @@ export function useDashboardData() {
       ctl: ctl ?? mockReadiness.ctl,
       atl: atl ?? mockReadiness.atl,
       tsb: tsb != null ? Math.round(tsb * 10) / 10 : mockReadiness.tsb,
+      rampRate: rampRate != null ? Number(rampRate) : null,
       aiSummary: summary,
       hrvTrend: "neutral" as const,
     };
   }, [readinessRows]);
 
-  const weekPlan = useMemo(() => {
+  const { weekPlan, next7DaysHasPlannedSessions } = useMemo(() => {
     const mon = startOfWeek(new Date(), { weekStartsOn: 1 });
     const monStr = format(mon, "yyyy-MM-dd");
     const sunStr = format(addDays(mon, 6), "yyyy-MM-dd");
@@ -268,8 +278,9 @@ export function useDashboardData() {
         }
       }
     }
+    const hasPlannedInWindow = planSessionsByDate.size > 0;
 
-    return [0, 1, 2, 3, 4, 5, 6].map((i) => {
+    const days = [0, 1, 2, 3, 4, 5, 6].map((i) => {
       const d = addDays(mon, i);
       const dateStr = format(d, "yyyy-MM-dd");
       const dayActs = activities.filter((a) => isRunningActivity(a.type) && a.date === dateStr && (a.distance_km ?? 0) >= 0.01 && (a.distance_km ?? 0) <= 150);
@@ -305,6 +316,7 @@ export function useDashboardData() {
         detailId,
       };
     });
+    return { weekPlan: days, next7DaysHasPlannedSessions: hasPlannedInWindow };
   }, [activities, planData]);
 
   const todaysWorkout = useMemo(() => {
@@ -367,7 +379,9 @@ export function useDashboardData() {
     weekStats,
     recoveryMetrics,
     readiness,
+    readinessRows,
     weekPlan,
+    next7DaysHasPlannedSessions,
     todaysWorkout,
     isSampleData,
     hasRealReadiness,
@@ -384,5 +398,13 @@ export function useDashboardData() {
           },
         }
       : { name: "Athlete", currentPhase: "Build" as const, goalRace: { type: "Marathon", weeksRemaining: 14 } },
+    athleteProfile: athleteProfile
+      ? {
+          vdot: athleteProfile.vdot ?? null,
+          vo2max: athleteProfile.vo2max ?? null,
+          lactateThresholdPace: athleteProfile.lactate_threshold_pace ?? null,
+          injuryHistoryText: athleteProfile.injury_history_text ?? null,
+        }
+      : null,
   };
 }

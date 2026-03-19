@@ -1,5 +1,6 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { AI_LIMITS } from "../_shared/ai-models.ts";
+import { linkActivityToPlannedWorkout } from "../_shared/plan-activity-match.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -427,7 +428,15 @@ ${trkpts}
           intensity_factor: run.intensity_factor != null ? Number(run.intensity_factor) : null,
           garmin_id: `icu_${externalId}`,
         }, { onConflict: "user_id,garmin_id" });
-        if (!error) upserted++;
+        if (!error) {
+          upserted++;
+          await linkActivityToPlannedWorkout(supabaseAdmin, user.id, {
+            date,
+            distanceKm: distKm > 0 ? Math.round(distKm * 100) / 100 : null,
+            activityType,
+            garminId: `icu_${externalId}`,
+          });
+        }
       }
       return jsonOk({ action: "sync_activities", done: true, activities: allRuns.length, upserted });
     }
@@ -732,7 +741,15 @@ ${trkpts}
               intensity_factor: run.intensity_factor != null ? Number(run.intensity_factor) : null,
               garmin_id: `icu_${externalId}`,
             }, { onConflict: "user_id,garmin_id" });
-            if (!error) activitiesUpserted++;
+            if (!error) {
+              activitiesUpserted++;
+              await linkActivityToPlannedWorkout(supabaseAdmin, user.id, {
+                date,
+                distanceKm: distKm > 0 ? Math.round(distKm * 100) / 100 : null,
+                activityType,
+                garminId: `icu_${externalId}`,
+              });
+            }
           }
         }
       } catch (e) {
@@ -1036,8 +1053,15 @@ ${trkpts}
           garmin_id: `icu_${externalId}`,
         }, { onConflict: "user_id,garmin_id" });
 
-        if (!error) upsertedCount++;
-        else console.error("upsert error:", error.message, "for", externalId);
+        if (!error) {
+          upsertedCount++;
+          await linkActivityToPlannedWorkout(supabaseAdmin, user.id, {
+            date,
+            distanceKm: distKm > 0 ? Math.round(distKm * 100) / 100 : null,
+            activityType,
+            garminId: `icu_${externalId}`,
+          });
+        } else console.error("upsert error:", error.message, "for", externalId);
       }
       log.push(`Upserted: ${upsertedCount} activities`);
 

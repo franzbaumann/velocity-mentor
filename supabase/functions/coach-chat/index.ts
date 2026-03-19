@@ -92,6 +92,15 @@ interface TLSContextForPrompt {
   hasCheckedInToday: boolean;
 }
 
+interface NextPlannedSessionForPrompt {
+  date: string;
+  title: string;
+  main_description: string | null;
+  purpose: string | null;
+  control_tool: string | null;
+  key_focus: string | null;
+}
+
 interface AthleteContext {
   name: string;
   ctl: number | null;
@@ -115,6 +124,7 @@ interface AthleteContext {
   prs: PersonalRecord[];
   plan: PlanSummary | null;
   plan_workouts_text: string;
+  next_planned_session: NextPlannedSessionForPrompt | null;
   onboarding_answers: Record<string, unknown> | null;
   readiness_history_text: string;
   memories: CoachingMemory[];
@@ -406,6 +416,45 @@ async function buildAthleteContext(
       }
       planWorkoutsText = lines.join("\n");
     }
+
+    const upcomingForCoach = planWorkouts
+      .filter((w) => {
+        const d = String(w.date ?? "").slice(0, 10);
+        return d >= todayStr && !w.completed;
+      })
+      .sort((a, b) => String(a.date ?? "").localeCompare(String(b.date ?? "")));
+    const nw = upcomingForCoach[0];
+    if (nw) {
+      const ssRaw = nw.session_structure;
+      let ss: Record<string, unknown> | null = null;
+      if (ssRaw != null && typeof ssRaw === "object" && !Array.isArray(ssRaw)) {
+        ss = ssRaw as Record<string, unknown>;
+      } else if (typeof ssRaw === "string") {
+        try {
+          const parsed = JSON.parse(ssRaw) as unknown;
+          ss = parsed != null && typeof parsed === "object" && !Array.isArray(parsed)
+            ? (parsed as Record<string, unknown>)
+            : null;
+        } catch {
+          ss = null;
+        }
+      }
+      const main = ss?.main != null && typeof ss.main === "object" && !Array.isArray(ss.main)
+        ? (ss.main as Record<string, unknown>)
+        : null;
+      nextPlannedSession = {
+        date: String(nw.date ?? "").slice(0, 10),
+        title: String(nw.name ?? nw.type ?? "Workout"),
+        main_description: main?.description != null ? String(main.description) : null,
+        purpose: ss?.purpose != null ? String(ss.purpose) : null,
+        control_tool: ss?.control_tool != null
+          ? String(ss.control_tool)
+          : nw.control_tool != null
+            ? String(nw.control_tool)
+            : null,
+        key_focus: ss?.key_focus != null ? String(ss.key_focus) : null,
+      };
+    }
   }
 
   // Merge intervals.icu data if available (client-side wellness/activities)
@@ -582,6 +631,26 @@ function buildSeasonBlockDeno(ctx: AthleteContext): string {
   return lines.join("\n");
 }
 
+function buildNextPlannedSessionBlockDeno(ctx: AthleteContext): string {
+  const n = ctx.next_planned_session;
+  if (!n) return "";
+
+  const lines: string[] = [
+    "NEXT PLANNED SESSION",
+    `Date: ${n.date}`,
+    `Title: ${n.title}`,
+  ];
+  if (n.main_description) lines.push(`Main set: ${n.main_description}`);
+  if (n.purpose) lines.push(`Purpose: ${n.purpose}`);
+  if (n.control_tool) lines.push(`Control tool: ${n.control_tool}`);
+  if (n.key_focus) lines.push(`Key focus: ${n.key_focus}`);
+  lines.push(
+    "",
+    "When the athlete asks about upcoming training, tie advice to this session. If details are missing above, use PLAN WORKOUTS.",
+  );
+  return lines.join("\n");
+}
+
 function buildTLSBlockDeno(ctx: AthleteContext): string {
   if (!ctx.tls) return "";
 
@@ -665,6 +734,7 @@ function buildKipcoacheeSystemPrompt(ctx: AthleteContext): string {
       : "";
 
   const philosophyDetail = buildPhilosophyDetail(ctx.philosophy);
+  const nextPlannedSessionBlock = buildNextPlannedSessionBlockDeno(ctx);
 
   return `You are Coach Cade — an elite AI running coach built into Cade.
 
@@ -712,7 +782,7 @@ Peak volume: ${v(ctx.plan.peak_km)}km/week` : "No active training plan."}
 ${ctx.plan_workouts_text ? `PLAN WORKOUTS (you created these — explain their purpose when asked)
 ${ctx.plan_workouts_text}` : ""}
 
-${ctx.readiness_history_text ? `READINESS HISTORY (last 7 days)
+${nextPlannedSessionBlock ? `${nextPlannedSessionBlock}\n\n` : ""}${ctx.readiness_history_text ? `READINESS HISTORY (last 7 days)
 ${ctx.readiness_history_text}` : ""}
 
 ${ctx.onboarding_answers ? `ONBOARDING ANSWERS (athlete's self-reported context)
@@ -1012,6 +1082,7 @@ serve(async (req) => {
     let messages: { role: string; content: string }[] = [];
     let intakeAnswers: Record<string, string | string[]> | null = null;
     let intervalsContext: { wellness?: unknown[]; activities?: unknown[] } | null = null;
+    let prependContext: string | null = null;
     let useStream = true;
     let action: string | null = null;
 
@@ -1020,6 +1091,7 @@ serve(async (req) => {
       messages = Array.isArray(body?.messages) ? body.messages : [];
       intakeAnswers = body?.intakeAnswers ?? null;
       intervalsContext = body?.intervalsContext ?? null;
+      prependContext = typeof body?.prependContext === "string" ? body.prependContext : null;
       useStream = body?.stream !== false;
       action = body?.action ?? null;
     } catch {
@@ -1205,7 +1277,7 @@ ${conversationText}`;
       ? await buildAthleteContext(supabaseAdmin, user.id, intakeAnswers, intervalsContext)
       : null;
 
-    const systemPrompt = athleteContext
+    let systemPrompt = athleteContext
       ? buildKipcoacheeSystemPrompt(athleteContext)
       : buildKipcoacheeSystemPrompt({
           name: "there",
@@ -1214,9 +1286,12 @@ ${conversationText}`;
           resting_hr: null, philosophy: null,
           goal: null, goal_time: null, race_date: null, weeks_to_race: null,
           injuries: null, recent_activities: [], this_week_km: 0, planned_week_km: 0,
-          four_week_avg_km: 0, prs: [], plan: null, plan_workouts_text: "",
+          four_week_avg_km: 0, prs: [], plan: null, plan_workouts_text: "", next_planned_session: null,
           onboarding_answers: null, readiness_history_text: "", memories: [],
         });
+    if (prependContext && prependContext.trim()) {
+      systemPrompt = systemPrompt + "\n\n" + prependContext.trim();
+    }
 
     // Truncate to last 12 messages to stay within free-tier token limits
     const maxMessages = 12;

@@ -88,6 +88,10 @@ serve(async (req) => {
   }
 
   const record = body.record;
+  if ((record as { session_id?: string | null }).session_id) {
+    return json({ ok: true, skipped: "Handled by create-session-invites" });
+  }
+
   const inviteId = record.id;
   const fromUser = record.from_user;
   const toUser = record.to_user;

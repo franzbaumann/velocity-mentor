@@ -3,45 +3,33 @@ import { Link } from "react-router-dom";
 import { motion } from "framer-motion";
 import {
   Activity,
-  BarChart2,
   Calendar,
   MessageCircle,
   ArrowRight,
   Check,
   Link2,
   Brain,
-  TrendingUp,
   Dumbbell,
   FlaskConical,
   Trophy,
   Users,
   UserPlus,
+  Sparkles,
 } from "lucide-react";
 import { AuroraBackground } from "@/components/ui/aurora-background";
 import { Button } from "@/components/ui/button";
 import { Marquee } from "@/components/ui/marquee";
-import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  CarouselNext,
-  CarouselPrevious,
-} from "@/components/ui/carousel";
 import { supabase } from "@/integrations/supabase/client";
 import { CadeLogo } from "@/components/CadeLogo";
+import { FAQAccordionBlock } from "@/components/ui/faq-accordion-block-shadcnui";
+import { DeviceShowcase } from "@/components/DeviceShowcase";
+import { DashboardPlaceholder } from "@/components/device-showcase-screens";
 
 const navLinks = [
   { label: "Features", href: "#features" },
   { label: "Philosophy", href: "#philosophy" },
+  { label: "FAQ", href: "#faq" },
   { label: "Contact", href: "/contact" },
-];
-
-const SCREENSHOTS = [
-  { src: "/screenshots/dashboard.png", label: "Dashboard" },
-  { src: "/screenshots/stats-fitness.png", label: "Fitness & Fatigue" },
-  { src: "/screenshots/stats-wellness.png", label: "Wellness & Recovery" },
-  { src: "/screenshots/philosophy.png", label: "Training Philosophies" },
-  { src: "/screenshots/onboarding.png", label: "Get started" },
 ];
 
 export default function LandingPage() {
@@ -103,7 +91,7 @@ export default function LandingPage() {
             </Link>
           </nav>
           <Link to="/auth">
-            <Button size="sm" className="gap-2 rounded-full">
+            <Button size="sm" className="gap-2 rounded-lg font-medium">
               Get started <ArrowRight className="w-3.5 h-3.5" />
             </Button>
           </Link>
@@ -200,38 +188,7 @@ export default function LandingPage() {
       </section>
 
       {/* ── SEE THE APP ─────────────────────────────────────────────────── */}
-      <section id="screenshots" className="py-24 px-4 sm:px-6 border-t border-border">
-        <div className="max-w-[900px] mx-auto">
-          <div className="text-center mb-12">
-            <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-3">
-              See the app
-            </h2>
-            <p className="text-lg text-muted-foreground max-w-[560px] mx-auto">
-              Dashboard, stats, philosophy, and more — all in one place.
-            </p>
-          </div>
-          <Carousel opts={{ loop: true, align: "center" }} className="w-full">
-            <CarouselContent>
-              {SCREENSHOTS.map(({ src, label }) => (
-                <CarouselItem key={src}>
-                  <div className="rounded-xl border border-border overflow-hidden bg-muted/20 shadow-lg">
-                    <img
-                      src={src}
-                      alt={label}
-                      className="w-full max-w-full object-contain"
-                    />
-                    <p className="text-sm text-muted-foreground text-center py-3 border-t border-border">
-                      {label}
-                    </p>
-                  </div>
-                </CarouselItem>
-              ))}
-            </CarouselContent>
-            <CarouselPrevious className="left-0 sm:-left-12" />
-            <CarouselNext className="right-0 sm:-right-12" />
-          </Carousel>
-        </div>
-      </section>
+      <DeviceShowcase />
 
       {/* ── THE PROBLEM ─────────────────────────────────────────────────── */}
       <section className="py-24 px-4 sm:px-6 bg-muted/30 border-t border-border">
@@ -239,17 +196,17 @@ export default function LandingPage() {
           <p className="text-xs font-semibold tracking-widest uppercase text-muted-foreground mb-6">
             Why Cade Exists
           </p>
-          <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-8 leading-snug">
+          <h2 className="text-3xl sm:text-4xl font-semibold text-foreground mb-8 leading-snug">
             "Most running apps give you a plan.<br />
             None of them know you."
           </h2>
-          <div className="space-y-4 text-lg text-muted-foreground text-left max-w-[600px] mx-auto">
-            <p className="italic">They don't know you played padel on Thursday.</p>
-            <p className="italic">They don't know work has been brutal this week.</p>
-            <p className="italic">They don't know your left achilles has been tight since October.</p>
-            <p className="italic">They give you Tuesday's interval session anyway.</p>
+          <div className="text-left max-w-[600px] mx-auto">
+            <p className="italic text-lg text-gray-500 dark:text-muted-foreground py-4">They don't know you played padel on Thursday.</p>
+            <p className="italic text-lg text-gray-500 dark:text-muted-foreground py-4">They don't know work has been brutal this week.</p>
+            <p className="italic text-lg text-gray-500 dark:text-muted-foreground py-4">They don't know your left achilles has been tight since October.</p>
+            <p className="italic text-lg text-gray-500 dark:text-muted-foreground py-4">They give you Tuesday's interval session anyway.</p>
           </div>
-          <p className="mt-10 text-xl font-semibold text-foreground">Cade does.</p>
+          <p className="mt-10 text-2xl font-semibold text-gray-900 dark:text-foreground">Cade does.</p>
         </div>
       </section>
 
@@ -260,7 +217,7 @@ export default function LandingPage() {
             <p className="text-xs font-semibold tracking-widest uppercase text-muted-foreground mb-6">
               Our Vision
             </p>
-            <h2 className="text-3xl sm:text-[42px] font-bold text-foreground mb-10 leading-snug">
+            <h2 className="text-3xl sm:text-[42px] font-semibold text-foreground mb-10 leading-snug">
               Elite coaching has always existed.<br />Just not for you.
             </h2>
             <div className="space-y-6 text-lg text-muted-foreground text-left">
@@ -338,14 +295,14 @@ export default function LandingPage() {
             <p className="text-xs font-semibold tracking-widest uppercase text-muted-foreground mb-3">
               What Cade Does
             </p>
-            <h2 className="text-3xl sm:text-4xl font-bold text-foreground">Built on your real data.</h2>
+            <h2 className="text-3xl sm:text-4xl font-semibold text-foreground">Built on your real data.</h2>
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[
               {
                 icon: MessageCircle,
                 title: "Coach Cade — AI Coach",
-                desc: "Ask Coach Cade anything. Pre-run readiness, post-workout analysis, race strategy, pacing questions. Every answer references your actual CTL, HRV and training zones — never generic advice.",
+                desc: "Ask Coach Cade anything — pre-run readiness, post-workout analysis (every run interpreted automatically), race strategy, pacing. Every answer references your CTL, HRV and zones — never generic advice.",
               },
               {
                 icon: Trophy,
@@ -383,20 +340,20 @@ export default function LandingPage() {
                 desc: "CTL, ATL, TSB, HRV trends, lactate threshold estimates, aerobic decoupling, VO2max tracking. The data serious runners actually care about.",
               },
               {
-                icon: BarChart2,
-                title: "Post-Workout Analysis",
-                desc: "Every run automatically analysed. Coach Cade tells you what the numbers mean and what to do differently next time. No logging required.",
+                icon: Sparkles,
+                title: "Weekly plan proposals",
+                desc: "Review AI-proposed weeks, approve or tweak sessions, and keep your plan aligned with recovery — without losing the big picture.",
               },
             ].map(({ icon: Icon, title, desc }) => (
               <div
                 key={title}
-                className="glass-card p-8 rounded-xl border border-border hover:border-primary/30 transition-colors"
+                className="glass-card p-6 rounded-xl border border-border hover:border-gray-300 dark:hover:border-border transition-colors"
               >
-                <div className="flex items-center gap-3 mb-4">
+                <div className="flex items-start gap-3 mb-3">
                   <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
-                    <Icon className="w-5 h-5 text-primary" />
+                    <Icon className="w-6 h-6 text-primary stroke-[1.75]" />
                   </div>
-                  <h3 className="font-semibold text-foreground">{title}</h3>
+                  <h3 className="text-base font-medium text-foreground pt-1.5">{title}</h3>
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
               </div>
@@ -411,7 +368,7 @@ export default function LandingPage() {
           <p className="text-xs font-semibold tracking-widest uppercase text-muted-foreground mb-6">
             Early Access
           </p>
-          <h2 className="text-4xl sm:text-5xl font-bold text-foreground mb-4 leading-snug">
+          <h2 className="text-4xl sm:text-5xl font-semibold text-foreground mb-4 leading-snug">
             Free during beta.<br />Join now.
           </h2>
           <p className="text-lg text-muted-foreground mb-10">
@@ -474,6 +431,9 @@ export default function LandingPage() {
           </div>
         </div>
       </section>
+
+      {/* ── FAQ ────────────────────────────────────────────────────────── */}
+      <FAQAccordionBlock />
 
       {/* ── FOOTER ──────────────────────────────────────────────────────── */}
       <footer className="py-6 px-4 sm:px-6 border-t border-border">

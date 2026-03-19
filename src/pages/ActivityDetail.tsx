@@ -36,6 +36,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { toast } from "@/hooks/use-toast";
 import { ActivityPhotos } from "@/components/ActivityPhotos";
+import { ActivityPlannedSessionBlock } from "@/components/training/ActivityPlannedSessionBlock";
 
 delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
 L.Icon.Default.mergeOptions({
@@ -645,6 +646,8 @@ export default function ActivityDetail() {
               {activity.elevation_gain != null && activity.elevation_gain > 0 && <StatChip label="Climbing" value={formatElevation(activity.elevation_gain)} />}
               {activity.calories != null && activity.calories > 0 && <StatChip label="Calories" value={`${Math.round(activity.calories)}`} />}
             </div>
+
+            <ActivityPlannedSessionBlock activity={activity} />
           </div>
 
           {/* Map (if available) */}

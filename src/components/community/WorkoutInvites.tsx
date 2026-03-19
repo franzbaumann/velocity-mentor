@@ -13,12 +13,11 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Calendar,
   Check,
@@ -32,7 +31,7 @@ import {
 import { format, parseISO, addDays } from "date-fns";
 import { toast } from "sonner";
 import type { FriendProfile } from "@/hooks/useFriends";
-import { useFriendWorkoutForDate } from "@/hooks/useFriends";
+import { useFriendWorkoutForDate, useFriendWorkoutsForDate } from "@/hooks/useFriends";
 import { parseSteps, WorkoutStepsDisplay, CombinedWorkoutDisplay, type CombinedWorkoutPreview } from "@/lib/workout-steps";
 import { getSupabaseUrl } from "@/lib/supabase-url";
 
@@ -113,13 +112,13 @@ function useSendInvite() {
 
   return useMutation({
     mutationFn: async ({
-      toUser,
+      toUsers,
       proposedDate,
       message,
       inviteType,
       fromWorkoutId,
     }: {
-      toUser: string;
+      toUsers: string[];
       proposedDate: string;
       message: string;
       inviteType: "combined" | "parallel";
@@ -127,17 +126,62 @@ function useSendInvite() {
     }) => {
       if (!user) throw new Error("Not authenticated");
 
-      const { error } = await supabase.from("workout_invite").insert({
-        from_user: user.id,
-        to_user: toUser,
-        proposed_date: proposedDate,
-        message: message || null,
-        invite_type: inviteType,
-        status: "pending",
-        from_workout_id: fromWorkoutId || null,
-      });
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) throw new Error("Session expired. Please refresh the page and try again.");
 
-      if (error) throw error;
+      const baseUrl = getSupabaseUrl();
+      const anonKey = import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "";
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 120_000);
+
+      let res: Response;
+      try {
+        res = await fetch(`${baseUrl}/functions/v1/create-session-invites`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+            apikey: anonKey,
+          },
+          body: JSON.stringify({
+            toUsers,
+            proposedDate,
+            message: message || null,
+            inviteType,
+            fromWorkoutId: fromWorkoutId || null,
+          }),
+          signal: controller.signal,
+        });
+      } catch (err) {
+        clearTimeout(timeoutId);
+        if (err instanceof Error && err.name === "AbortError") {
+          throw new Error("Request timed out. Coach Cade is generating the workout — please try again in a moment.");
+        }
+        throw err;
+      }
+      clearTimeout(timeoutId);
+
+      const data = (await res.json().catch(() => ({}))) as { error?: string };
+      if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error("Session expired. Please refresh the page and try again.");
+        }
+        const is404 = res.status === 404;
+        if (is404 && toUsers.length === 1) {
+          const { error: insertErr } = await supabase.from("workout_invite").insert({
+            from_user: user.id,
+            to_user: toUsers[0],
+            proposed_date: proposedDate,
+            message: message || null,
+            invite_type: inviteType,
+            from_workout_id: fromWorkoutId || null,
+            session_id: null,
+          });
+          if (insertErr) throw new Error(insertErr.message ?? "Failed to send invite");
+          return;
+        }
+        throw new Error(data.error ?? `Request failed (${res.status})`);
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workout-invites"] });
@@ -173,12 +217,21 @@ function useDeleteInvite() {
   const qc = useQueryClient();
 
   return useMutation({
-    mutationFn: async (inviteId: string) => {
-      const { error } = await supabase
-        .from("workout_invite")
-        .delete()
-        .eq("id", inviteId);
-      if (error) throw error;
+    mutationFn: async ({
+      inviteId,
+      sessionId,
+      isSent,
+    }: { inviteId: string; sessionId?: string | null; isSent?: boolean }) => {
+      if (sessionId && isSent) {
+        const { error } = await supabase.from("workout_session").delete().eq("id", sessionId);
+        if (error) throw error;
+      } else {
+        const { error } = await supabase
+          .from("workout_invite")
+          .delete()
+          .eq("id", inviteId);
+        if (error) throw error;
+      }
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["workout-invites"] });
@@ -197,7 +250,7 @@ function NewInviteSheet({
   friends: FriendProfile[];
 }) {
   const { user } = useAuth();
-  const [selectedFriend, setSelectedFriend] = useState<string>("");
+  const [selectedFriends, setSelectedFriends] = useState<string[]>([]);
   const [proposedDate, setProposedDate] = useState(
     format(addDays(new Date(), 1), "yyyy-MM-dd")
   );
@@ -205,9 +258,9 @@ function NewInviteSheet({
   const [inviteType, setInviteType] = useState<"combined" | "parallel">("combined");
   const sendInvite = useSendInvite();
 
-  const { data: friendPlanWorkouts, isLoading: friendWorkoutsLoading } = useFriendWorkoutForDate(
-    selectedFriend || null,
-    selectedFriend && proposedDate ? proposedDate : null
+  const { byFriendId, isLoading: friendWorkoutsLoading } = useFriendWorkoutsForDate(
+    selectedFriends,
+    selectedFriends.length > 0 && proposedDate ? proposedDate : null
   );
 
   const { data: myPlanWorkouts } = useQuery({
@@ -240,11 +293,11 @@ function NewInviteSheet({
     : null;
 
   const handleSend = () => {
-    if (!selectedFriend || !proposedDate) return;
+    if (!selectedFriends.length || !proposedDate) return;
 
     sendInvite.mutate(
       {
-        toUser: selectedFriend,
+        toUsers: selectedFriends,
         proposedDate,
         message,
         inviteType,
@@ -252,13 +305,23 @@ function NewInviteSheet({
       },
       {
         onSuccess: () => {
-          toast.success("Workout invite sent! Coach Cade will generate the combined workout — it will appear shortly.");
-          setSelectedFriend("");
+          toast.success(
+            selectedFriends.length === 1
+              ? "Workout invite sent! Coach Cade will generate the combined workout — it will appear shortly."
+              : `Invites sent to ${selectedFriends.length} friends! Coach Cade will generate the combined workout — it will appear shortly.`
+          );
+          setSelectedFriends([]);
           setMessage("");
           onClose();
         },
         onError: (e) => toast.error(e.message),
       }
+    );
+  };
+
+  const toggleFriend = (id: string) => {
+    setSelectedFriends((prev) =>
+      prev.includes(id) ? prev.filter((f) => f !== id) : [...prev, id]
     );
   };
 
@@ -275,20 +338,38 @@ function NewInviteSheet({
         <div className="space-y-5 mt-4">
           <div>
             <label className="text-xs font-medium text-muted-foreground mb-1.5 block">
-              Friend
+              Friends
             </label>
-            <Select value={selectedFriend} onValueChange={setSelectedFriend}>
-              <SelectTrigger>
-                <SelectValue placeholder="Select a friend" />
-              </SelectTrigger>
-              <SelectContent>
-                {friends.map((f) => (
-                  <SelectItem key={f.id} value={f.id}>
-                    {f.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="w-full justify-between font-normal"
+                >
+                  {selectedFriends.length === 0
+                    ? "Select friends"
+                    : selectedFriends.length === 1
+                      ? friends.find((f) => f.id === selectedFriends[0])?.name ?? "1 friend"
+                      : `${selectedFriends.length} friends selected`}
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent className="w-[var(--radix-popover-trigger-width)] p-2" align="start">
+                <div className="max-h-48 overflow-y-auto space-y-2">
+                  {friends.map((f) => (
+                    <label
+                      key={f.id}
+                      className="flex items-center gap-2 cursor-pointer rounded-md px-2 py-1.5 hover:bg-muted/50"
+                    >
+                      <Checkbox
+                        checked={selectedFriends.includes(f.id)}
+                        onCheckedChange={() => toggleFriend(f.id)}
+                      />
+                      <span className="text-sm">{f.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </PopoverContent>
+            </Popover>
           </div>
 
           <div>
@@ -327,30 +408,47 @@ function NewInviteSheet({
                 <p className="text-xs text-muted-foreground italic">No planned workout for this date</p>
               )}
             </div>
-            {selectedFriend && (
+            {selectedFriends.length > 0 && (
               <div>
                 <p className="text-xs font-medium text-muted-foreground mb-1.5">
-                  {friends.find((f) => f.id === selectedFriend)?.name ?? "Friend"}&apos;s plan for {format(parseISO(proposedDate), "EEE, MMM d")}
+                  Plans for {format(parseISO(proposedDate), "EEE, MMM d")}
                 </p>
-                {friendPlanWorkouts?.workouts && friendPlanWorkouts.workouts.length > 0 ? (
-                  <div className="rounded-lg border border-border/60 bg-muted/30 px-3 py-2">
-                    {(friendPlanWorkouts.workouts as { id?: string; type?: string; name?: string; description?: string; distance_km?: number; duration_minutes?: number; target_pace?: string; workout_steps?: unknown }[]).map((w, i) => {
-                      const steps = parseSteps(w.workout_steps);
-                      if (steps && steps.length > 0) {
-                        return (
-                          <div key={i} className={i > 0 ? "mt-4 pt-3 border-t border-border/50" : ""}>
-                            <WorkoutStepsDisplay steps={steps} workoutType={w.type} />
-                          </div>
-                        );
-                      }
-                      const parts = [w.type, w.name, w.description, w.distance_km ? `${w.distance_km} km` : null, w.duration_minutes ? `${w.duration_minutes} min` : null, w.target_pace ? `@ ${w.target_pace}` : null].filter(Boolean);
-                      return <p key={i} className={`text-xs text-muted-foreground ${i > 0 ? "mt-1" : ""}`}>{parts.join(" · ") || "Workout"}</p>;
-                    })}
-                  </div>
-                ) : friendWorkoutsLoading ? (
+                {friendWorkoutsLoading ? (
                   <p className="text-xs text-muted-foreground italic">Loading…</p>
                 ) : (
-                  <p className="text-xs text-muted-foreground italic">No planned workout for this date</p>
+                  <div className="rounded-lg border border-border/60 bg-gray-50 dark:bg-muted/40 px-3 py-3 space-y-3 max-h-48 overflow-y-auto">
+                    {selectedFriends.map((friendId) => {
+                      const friendName = friends.find((f) => f.id === friendId)?.name ?? "Friend";
+                      const result = byFriendId.get(friendId);
+                      const workouts = result?.workouts ?? [];
+                      return (
+                        <div key={friendId} className={selectedFriends.length > 1 ? "pb-3 border-b border-border/50 last:border-0 last:pb-0" : ""}>
+                          <p className="text-xs font-medium text-muted-foreground mb-1.5 uppercase tracking-wide">{friendName}&apos;s plan</p>
+                          {workouts.length > 0 ? (
+                            workouts.map((w, i) => {
+                              const steps = parseSteps(w.workout_steps);
+                              if (steps && steps.length > 0) {
+                                return (
+                                  <div key={i} className={i > 0 ? "mt-2 pt-2 border-t border-border/50" : ""}>
+                                    <WorkoutStepsDisplay steps={steps} workoutType={w.type} />
+                                  </div>
+                                );
+                              }
+                              const parts = [w.type, w.name, w.description, w.distance_km ? `${w.distance_km} km` : null, w.duration_minutes ? `${w.duration_minutes} min` : null, w.target_pace ? `@ ${w.target_pace}` : null].filter(Boolean);
+                              return <p key={i} className="text-xs text-muted-foreground">{parts.join(" · ") || "Workout"}</p>;
+                            })
+                          ) : (
+                            <p className="text-xs text-muted-foreground italic">No planned workout for this date</p>
+                          )}
+                        </div>
+                      );
+                    })}
+                    {selectedFriends.length > 1 && (
+                      <p className="text-xs text-muted-foreground italic pt-2 border-t border-border/50">
+                        Coach Cade will merge these into one session
+                      </p>
+                    )}
+                  </div>
                 )}
               </div>
             )}
@@ -365,7 +463,7 @@ function NewInviteSheet({
                 onClick={() => setInviteType("combined")}
                 className={`p-3 rounded-xl border text-left transition-colors ${
                   inviteType === "combined"
-                    ? "border-primary bg-primary/5"
+                    ? "border-blue-500 bg-blue-50 dark:bg-blue-950/35 dark:border-blue-500"
                     : "border-border hover:border-primary/50"
                 }`}
               >
@@ -379,7 +477,7 @@ function NewInviteSheet({
                 onClick={() => setInviteType("parallel")}
                 className={`p-3 rounded-xl border text-left transition-colors ${
                   inviteType === "parallel"
-                    ? "border-primary bg-primary/5"
+                    ? "border-blue-500 bg-blue-50 dark:bg-blue-950/35 dark:border-blue-500"
                     : "border-border hover:border-primary/50"
                 }`}
               >
@@ -407,7 +505,7 @@ function NewInviteSheet({
             <Button
               className="flex-1"
               onClick={handleSend}
-              disabled={!selectedFriend || !proposedDate || sendInvite.isPending}
+              disabled={!selectedFriends.length || !proposedDate || sendInvite.isPending}
             >
               {sendInvite.isPending ? (
                 <Loader2 className="w-4 h-4 animate-spin mr-2" />
@@ -440,10 +538,25 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
   const sent = data?.sent ?? [];
   const pendingReceived = received.filter((r) => r.status === "pending");
 
-  const historyInvites = [...sent, ...received.filter((r) => r.status !== "pending")]
-    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
-    .slice(0, 10);
-  const expandedInviteData = expandedInvite ? historyInvites.find((i) => i.id === expandedInvite) : null;
+  const allHistoryInvites = [...sent, ...received.filter((r) => r.status !== "pending")]
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+  const historyGroups = (() => {
+    const bySession = new Map<string | null, typeof allHistoryInvites>();
+    for (const inv of allHistoryInvites) {
+      const key = (inv as { session_id?: string | null }).session_id ?? `legacy-${inv.id}`;
+      if (!bySession.has(key)) bySession.set(key, []);
+      bySession.get(key)!.push(inv);
+    }
+    return Array.from(bySession.values())
+      .map((group) => ({
+        invites: group.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime()),
+        first: group[0],
+        sessionId: (group[0] as { session_id?: string | null }).session_id ?? null,
+      }))
+      .slice(0, 10);
+  })();
+  const expandedInviteData = expandedInvite ? allHistoryInvites.find((i) => i.id === expandedInvite) : null;
   const expandedFromWorkoutId = expandedInviteData?.from_workout_id as string | null | undefined;
   const expandedProposedDate = expandedInviteData?.proposed_date as string | undefined;
   const isExpandedSent = expandedInviteData?.from_user === user?.id;
@@ -600,18 +713,41 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
         <div>
           <h3 className="text-xs text-muted-foreground mb-2">History</h3>
           <div className="space-y-2">
-            {historyInvites.map((invite) => {
+            {historyGroups.map((group) => {
+              const invite = group.first;
               const isSent = invite.from_user === user?.id;
-              const otherName = friendNameMap.get(
-                isSent ? invite.to_user : invite.from_user
-              ) ?? "Friend";
+              const otherNames = [...new Set(
+                group.invites.map((i) =>
+                  friendNameMap.get(isSent ? i.to_user : i.from_user) ?? "Friend"
+                )
+              )];
+              const otherNameDisplay =
+                otherNames.length === 1
+                  ? otherNames[0]
+                  : otherNames.length === 2
+                    ? `${otherNames[0]} and ${otherNames[1]}`
+                    : `${otherNames.slice(0, -1).join(", ")}, and ${otherNames[otherNames.length - 1]}`;
               const combined = invite.combined_workout as CombinedWorkoutPreview | null;
+              const hasCombined = combined && (
+                combined.summary ||
+                combined.shared_warmup ||
+                combined.shared_cooldown ||
+                combined.athlete_a ||
+                combined.athlete_b ||
+                (combined.athletes && combined.athletes.length > 0)
+              );
               const isExpanded = expandedInvite === invite.id;
               const steps = expandedWorkout && isExpanded ? parseSteps(expandedWorkout.workout_steps) : null;
+              const statusCounts = { accepted: 0, pending: 0, declined: 0 };
+              for (const i of group.invites) {
+                statusCounts[i.status as keyof typeof statusCounts]++;
+              }
+              const displayStatus =
+                statusCounts.accepted > 0 ? "accepted" : statusCounts.pending > 0 ? "pending" : "declined";
 
               return (
                 <div
-                  key={invite.id}
+                  key={group.sessionId ?? invite.id}
                   className="w-full text-left card-standard p-3 hover:bg-muted/30 transition-colors"
                 >
                   <button
@@ -623,7 +759,7 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
                     <div className="flex items-center justify-between">
                       <div>
                         <div className="text-sm">
-                          {isSent ? `You invited ${otherName}` : `${otherName} invited you`}
+                          {isSent ? `You invited ${otherNameDisplay}` : `${otherNameDisplay} invited you`}
                         </div>
                         <div className="text-xs text-muted-foreground">
                           {format(parseISO(invite.proposed_date), "MMM d")} ·{" "}
@@ -633,22 +769,22 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
                       <div className="flex items-center gap-2">
                         <Badge
                           variant={
-                            invite.status === "accepted"
+                            displayStatus === "accepted"
                               ? "default"
-                              : invite.status === "pending"
+                              : displayStatus === "pending"
                                 ? "outline"
                                 : "secondary"
                           }
                           className="text-[10px]"
                         >
-                          {invite.status}
+                          {displayStatus}
                         </Badge>
                       </div>
                     </div>
                   </button>
                   {isExpanded && (
                     <>
-                      {combined && (combined.summary || combined.shared_warmup || combined.shared_cooldown || combined.athlete_a || combined.athlete_b) ? (
+                      {hasCombined ? (
                         <div className="mt-3 pt-3 border-t border-border/50">
                           <CombinedWorkoutDisplay data={combined} />
                         </div>
@@ -691,10 +827,13 @@ export function WorkoutInvites({ friends }: { friends: FriendProfile[] }) {
                           variant="ghost"
                           className="text-xs text-destructive hover:text-destructive hover:bg-destructive/10"
                           onClick={() =>
-                            deleteInvite.mutate(invite.id, {
-                              onSuccess: () => toast.success("Invite deleted"),
-                              onError: () => toast.error("Could not delete invite"),
-                            })
+                            deleteInvite.mutate(
+                              { inviteId: invite.id, sessionId: group.sessionId, isSent },
+                              {
+                                onSuccess: () => toast.success("Invite deleted"),
+                                onError: () => toast.error("Could not delete invite"),
+                              }
+                            )
                           }
                           disabled={deleteInvite.isPending}
                         >

@@ -85,15 +85,18 @@ function formatDateShort(d: string) {
 function EmptyState({ onCreate }: { onCreate: () => void }) {
   return (
     <div className="flex flex-col items-center justify-center py-32 text-center">
-      <div className="w-16 h-16 rounded-2xl bg-primary/10 flex items-center justify-center mb-6">
-        <Trophy className="w-8 h-8 text-primary" />
+      <div className="w-16 h-16 rounded-2xl bg-blue-50 dark:bg-blue-950/40 flex items-center justify-center mb-6">
+        <Trophy className="w-8 h-8 text-blue-600 dark:text-blue-400" />
       </div>
-      <h2 className="text-2xl font-bold text-foreground mb-2">Plan your season</h2>
+      <h2 className="text-2xl font-semibold text-foreground mb-2">Plan your season</h2>
       <p className="text-muted-foreground max-w-md mb-8">
         Racing one event is a goal. Racing a full season is a strategy. Add your races, set
         priorities, and Coach Cade will peak you for the ones that matter.
       </p>
-      <Button onClick={onCreate} size="lg">
+      <Button
+        onClick={onCreate}
+        className="h-12 px-8 rounded-xl bg-blue-600 text-white font-medium hover:bg-blue-700"
+      >
         <Plus className="w-4 h-4 mr-2" /> Create your season
       </Button>
     </div>

@@ -1,6 +1,7 @@
 import { useMemo, useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { enrichTrainingPlanWorkoutsFromLibrary } from "@/lib/training/enrichPlanSessions";
 import type {
   CompetitionSeason,
   SeasonRace,
@@ -121,6 +122,14 @@ export function useSeason() {
           });
           if (!error && !(data as { error?: string })?.error) {
             planGenerated = true;
+            const pid = (data as { plan_id?: string })?.plan_id;
+            if (pid) {
+              try {
+                await enrichTrainingPlanWorkoutsFromLibrary(pid);
+              } catch (enrichErr) {
+                console.warn("[useSeason] enrichPlanSessions:", enrichErr);
+              }
+            }
           } else {
             console.warn("[useSeason] Plan generation failed:", error ?? (data as { error?: string })?.error);
           }

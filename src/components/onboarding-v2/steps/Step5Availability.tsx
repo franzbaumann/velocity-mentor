@@ -11,13 +11,19 @@ const SESSION_OPTIONS = [
   { id: "120", label: "2+ hours" },
 ];
 
-const DOUBLE_RUN_DAY_OPTIONS = [
+const WEEKDAY_OPTIONS = [
   { id: "monday", label: "Mon" },
   { id: "tuesday", label: "Tue" },
   { id: "wednesday", label: "Wed" },
   { id: "thursday", label: "Thu" },
   { id: "friday", label: "Fri" },
-];
+  { id: "saturday", label: "Sat" },
+  { id: "sunday", label: "Sun" },
+] as const;
+
+const DOUBLE_RUN_DAY_OPTIONS = WEEKDAY_OPTIONS.filter((d) =>
+  ["monday", "tuesday", "wednesday", "thursday", "friday"].includes(d.id)
+);
 
 const DOUBLE_DURATION_OPTIONS = [
   { id: 30, label: "30 min" },
@@ -26,7 +32,11 @@ const DOUBLE_DURATION_OPTIONS = [
 ];
 
 export function Step5Availability({ answers, onUpdate, onNext, onBack }: StepProps) {
-  const canProceed = answers.daysPerWeek > 0 && answers.sessionLength;
+  const canProceed =
+    answers.daysPerWeek > 0 &&
+    answers.sessionLength &&
+    !!answers.preferredLongRunDay &&
+    !!answers.preferredQualityDay;
 
   const toggleDoubleDay = (day: string) => {
     const current = answers.doubleRunDays ?? [];
@@ -76,6 +86,57 @@ export function Step5Availability({ answers, onUpdate, onNext, onBack }: StepPro
                 </button>
               );
             })}
+          </div>
+        </div>
+
+        {/* Long run + quality days */}
+        <div>
+          <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2">
+            Long run day
+          </label>
+          <p className="text-xs text-muted-foreground/70 mb-3">
+            Which day should your weekly long run usually land on?
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {WEEKDAY_OPTIONS.map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => onUpdate({ preferredLongRunDay: d.id })}
+                className={`px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-150 ${
+                  answers.preferredLongRunDay === d.id
+                    ? "bg-primary text-primary-foreground shadow-[0_0_16px_hsl(var(--primary)/0.15)]"
+                    : "bg-card border border-border text-muted-foreground hover:border-foreground/15 hover:text-foreground/70"
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2">
+            Quality session day
+          </label>
+          <p className="text-xs text-muted-foreground/70 mb-3">
+            Primary harder workout (tempo, intervals, threshold) — can differ from your long run.
+          </p>
+          <div className="flex gap-2 flex-wrap">
+            {WEEKDAY_OPTIONS.map((d) => (
+              <button
+                key={d.id}
+                type="button"
+                onClick={() => onUpdate({ preferredQualityDay: d.id })}
+                className={`px-4 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-150 ${
+                  answers.preferredQualityDay === d.id
+                    ? "bg-primary text-primary-foreground shadow-[0_0_16px_hsl(var(--primary)/0.15)]"
+                    : "bg-card border border-border text-muted-foreground hover:border-foreground/15 hover:text-foreground/70"
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
           </div>
         </div>
 

@@ -9,6 +9,7 @@ import {
   Waves,
   Dumbbell,
   Activity,
+  ClipboardList,
   type LucideIcon,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -19,6 +20,7 @@ import { useTheme } from "@/hooks/useTheme";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { formatDistance, normalizePaceDisplay } from "@/lib/format";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 import { FeedMapThumbnail } from "./FeedMapThumbnail";
 
@@ -60,6 +62,7 @@ export function ActivityCard({
   userLiked,
   comments,
   allFriends,
+  feedVariant,
 }: {
   activity: FeedActivity;
   friendName: string;
@@ -67,6 +70,8 @@ export function ActivityCard({
   userLiked: boolean;
   comments: { id: string; userId: string; content: string; createdAt: string }[];
   allFriends: Map<string, string>;
+  /** Merged feed: subtle left border for own vs friend activities */
+  feedVariant?: "own" | "friend";
 }) {
   const { user } = useAuth();
   const { resolved: themeMode } = useTheme();
@@ -114,7 +119,13 @@ export function ActivityCard({
   const isDark = themeMode === "dark";
 
   return (
-    <div className="card-standard p-4">
+    <div
+      className={cn(
+        "card-standard p-4",
+        feedVariant === "own" && "border-l-[3px] border-l-blue-200 dark:border-l-blue-500/40",
+        feedVariant === "friend" && "border-l-[3px] border-l-gray-200 dark:border-l-muted",
+      )}
+    >
       <Link
         to={`/activities/${activity.id}`}
         className="block focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-md -m-1 p-1"
@@ -140,22 +151,22 @@ export function ActivityCard({
         <div className="flex flex-wrap gap-x-6 gap-y-2 mb-3">
           {activity.distance_km != null && activity.distance_km > 0 && (
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Distance</p>
-              <p className="text-lg font-bold tabular-nums text-foreground">
+              <p className="text-sm uppercase tracking-wider text-muted-foreground">Distance</p>
+              <p className="text-xl font-semibold tabular-nums text-foreground">
                 {formatDistance(activity.distance_km)}
               </p>
             </div>
           )}
           {paceDisplay && (
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Pace</p>
-              <p className="text-lg font-bold tabular-nums text-foreground">{paceDisplay}</p>
+              <p className="text-sm uppercase tracking-wider text-muted-foreground">Pace</p>
+              <p className="text-xl font-semibold tabular-nums text-foreground">{paceDisplay}</p>
             </div>
           )}
           {activity.duration_seconds != null && (
             <div>
-              <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Time</p>
-              <p className="text-lg font-bold tabular-nums text-foreground">
+              <p className="text-sm uppercase tracking-wider text-muted-foreground">Time</p>
+              <p className="text-xl font-semibold tabular-nums text-foreground">
                 {formatDurationShort(activity.duration_seconds)}
               </p>
             </div>
@@ -163,8 +174,8 @@ export function ActivityCard({
           {activity.avg_hr != null &&
             (activity.distance_km == null || activity.distance_km <= 0) && (
               <div>
-                <p className="text-[10px] uppercase tracking-wider text-muted-foreground">Avg HR</p>
-                <p className="text-lg font-bold tabular-nums text-foreground">
+                <p className="text-sm uppercase tracking-wider text-muted-foreground">Avg HR</p>
+                <p className="text-xl font-semibold tabular-nums text-foreground">
                   {activity.avg_hr} bpm
                 </p>
               </div>
@@ -182,6 +193,15 @@ export function ActivityCard({
             <FeedMapThumbnail polyline={activity.polyline!} isDark={isDark} />
           </div>
         )}
+
+        {activity.planned_session_label ? (
+          <div className="flex items-center gap-1.5 mt-1 mb-1">
+            <ClipboardList className="w-3.5 h-3.5 shrink-0 text-muted-foreground" aria-hidden />
+            <span className="text-xs bg-muted text-muted-foreground rounded-full px-2 py-0.5 max-w-full truncate">
+              {activity.planned_session_label}
+            </span>
+          </div>
+        ) : null}
       </Link>
 
       <div

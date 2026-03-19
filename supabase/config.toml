@@ -16,8 +16,9 @@ verify_jwt = true
 [functions.paceiq-philosophy]
 verify_jwt = true
 
+# Auth enforced in handler (getUser). Gateway JWT verification can 401 valid Safari/LockManager sessions.
 [functions.paceiq-generate-plan]
-verify_jwt = true
+verify_jwt = false
 
 [functions.strava-oauth]
 verify_jwt = true
@@ -27,6 +28,18 @@ verify_jwt = true
 
 [functions.strava-save-personal-token]
 verify_jwt = true
+
+# Auth enforced in code; gateway JWT can reject valid tokens (e.g. LockManager timeout)
+[functions.vital-link-token]
+verify_jwt = false
+
+# Auth enforced in code; popup callback can have session/lock issues
+[functions.vital-oauth-callback]
+verify_jwt = false
+
+# Auth enforced in code; avoids gateway/LockManager auth issues
+[functions.vital-sync]
+verify_jwt = false
 
 [functions.garmin-import-zip]
 verify_jwt = true
@@ -48,4 +61,8 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.arrange-week]
+verify_jwt = false
+
+# Auth enforced in code; gateway JWT check can reject valid tokens (e.g. after key rotation)
+[functions.create-session-invites]
 verify_jwt = false

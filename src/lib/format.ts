@@ -81,14 +81,18 @@ export function formatNumber(n: number | null | undefined, decimals = 0): string
   return decimals > 0 ? n.toFixed(decimals) : String(Math.round(n));
 }
 
-/** One-line planned workout title: "16 km easy" or "60 min easy" so it never contradicts the numbers. */
+/** Primary workout title — prefers library / AI name when present. */
 export function plannedWorkoutSummary(w: {
+  name?: string | null;
   session_type?: string;
   description?: string;
   distance_km?: number | null;
   duration_min?: number | null;
   duration_minutes?: number | null;
 }): string {
+  const named = w.name?.trim();
+  if (named) return named;
+
   const type = (w.session_type ?? "easy").toLowerCase();
   const duration = w.duration_min ?? w.duration_minutes;
   if (w.distance_km != null && w.distance_km > 0) return `${w.distance_km} km ${type}`;

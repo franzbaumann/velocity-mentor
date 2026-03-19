@@ -7,16 +7,17 @@ import { useGreeting } from "@/hooks/useGreeting";
 import { useDashboardData } from "@/hooks/useDashboardData";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useSeason } from "@/hooks/useSeason";
-import { predictRaceTime, formatRaceTime, calculateZonePaces, findBestEffort } from "@/lib/race-prediction";
+import { isRunningActivity } from "@/lib/analytics";
+import { predictRaceTime, predictRaceTimeV2, formatRaceTime, calculateZonePaces, findBestEffort } from "@/lib/race-prediction";
 import { useZoneSource } from "@/hooks/useZoneSource";
 import { calculateTaperStart, daysUntil } from "@/lib/season/periodisation";
-import { TrendingDown, Moon, Heart, ChevronRight, Loader2, Trophy, AlertTriangle, Flame } from "lucide-react";
+import { TrendingDown, Moon, Heart, ChevronRight, ChevronDown, Loader2, Trophy, AlertTriangle, Flame } from "lucide-react";
 import { useDailyLoad } from "@/hooks/useDailyLoad";
 import { useDailyCheckIn } from "@/components/DailyCheckInContext";
 import { supabase } from "@/integrations/supabase/client";
 import { formatSleepHours } from "@/lib/format";
 import { motion } from "framer-motion";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -25,7 +26,9 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { WeekProposal } from "@/components/WeekProposal";
 import { toast } from "sonner";
+import { formatCoachText } from "@/lib/format-coach-text";
 
 const RACE_DISTANCES: { km: number; label: string }[] = [
   { km: 5, label: "5K" },
@@ -64,27 +67,92 @@ const fadeIn = {
 function RacePredictionCard({
   activities,
   ctl,
+  atl,
+  tsb,
+  rampRate,
   goalRaceType,
+  athleteProfile,
+  readinessRows,
 }: {
-  activities: Array<{ distance_km: number | null; duration_seconds: number | null; date: string }>;
+  activities: Array<{ distance_km: number | null; duration_seconds: number | null; date: string; type?: string | null; id?: string; splits?: unknown }>;
   ctl: number | null;
+  atl: number | null;
+  tsb: number | null;
+  rampRate: number | null;
   goalRaceType: string;
+  athleteProfile: { vdot: number | null; vo2max: number | null; lactateThresholdPace: string | null; injuryHistoryText?: string | null } | null;
+  readinessRows: Array<{ date: string; vo2max?: number | null; ctl?: number | null; icu_ctl?: number | null }>;
 }) {
   const [open, setOpen] = useState(false);
-  const best = findBestEffort(activities);
-  if (!best || !ctl) return null;
-
+  const [showBreakdown, setShowBreakdown] = useState(false);
   const goalKm = goalRaceToKm(goalRaceType);
   const goalLabel = goalRaceToLabel(goalRaceType);
-  const baselineCTL = Math.max(ctl * 0.7, 20);
-  const predicted = predictRaceTime(best.timeSeconds, best.distanceKm, goalKm, ctl, baselineCTL);
-  const paces = calculateZonePaces(predicted, goalKm);
+  const baselineCTL = ctl != null ? Math.max(ctl * 0.7, 20) : 20;
 
-  const allPredictions = RACE_DISTANCES.map(({ km, label }) => ({
-    label,
-    km,
-    time: predictRaceTime(best.timeSeconds, best.distanceKm, km, ctl, baselineCTL),
-  }));
+  const now = Date.now();
+  const sevenDaysAgo = new Date(now - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const twentyEightDaysAgo = new Date(now - 28 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const runningActivities = activities.filter((a) => isRunningActivity(a.type));
+  const recentVolume7dKm = runningActivities
+    .filter((a) => a.date >= sevenDaysAgo)
+    .reduce((sum, a) => sum + (a.distance_km ?? 0), 0);
+  const recentVolume28dKm = runningActivities
+    .filter((a) => a.date >= twentyEightDaysAgo)
+    .reduce((sum, a) => sum + (a.distance_km ?? 0), 0);
+
+  const prediction = predictRaceTimeV2({
+    activities: activities as import("@/hooks/useActivities").ActivityRow[],
+    targetDistanceKm: goalKm,
+    ctl,
+    atl,
+    tsb,
+    rampRate,
+    athleteProfile,
+    readiness: readinessRows,
+    recentVolume7dKm,
+    recentVolume28dKm,
+    injuryHistoryText: athleteProfile?.injuryHistoryText ?? null,
+  });
+
+  const best = findBestEffort(activities);
+  if (!prediction && (!best || !ctl)) return null;
+
+  const predictedSeconds = prediction?.predictedTimeSeconds ?? (best && ctl
+    ? predictRaceTime(best.timeSeconds, best.distanceKm, goalKm, ctl, baselineCTL)
+    : 0);
+  const paces = prediction
+    ? { zone2: prediction.zone2Pace, threshold: prediction.thresholdPace, vo2max: prediction.vo2maxPace }
+    : calculateZonePaces(predictedSeconds, goalKm, {
+        lactateThresholdPace: athleteProfile?.lactateThresholdPace ?? null,
+        recentRunsMedianPaceSecPerKm: (() => {
+          const recent = activities.filter((a) => isRunningActivity(a.type) && (a.date >= new Date(Date.now() - 28 * 86400000).toISOString().slice(0, 10)) && (a.distance_km ?? 0) >= 3 && (a.duration_seconds ?? 0) > 0);
+          if (recent.length < 2) return null;
+          const p = recent.map((a) => (a.duration_seconds ?? 0) / (a.distance_km ?? 1)).filter((x) => x >= 180 && x <= 600);
+          if (p.length < 2) return null;
+          const s = [...p].sort((a, b) => a - b);
+          return s[Math.floor(s.length / 2)];
+        })(),
+      });
+
+  const allPredictions = RACE_DISTANCES.map(({ km, label }) => {
+    const p = predictRaceTimeV2({
+      activities: activities as import("@/hooks/useActivities").ActivityRow[],
+      targetDistanceKm: km,
+      ctl,
+      atl,
+      tsb,
+      rampRate,
+      athleteProfile,
+      readiness: readinessRows,
+      recentVolume7dKm,
+      recentVolume28dKm,
+      injuryHistoryText: athleteProfile?.injuryHistoryText ?? null,
+    });
+    const fallback = best && ctl ? predictRaceTime(best.timeSeconds, best.distanceKm, km, ctl, baselineCTL) : 0;
+    return { label, km, time: p?.predictedTimeSeconds ?? fallback };
+  });
+
+  const basedOn = prediction?.basedOn ?? (best ? `best effort (${best.distanceKm.toFixed(1)} km)` : "CTL");
 
   return (
     <>
@@ -93,7 +161,7 @@ function RacePredictionCard({
         tabIndex={0}
         onClick={() => setOpen(true)}
         onKeyDown={(e) => e.key === "Enter" && setOpen(true)}
-        className="glass-card p-5 h-full hover:opacity-95 transition-opacity cursor-pointer"
+        className="glass-card p-5 h-full w-full hover:border-gray-300 transition-colors cursor-pointer dark:hover:border-muted-foreground/30"
       >
         <div className="flex items-center gap-2 mb-3">
           <div className="w-8 h-8 rounded-lg bg-primary/10 flex items-center justify-center">
@@ -104,13 +172,32 @@ function RacePredictionCard({
             <p className="text-xs text-muted-foreground">{goalLabel}</p>
           </div>
         </div>
-        <p className="text-3xl font-bold tabular-nums text-foreground mb-2">{formatRaceTime(predicted)}</p>
-        <div className="space-y-1 text-xs text-muted-foreground">
-          <p>Z2 pace: {paces.zone2}</p>
-          <p>Threshold: {paces.threshold}</p>
-          <p>VO2max: {paces.vo2max}</p>
+        <p className="text-4xl font-bold tabular-nums text-foreground mb-4">{formatRaceTime(predictedSeconds)}</p>
+        <div className="grid grid-cols-3 gap-3 text-sm">
+          <div>
+            <p className="text-muted-foreground">Z2</p>
+            <p className="text-base font-medium text-foreground">{paces.zone2}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">Threshold</p>
+            <p className="text-base font-medium text-foreground">{paces.threshold}</p>
+          </div>
+          <div>
+            <p className="text-muted-foreground">VO2max</p>
+            <p className="text-base font-medium text-foreground">{paces.vo2max}</p>
+          </div>
         </div>
-        <p className="text-[10px] text-muted-foreground mt-2">Based on best effort · CTL {Math.round(ctl)}</p>
+        <p className="text-xs text-muted-foreground mt-3">
+          {basedOn}
+          {prediction?.metricsBreakdown && (
+            <>
+              {ctl != null && ` · CTL ${Math.round(ctl)}`}
+              {prediction.metricsBreakdown.tsb != null && ` · TSB ${Math.round(prediction.metricsBreakdown.tsb * 10) / 10}`}
+              {` · ${Math.round(prediction.metricsBreakdown.vol7dKm)} km/7d · ${Math.round(prediction.metricsBreakdown.vol28dKm)} km/28d`}
+            </>
+          )}
+          {!prediction?.metricsBreakdown && ctl != null && ` · CTL ${Math.round(ctl)}`}
+        </p>
         <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
           View all distances <ChevronRight className="w-3.5 h-3.5" />
         </div>
@@ -121,7 +208,15 @@ function RacePredictionCard({
             <DialogTitle>Race Predictions</DialogTitle>
           </DialogHeader>
           <p className="text-sm text-muted-foreground mb-4">
-            Based on your best effort ({best.distanceKm.toFixed(1)} km) · CTL {Math.round(ctl)}
+            {basedOn}
+            {prediction?.metricsBreakdown && (
+              <>
+                {ctl != null && ` · CTL ${Math.round(ctl)}`}
+                {prediction.metricsBreakdown.tsb != null && ` · TSB ${prediction.metricsBreakdown.tsb.toFixed(1)}`}
+                {` · ${prediction.metricsBreakdown.vol7dKm.toFixed(0)} km/7d · ${prediction.metricsBreakdown.vol28dKm.toFixed(0)} km/28d`}
+              </>
+            )}
+            {!prediction?.metricsBreakdown && ctl != null && ` · CTL ${Math.round(ctl)}`}
           </p>
           <div className="space-y-3">
             {allPredictions.map(({ label, km, time }) => (
@@ -134,6 +229,51 @@ function RacePredictionCard({
               </div>
             ))}
           </div>
+          {prediction?.metricsBreakdown && (
+            <div className="mt-4 border rounded-lg overflow-hidden">
+              <button
+                type="button"
+                onClick={() => setShowBreakdown((b) => !b)}
+                className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-foreground hover:bg-muted/50 transition-colors"
+              >
+                How we calculated this
+                <ChevronDown className={`w-4 h-4 text-muted-foreground transition-transform ${showBreakdown ? "rotate-180" : ""}`} />
+              </button>
+              {showBreakdown && (
+                <div className="px-4 pb-4 pt-0 space-y-2 text-xs text-muted-foreground border-t">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 pt-3">
+                    <span>CTL</span>
+                    <span>{prediction.metricsBreakdown.ctl != null ? prediction.metricsBreakdown.ctl.toFixed(1) : "—"}</span>
+                    <span>TSB</span>
+                    <span>{prediction.metricsBreakdown.tsb != null ? prediction.metricsBreakdown.tsb.toFixed(1) : "—"}</span>
+                    <span>Vol 7d</span>
+                    <span>{prediction.metricsBreakdown.vol7dKm.toFixed(1)} km</span>
+                    <span>Vol 28d</span>
+                    <span>{prediction.metricsBreakdown.vol28dKm.toFixed(1)} km</span>
+                    <span>Injury</span>
+                    <span>{prediction.metricsBreakdown.injuryApplied ? "Yes" : "No"}</span>
+                    <span>Ramp</span>
+                    <span>{prediction.metricsBreakdown.rampRate != null ? prediction.metricsBreakdown.rampRate.toFixed(1) : "—"}</span>
+                  </div>
+                  <p className="text-[10px] font-medium text-foreground pt-2">Multipliers</p>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1">
+                    <span>CTL adj</span>
+                    <span>{prediction.metricsBreakdown.multipliers.ctl.toFixed(2)}x</span>
+                    <span>Volume adj</span>
+                    <span>{prediction.metricsBreakdown.multipliers.volume.toFixed(2)}x</span>
+                    <span>Injury adj</span>
+                    <span>{prediction.metricsBreakdown.multipliers.injury.toFixed(2)}x</span>
+                    <span>TSB adj</span>
+                    <span>{prediction.metricsBreakdown.multipliers.tsb.toFixed(2)}x</span>
+                    <span>Ramp adj</span>
+                    <span>{prediction.metricsBreakdown.multipliers.ramp.toFixed(2)}x</span>
+                    <span>CTL trend</span>
+                    <span>{prediction.metricsBreakdown.multipliers.ctlTrend.toFixed(2)}x</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           <Link
             to="/stats"
             className="block mt-4 text-center text-sm text-primary font-medium hover:underline"
@@ -218,8 +358,8 @@ function CoachCadeWidget() {
     <Link to="/coach?from=dashboard" className="block h-full">
           <div className="glass-card p-6 h-full hover:opacity-95 transition-opacity cursor-pointer flex flex-col">
         <div className="flex items-center gap-2 mb-3">
-          <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center">
-            <span className="text-sm font-semibold text-primary">K</span>
+          <div className="w-8 h-8 rounded-full bg-[#2563EB] flex items-center justify-center">
+            <span className="text-sm font-semibold text-white">C</span>
           </div>
           <span className="text-sm font-semibold text-foreground">Coach Cade</span>
         </div>
@@ -231,11 +371,11 @@ function CoachCadeWidget() {
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto">
             <p className="text-sm text-foreground leading-relaxed">
-              {displayText ? `"${displayText}"` : isFallback ? (isConnected ? "Ask Coach Cade for a quick training check-in." : "Connect intervals.icu in Settings to get personalized coaching.") : "\u2014"}
+              {displayText ? `"${formatCoachText(displayText)}"` : isFallback ? (isConnected ? "Ask Coach Cade for a quick training check-in." : "Connect intervals.icu in Settings to get personalized coaching.") : "\u2014"}
             </p>
           </div>
         )}
-        <div className="flex items-center gap-1 mt-3 text-xs text-primary font-medium shrink-0">
+        <div className="flex items-center gap-1 mt-3 text-sm text-[#2563EB] dark:text-primary shrink-0">
           Ask Coach Cade <ChevronRight className="w-3.5 h-3.5" />
         </div>
       </div>
@@ -304,8 +444,9 @@ function SeasonWidget() {
 
 export default function Dashboard() {
   const greeting = useGreeting();
+  const navigate = useNavigate();
   const zoneSource = useZoneSource();
-  const { weekStats, lastActivity, recoveryMetrics, readiness, weekPlan, todaysWorkout, athlete, planProgress, isSampleData, activities } = useDashboardData();
+  const { weekStats, lastActivity, recoveryMetrics, readiness, readinessRows, weekPlan, next7DaysHasPlannedSessions, todaysWorkout, athlete, athleteProfile, planProgress, isSampleData, activities } = useDashboardData();
   const { isConnected: intervalsConnected } = useIntervalsIntegration();
   const { todayLoad } = useDailyLoad();
   const { openCheckIn, currentStreak, longestStreak, hasCheckedInToday } = useDailyCheckIn();
@@ -329,7 +470,7 @@ export default function Dashboard() {
         {/* Page header */}
         <div>
           <h1 className="page-title text-foreground">{greeting}</h1>
-          <p className="text-sm text-[#6B7280] mt-1">
+          <p className="text-sm text-muted-foreground mt-1">
             {planProgress
               ? `Week ${planProgress.currentWeek} of ${planProgress.totalWeeks} · ${planProgress.phase} Phase · ${athlete.goalRace.type} in ${planProgress.totalWeeks - planProgress.currentWeek + 1} weeks`
               : athlete.goalRace.weeksRemaining != null
@@ -338,11 +479,16 @@ export default function Dashboard() {
           </p>
         </div>
 
-        {/* Readiness Card — clickable to Stats */}
+        {/* Readiness Card — clickable to Stats; check-in row when needed */}
         <Link to="/stats" className="block">
-          <div className="glass-card p-6 relative hover:opacity-95 transition-opacity cursor-pointer min-h-0">
+          <div className="glass-card p-6 relative hover:border-gray-300 transition-colors cursor-pointer min-h-0 dark:hover:border-muted-foreground/30">
             {isSampleData && (
               <span className="absolute top-3 right-3 text-[10px] px-2 py-0.5 rounded-full bg-muted text-muted-foreground font-medium">Sample</span>
+            )}
+            {!isSampleData && intervalsConnected && (
+              <span className="absolute top-3 right-3 text-xs bg-muted text-muted-foreground px-2 py-0.5 rounded-full">
+                Synced from intervals.icu
+              </span>
             )}
             <div className="flex items-center gap-6">
               <ReadinessRing score={readiness.score} size={96} />
@@ -363,15 +509,22 @@ export default function Dashboard() {
                       Rest recommended — weekly load is {progressPct}% of target
                     </p>
                   )}
-                <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground flex-wrap">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 mt-3 text-sm text-muted-foreground">
                   <span className="flex items-center gap-1">
-                    <Heart className="w-3 h-3" /> HRV {readiness.hrv}ms
+                    <Heart className="w-3.5 h-3.5 shrink-0" />
+                    <span>HRV</span>
+                    <span className="font-medium text-foreground">{readiness.hrv}ms</span>
                     <TrendingDown className="w-3 h-3 text-warning" />
                   </span>
                   <span className="flex items-center gap-1">
-                    <Moon className="w-3 h-3" /> {formatSleepHours(readiness.sleepHours)} sleep
+                    <Moon className="w-3.5 h-3.5 shrink-0" />
+                    <span>Sleep</span>
+                    <span className="font-medium text-foreground">{formatSleepHours(readiness.sleepHours)}</span>
                   </span>
-                  <span className="mono-text">TSB {readiness.tsb != null ? Number(readiness.tsb).toFixed(1) : "—"}</span>
+                  <span>
+                    <span className="text-muted-foreground">TSB </span>
+                    <span className="font-medium text-foreground mono-text tabular-nums">{readiness.tsb != null ? Math.round(readiness.tsb * 10) / 10 : "—"}</span>
+                  </span>
                   {hasCheckedInToday && currentStreak > 0 && (
                     <span className="flex items-center gap-1 text-amber-600 dark:text-amber-400 font-medium">
                       <Flame className="w-3 h-3" /> {currentStreak}-day streak{longestStreak > currentStreak ? ` · Best: ${longestStreak}` : ""}
@@ -393,7 +546,28 @@ export default function Dashboard() {
                     </button>
                   )}
                 </div>
-                <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
+                {!hasCheckedInToday && !isSampleData && (
+                  <div className="mt-4 pt-4 border-t border-border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-foreground">30-second check-in</p>
+                      <p className="text-xs text-muted-foreground">
+                        {currentStreak > 0
+                          ? `You're on a ${currentStreak}-day streak — check in today to keep it going.`
+                          : "Help Coach Cade understand your full load today"}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="shrink-0 text-[#2563EB] border-[#2563EB]/30 hover:bg-blue-50 dark:text-primary dark:border-primary/30"
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); openCheckIn(); }}
+                    >
+                      Start <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
+                    </Button>
+                  </div>
+                )}
+                <div className="flex items-center gap-1 mt-3 text-sm text-[#2563EB] dark:text-primary">
                   View details <ChevronRight className="w-3.5 h-3.5" />
                 </div>
               </div>
@@ -401,21 +575,20 @@ export default function Dashboard() {
           </div>
         </Link>
 
-        {!hasCheckedInToday && !isSampleData && (
-          <div className="rounded-xl border border-border bg-card p-4 flex items-center justify-between gap-4">
-            <div>
-              <p className="text-sm font-medium text-foreground">30-second check-in</p>
-              <p className="text-xs text-muted-foreground">
-                {currentStreak > 0
-                  ? `You're on a ${currentStreak}-day streak — check in today to keep it going.`
-                  : "Help Coach Cade understand your full load today"}
-              </p>
-            </div>
-            <Button type="button" size="sm" onClick={(e) => { e.preventDefault(); e.stopPropagation(); openCheckIn(); }}>
-              Start <ChevronRight className="w-3.5 h-3.5 ml-0.5" />
-            </Button>
-          </div>
-        )}
+        {/* Your Week — proposal or current week */}
+        <WeekProposal />
+
+        {/* Race prediction — full width under week calendar */}
+        <RacePredictionCard
+          activities={activities}
+          ctl={readiness.ctl}
+          atl={readiness.atl}
+          tsb={readiness.tsb}
+          rampRate={readiness.rampRate ?? null}
+          goalRaceType={athlete.goalRace.type}
+          athleteProfile={athleteProfile ?? { vdot: null, vo2max: null, lactateThresholdPace: null, injuryHistoryText: null }}
+          readinessRows={readinessRows ?? []}
+        />
 
         {/* Season widget */}
         <SeasonWidget />
@@ -514,27 +687,44 @@ export default function Dashboard() {
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-1.5">
                     <p className="text-xs text-muted-foreground">HR Zones</p>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
-                      {lastActivity.hrZonesEstimated ? "Estimated from avg HR" : zoneSource}
-                    </span>
+                    {!lastActivity.needsMaxHrForZones && (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+                        {lastActivity.hrZonesEstimated ? "Estimated from avg HR" : zoneSource}
+                      </span>
+                    )}
                   </div>
-                  <div className="flex h-3 rounded-full overflow-hidden">
-                    <div className={`${HR_ZONE_LIGHT[0]} dark:bg-[#94a3b8]`} style={{ width: `${lastActivity.hrZones.z1}%` }} />
-                    <div className={`${HR_ZONE_LIGHT[1]} dark:bg-[#3b82f6]`} style={{ width: `${lastActivity.hrZones.z2}%` }} />
-                    <div className={`${HR_ZONE_LIGHT[2]} dark:bg-[#22c55e]`} style={{ width: `${lastActivity.hrZones.z3}%` }} />
-                    <div className={`${HR_ZONE_LIGHT[3]} dark:bg-[#f97316]`} style={{ width: `${lastActivity.hrZones.z4}%` }} />
-                    <div className={`${HR_ZONE_LIGHT[4]} dark:bg-[#ef4444]`} style={{ width: `${lastActivity.hrZones.z5}%` }} />
-                  </div>
-                  <div className="flex mt-1 text-[10px] text-muted-foreground">
-                    {([1, 2, 3, 4, 5] as const).map((i) => {
-                      const pct = lastActivity.hrZones[`z${i}` as keyof typeof lastActivity.hrZones] ?? 0;
-                      return (
-                        <span key={i} className="text-center shrink-0" style={{ width: `${pct}%`, minWidth: pct > 0 ? "1ch" : 0 }}>
-                          {pct >= 5 ? `Z${i}` : pct > 0 ? "+" : ""}
-                        </span>
-                      );
-                    })}
-                  </div>
+                  {lastActivity.needsMaxHrForZones ? (
+                    <div onClick={(e) => e.stopPropagation()} className="space-y-1">
+                      <p className="text-xs text-muted-foreground">Zones unavailable — set max HR for accurate zones</p>
+                      <button
+                        type="button"
+                        onClick={() => navigate("/settings")}
+                        className="text-xs text-primary font-medium hover:underline"
+                      >
+                        Set max HR in Settings
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <div className="flex h-3 rounded-full overflow-hidden">
+                        <div className={`${HR_ZONE_LIGHT[0]} dark:bg-[#94a3b8]`} style={{ width: `${lastActivity.hrZones.z1}%` }} />
+                        <div className={`${HR_ZONE_LIGHT[1]} dark:bg-[#3b82f6]`} style={{ width: `${lastActivity.hrZones.z2}%` }} />
+                        <div className={`${HR_ZONE_LIGHT[2]} dark:bg-[#22c55e]`} style={{ width: `${lastActivity.hrZones.z3}%` }} />
+                        <div className={`${HR_ZONE_LIGHT[3]} dark:bg-[#f97316]`} style={{ width: `${lastActivity.hrZones.z4}%` }} />
+                        <div className={`${HR_ZONE_LIGHT[4]} dark:bg-[#ef4444]`} style={{ width: `${lastActivity.hrZones.z5}%` }} />
+                      </div>
+                      <div className="flex mt-1 text-[10px] text-muted-foreground">
+                        {([1, 2, 3, 4, 5] as const).map((i) => {
+                          const pct = lastActivity.hrZones[`z${i}` as keyof typeof lastActivity.hrZones] ?? 0;
+                          return (
+                            <span key={i} className="text-center shrink-0" style={{ width: `${pct}%`, minWidth: pct > 0 ? "1ch" : 0 }}>
+                              {pct >= 5 ? `Z${i}` : pct > 0 ? "+" : ""}
+                            </span>
+                          );
+                        })}
+                      </div>
+                    </>
+                  )}
                 </div>
                 <div className="flex items-center gap-1 mt-2 text-xs text-primary font-medium">
                   View activity <ChevronRight className="w-3.5 h-3.5" />
@@ -569,27 +759,40 @@ export default function Dashboard() {
               <div>
                 <div className="flex items-center justify-between gap-2 mb-1.5">
                   <p className="text-xs text-muted-foreground">HR Zones</p>
-                  <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
-                    {lastActivity.hrZonesEstimated ? "Estimated from avg HR" : zoneSource}
-                  </span>
+                  {!lastActivity.needsMaxHrForZones && (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">
+                      {lastActivity.hrZonesEstimated ? "Estimated from avg HR" : zoneSource}
+                    </span>
+                  )}
                 </div>
-                <div className="flex h-3 rounded-full overflow-hidden">
-                  <div className={`${HR_ZONE_LIGHT[0]} dark:bg-[#94a3b8]`} style={{ width: `${lastActivity.hrZones.z1}%` }} />
-                  <div className={`${HR_ZONE_LIGHT[1]} dark:bg-[#3b82f6]`} style={{ width: `${lastActivity.hrZones.z2}%` }} />
-                  <div className={`${HR_ZONE_LIGHT[2]} dark:bg-[#22c55e]`} style={{ width: `${lastActivity.hrZones.z3}%` }} />
-                  <div className={`${HR_ZONE_LIGHT[3]} dark:bg-[#f97316]`} style={{ width: `${lastActivity.hrZones.z4}%` }} />
-                  <div className={`${HR_ZONE_LIGHT[4]} dark:bg-[#ef4444]`} style={{ width: `${lastActivity.hrZones.z5}%` }} />
-                </div>
-                <div className="flex mt-1 text-[10px] text-muted-foreground">
-                  {([1, 2, 3, 4, 5] as const).map((i) => {
-                    const pct = lastActivity.hrZones[`z${i}` as keyof typeof lastActivity.hrZones] ?? 0;
-                    return (
-                      <span key={i} className="text-center shrink-0" style={{ width: `${pct}%`, minWidth: pct > 0 ? "1ch" : 0 }}>
-                        {pct >= 5 ? `Z${i}` : pct > 0 ? "+" : ""}
-                      </span>
-                    );
-                  })}
-                </div>
+                {lastActivity.needsMaxHrForZones ? (
+                  <div className="space-y-1">
+                    <p className="text-xs text-muted-foreground">Zones unavailable — set max HR for accurate zones</p>
+                    <Link to="/settings" className="text-xs text-primary font-medium hover:underline">
+                      Set max HR in Settings
+                    </Link>
+                  </div>
+                ) : (
+                  <>
+                    <div className="flex h-3 rounded-full overflow-hidden">
+                      <div className={`${HR_ZONE_LIGHT[0]} dark:bg-[#94a3b8]`} style={{ width: `${lastActivity.hrZones.z1}%` }} />
+                      <div className={`${HR_ZONE_LIGHT[1]} dark:bg-[#3b82f6]`} style={{ width: `${lastActivity.hrZones.z2}%` }} />
+                      <div className={`${HR_ZONE_LIGHT[2]} dark:bg-[#22c55e]`} style={{ width: `${lastActivity.hrZones.z3}%` }} />
+                      <div className={`${HR_ZONE_LIGHT[3]} dark:bg-[#f97316]`} style={{ width: `${lastActivity.hrZones.z4}%` }} />
+                      <div className={`${HR_ZONE_LIGHT[4]} dark:bg-[#ef4444]`} style={{ width: `${lastActivity.hrZones.z5}%` }} />
+                    </div>
+                    <div className="flex mt-1 text-[10px] text-muted-foreground">
+                      {([1, 2, 3, 4, 5] as const).map((i) => {
+                        const pct = lastActivity.hrZones[`z${i}` as keyof typeof lastActivity.hrZones] ?? 0;
+                        return (
+                          <span key={i} className="text-center shrink-0" style={{ width: `${pct}%`, minWidth: pct > 0 ? "1ch" : 0 }}>
+                            {pct >= 5 ? `Z${i}` : pct > 0 ? "+" : ""}
+                          </span>
+                        );
+                      })}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
           )}
@@ -642,55 +845,57 @@ export default function Dashboard() {
           </Link>
         </div>
 
-        {/* Upcoming 7 days — above Race + Coach Cade for visibility */}
-        <div>
-          <p className="section-header">Next 7 Days</p>
-          <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
-            {weekPlan.map((day) => {
-              const content = (
-                <div
-                  className={`glass-card glass-card-hover p-4 cursor-pointer min-w-[140px] min-h-[120px] flex-shrink-0 ${
-                    day.isToday ? "ring-2 ring-primary/30" : ""
-                  }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <span className={`text-xs font-medium ${day.isToday ? "text-primary" : "text-muted-foreground"}`}>
-                      {day.isToday ? "Today" : day.day}
-                    </span>
-                    <span className="text-[10px] text-muted-foreground">{day.date}</span>
+        {/* Next 7 days — only when plan has sessions this week */}
+        {next7DaysHasPlannedSessions ? (
+          <div>
+            <p className="section-header">Next 7 Days</p>
+            <div className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1">
+              {weekPlan.map((day) => {
+                const content = (
+                  <div
+                    className={`glass-card glass-card-hover p-4 cursor-pointer w-[120px] min-h-[100px] flex-shrink-0 ${
+                      day.isToday ? "ring-2 ring-[#2563EB] dark:ring-primary" : ""
+                    }`}
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <span className={`text-xs font-medium ${day.isToday ? "text-[#2563EB] dark:text-primary" : "text-muted-foreground"}`}>
+                        {day.isToday ? "Today" : day.day}
+                      </span>
+                      <span className="text-[10px] text-muted-foreground">{day.date}</span>
+                    </div>
+                    <WorkoutBadge type={day.type} />
+                    <p className="text-sm font-medium text-foreground mt-2 leading-tight">{day.title}</p>
+                    {day.distance > 0 && (
+                      <p className="mono-text text-xs text-muted-foreground mt-1">
+                        {Math.round(day.distance * 10) / 10} km
+                      </p>
+                    )}
+                    <p className="text-[11px] text-muted-foreground mt-1">{day.detail}</p>
                   </div>
-                  <WorkoutBadge type={day.type} />
-                  <p className="text-sm font-medium text-foreground mt-2 leading-tight">{day.title}</p>
-                  {day.distance > 0 && (
-                    <p className="mono-text text-xs text-muted-foreground mt-1">
-                      {day.distance} km
-                    </p>
-                  )}
-                  <p className="text-[11px] text-muted-foreground mt-1">{day.detail}</p>
-                </div>
-              );
-              return day.detailId ? (
-                <Link key={day.day} to={`/activities/${day.detailId}`} className="block">
-                  {content}
-                </Link>
-              ) : (
-                <Link key={day.day} to="/activities" className="block">
-                  {content}
-                </Link>
-              );
-            })}
+                );
+                return day.detailId ? (
+                  <Link key={day.day} to={`/activities/${day.detailId}`} className="block">
+                    {content}
+                  </Link>
+                ) : (
+                  <Link key={day.day} to="/plan" className="block">
+                    {content}
+                  </Link>
+                );
+              })}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-gray-200 dark:border-border bg-card/50 px-4 py-6 text-center text-sm text-muted-foreground">
+            No sessions planned yet.{" "}
+            <Link to="/plan" className="text-[#2563EB] dark:text-primary font-medium hover:underline">
+              Generate your week
+            </Link>
+            {" →"}
+          </div>
+        )}
 
-        {/* Race Prediction + Coach Cade — equal width, side by side */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 items-start">
-          <RacePredictionCard
-            activities={activities}
-            ctl={readiness.ctl}
-            goalRaceType={athlete.goalRace.type}
-          />
-          <CoachCadeWidget />
-        </div>
+        <CoachCadeWidget />
       </motion.div>
     </AppLayout>
   );

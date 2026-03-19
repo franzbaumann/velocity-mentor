@@ -22,8 +22,7 @@ import {
   useSendFriendRequest,
   useRespondToRequest,
 } from "@/hooks/useFriends";
-import { FriendFeed } from "@/components/community/FriendFeed";
-import { MyFeed } from "@/components/community/MyFeed";
+import { MergedFeed } from "@/components/community/MergedFeed";
 import { WorkoutInvites } from "@/components/community/WorkoutInvites";
 
 export default function Community() {
@@ -53,21 +52,12 @@ export default function Community() {
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
-          {/* Feed */}
-          <div className="glass-card p-6 min-h-[400px] flex flex-col overflow-hidden">
-            <h2 className="text-sm font-semibold text-foreground mb-1">Feed</h2>
-            <p className="text-xs text-muted-foreground mb-4">Activities from friends</p>
+          {/* Combined activity feed */}
+          <div className="glass-card p-6 min-h-[400px] flex flex-col overflow-hidden lg:col-span-2">
+            <h2 className="text-sm font-semibold text-foreground mb-1">Activity</h2>
+            <p className="text-xs text-muted-foreground mb-4">Your runs and friends — newest first</p>
             <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
-              <FriendFeed friends={friends} />
-            </div>
-          </div>
-
-          {/* My Feed */}
-          <div className="glass-card p-6 min-h-[400px] flex flex-col overflow-hidden">
-            <h2 className="text-sm font-semibold text-foreground mb-1">My Feed</h2>
-            <p className="text-xs text-muted-foreground mb-4">Your recent activities</p>
-            <div className="flex-1 min-h-0 overflow-y-auto -mx-1 px-1">
-              <MyFeed />
+              <MergedFeed friends={friends} />
             </div>
           </div>
 

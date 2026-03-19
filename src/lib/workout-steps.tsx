@@ -118,23 +118,42 @@ export function WorkoutStepsDisplay({
   );
 }
 
-/** Combined-workout format from AI: shared_warmup, shared_cooldown, athlete_a, athlete_b, notes */
+/** Athlete entry in combined workout (2-athlete or N-athlete format) */
+export type CombinedWorkoutAthlete = {
+  name: string;
+  original_workout?: string;
+  workout?: string;
+  adapted_workout?: string;
+};
+
+/** Combined-workout format from AI: shared_warmup, shared_cooldown, athlete_a/athlete_b or athletes[], notes */
 export type CombinedWorkoutPreview = {
   summary?: string;
   shared_warmup?: string;
   shared_cooldown?: string;
-  athlete_a?: { name: string; original_workout?: string; workout?: string; adapted_workout?: string };
-  athlete_b?: { name: string; original_workout?: string; workout?: string; adapted_workout?: string };
+  athlete_a?: CombinedWorkoutAthlete;
+  athlete_b?: CombinedWorkoutAthlete;
+  athletes?: CombinedWorkoutAthlete[];
   notes?: string;
 };
+
+function getAthletesFromData(data: CombinedWorkoutPreview): CombinedWorkoutAthlete[] {
+  if (data.athletes && data.athletes.length > 0) {
+    return data.athletes;
+  }
+  const out: CombinedWorkoutAthlete[] = [];
+  if (data.athlete_a) out.push(data.athlete_a);
+  if (data.athlete_b) out.push(data.athlete_b);
+  return out;
+}
 
 /** Renders combined-workout AI response in same visual style as WorkoutStepsDisplay */
 export function CombinedWorkoutDisplay({ data }: { data: CombinedWorkoutPreview }) {
   const hasWarmup = data.shared_warmup?.trim();
   const hasCooldown = data.shared_cooldown?.trim();
-  const athleteA = data.athlete_a?.adapted_workout ?? data.athlete_a?.workout;
-  const athleteB = data.athlete_b?.adapted_workout ?? data.athlete_b?.workout;
-  const hasMain = athleteA || athleteB || data.summary?.trim();
+  const athletes = getAthletesFromData(data);
+  const athleteWorkouts = athletes.map((a) => a.adapted_workout ?? a.workout).filter(Boolean);
+  const hasMain = athleteWorkouts.length > 0 || data.summary?.trim();
   const hasNotes = data.notes?.trim();
 
   if (!hasWarmup && !hasCooldown && !hasMain && !hasNotes) return null;
@@ -166,16 +185,18 @@ export function CombinedWorkoutDisplay({ data }: { data: CombinedWorkoutPreview 
               <span className="text-sm font-medium text-foreground leading-snug">{data.summary}</span>
             )}
           </div>
-          {athleteA && (
-            <p className={`text-xs text-muted-foreground ${data.summary?.trim() ? "mt-1.5" : ""}`}>
-              <span className="font-medium text-foreground/80">{data.athlete_a?.name ?? "You"}:</span> {athleteA}
-            </p>
-          )}
-          {athleteB && (
-            <p className="text-xs text-muted-foreground mt-0.5">
-              <span className="font-medium text-foreground/80">{data.athlete_b?.name ?? "Friend"}:</span> {athleteB}
-            </p>
-          )}
+          {athletes.map((athlete, i) => {
+            const workout = athlete.adapted_workout ?? athlete.workout;
+            if (!workout) return null;
+            return (
+              <p
+                key={i}
+                className={`text-xs text-muted-foreground ${i === 0 && data.summary?.trim() ? "mt-1.5" : "mt-0.5"}`}
+              >
+                <span className="font-medium text-foreground/80">{athlete.name}:</span> {workout}
+              </p>
+            );
+          })}
         </div>
       )}
       {hasCooldown && (

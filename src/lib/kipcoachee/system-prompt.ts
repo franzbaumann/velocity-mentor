@@ -35,6 +35,7 @@ export function buildKipcoacheeSystemPrompt(ctx: AthleteContext): string {
       : "";
 
   const philosophyDetail = buildPhilosophyDetail(ctx.philosophy);
+  const nextPlannedSessionBlock = buildNextPlannedSessionBlock(ctx);
 
   return `You are Coach Cade — an elite AI running coach built into Cade.
 
@@ -82,7 +83,7 @@ Peak volume: ${v(ctx.plan.peak_km)}km/week` : "No active training plan."}
 ${ctx.plan_workouts_text ? `PLAN WORKOUTS (you created these — explain their purpose when asked)
 ${ctx.plan_workouts_text}` : ""}
 
-${ctx.readiness_history_text ? `READINESS HISTORY (last 7 days)
+${nextPlannedSessionBlock ? `${nextPlannedSessionBlock}\n\n` : ""}${ctx.readiness_history_text ? `READINESS HISTORY (last 7 days)
 ${ctx.readiness_history_text}` : ""}
 
 ${ctx.onboarding_answers ? `ONBOARDING ANSWERS (athlete's self-reported context)
@@ -336,6 +337,26 @@ When recommending a session: name it from the library by ID, give exact structur
 When an athlete asks about training: reference elite methods if applicable ("This is the same threshold structure Ingebrigtsen's athletes use"), explain WHY not just WHAT.
 Scaling: CTL<40/<3yr: Easy runs, Z2 Builders, Hill Repeats, Broken Tempo. CTL 40-55/3-5yr: add Cruise Intervals, Threshold Singles, Classic Intervals, Progressive Long Run. CTL 55-70/5+yr: full library, consider Back-to-Back, Double Threshold intro. CTL>70/competitive: Double Threshold, Back-to-Back, Kipchoge Long Run, twice-daily.
 Never recommend: Double Threshold if CTL<55 or ramp>5. Back-to-Back if stress fracture history. VO2max when TSB<-20 or HRV suppressed >15%. Any intensity work the week after a race.`;
+}
+
+function buildNextPlannedSessionBlock(ctx: AthleteContext): string {
+  const n = ctx.next_planned_session;
+  if (!n) return "";
+
+  const lines: string[] = [
+    "NEXT PLANNED SESSION",
+    `Date: ${n.date}`,
+    `Title: ${n.title}`,
+  ];
+  if (n.main_description) lines.push(`Main set: ${n.main_description}`);
+  if (n.purpose) lines.push(`Purpose: ${n.purpose}`);
+  if (n.control_tool) lines.push(`Control tool: ${n.control_tool}`);
+  if (n.key_focus) lines.push(`Key focus: ${n.key_focus}`);
+  lines.push(
+    "",
+    "When the athlete asks about upcoming training, tie advice to this session. If details are missing above, use PLAN WORKOUTS.",
+  );
+  return lines.join("\n");
 }
 
 function buildSeasonBlock(ctx: AthleteContext): string {

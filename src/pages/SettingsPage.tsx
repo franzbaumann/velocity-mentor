@@ -2,6 +2,7 @@ import { AppLayout } from "@/components/AppLayout";
 import { GarminImportBlock } from "@/components/GarminImportBlock";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useIntervalsSync } from "@/hooks/useIntervalsSync";
+import { useVitalIntegration } from "@/hooks/useVitalIntegration";
 import { useStravaConnection } from "@/hooks/use-strava-connection";
 import { useAuth } from "@/hooks/use-auth";
 import { syncStravaActivities } from "@/integrations/strava";
@@ -16,7 +17,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2, User, Brain, X, Trophy, ChevronRight, Users } from "lucide-react";
+import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2, User, Brain, X, Trophy, ChevronRight, Users, Watch } from "lucide-react";
 import { Link, useNavigate } from "react-router-dom";
 import { useSeason } from "@/hooks/useSeason";
 import { supabase } from "@/integrations/supabase/client";
@@ -628,6 +629,17 @@ export default function SettingsPage() {
   const { user } = useAuth();
   const { activeSeason } = useSeason();
   const { integration, isConnected, save, isSaving, disconnect } = useIntervalsIntegration();
+  const {
+    integration: vitalIntegration,
+    isLoading: vitalLoading,
+    isConnected: vitalConnected,
+    connect: vitalConnect,
+    isConnecting: vitalConnecting,
+    sync: vitalSync,
+    isSyncing: vitalSyncing,
+    disconnect: vitalDisconnect,
+    isDisconnecting: vitalDisconnecting,
+  } = useVitalIntegration();
 
   const { data: activityCount = 0 } = useQuery({
     queryKey: ["activityCount", user?.id],
@@ -972,7 +984,7 @@ export default function SettingsPage() {
           <div className="glass-card p-5">
             <p className="section-header">Connected Accounts</p>
             <p className="text-sm text-muted-foreground mb-4">
-              Connect intervals.icu to sync activities, wellness, and fitness data.
+              Connect intervals.icu or Vital to sync activities, wellness, and fitness data.
             </p>
             <div className="space-y-3">
               {/* intervals.icu */}
@@ -1093,6 +1105,61 @@ export default function SettingsPage() {
                       </div>
                     )}
                   </div>
+                )}
+              </div>
+
+              {/* Vital — direct watch connection (Garmin, Apple Watch, Fitbit, Oura, etc.) */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-violet-500/10 flex items-center justify-center">
+                      <Watch className="w-4 h-4 text-violet-500" />
+                    </div>
+                    <div>
+                      <p className="text-sm font-medium text-foreground">Vital (Watch)</p>
+                      <p className="text-xs text-muted-foreground">
+                        {vitalLoading ? "Loading…" : vitalConnected ? "Connected" : "Not connected"}
+                      </p>
+                    </div>
+                  </div>
+                  {vitalConnected ? (
+                    <div className="flex gap-2">
+                      <Button
+                        onClick={() => vitalSync()}
+                        size="sm"
+                        className="rounded-full px-5 pill-button bg-violet-500 hover:bg-violet-600 text-white text-xs"
+                        disabled={vitalSyncing}
+                      >
+                        {vitalSyncing ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <RefreshCw className="w-4 h-4 mr-1" />}
+                        {vitalSyncing ? "Syncing…" : "Sync now"}
+                      </Button>
+                      <Button
+                        onClick={() => vitalDisconnect()}
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full px-5"
+                        disabled={vitalDisconnecting}
+                      >
+                        {vitalDisconnecting ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Unlink className="w-4 h-4 mr-1" />}
+                        {vitalDisconnecting ? "Disconnecting…" : "Disconnect"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <Button
+                      onClick={() => vitalConnect()}
+                      size="sm"
+                      className="rounded-full px-5 pill-button bg-violet-500 hover:bg-violet-600 text-white text-xs"
+                      disabled={vitalConnecting}
+                    >
+                      {vitalConnecting ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Watch className="w-4 h-4 mr-1" />}
+                      Connect watch (Garmin, Apple Watch, Fitbit, Oura…)
+                    </Button>
+                  )}
+                </div>
+                {vitalConnected && (
+                  <p className="pl-11 ml-4 text-xs text-muted-foreground">
+                    Activities and wellness data sync from your connected wearable.
+                  </p>
                 )}
               </div>
 

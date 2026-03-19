@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery, useQueries, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -17,17 +17,25 @@ export interface PendingRequest {
 }
 
 async function callProxy(path: string, body: Record<string, unknown> = {}) {
-  await supabase.auth.refreshSession();
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) throw new Error("Not authenticated");
 
-  const res = await supabase.functions.invoke("community-proxy", {
-    body: { ...body, __path: path },
-    headers: { "Content-Type": "application/json" },
+  const baseUrl = import.meta.env.VITE_SUPABASE_URL ?? "";
+  const resp = await fetch(`${baseUrl}/functions/v1/community-proxy`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${session.access_token}`,
+      apikey: getAnonKey(),
+    },
+    body: JSON.stringify({ ...body, __path: path }),
   });
 
-  if (res.error) throw new Error(res.error.message);
-  return res.data;
+  if (!resp.ok) {
+    const err = await resp.json().catch(() => ({ error: "Request failed" }));
+    throw new Error(err.error ?? "Request failed");
+  }
+  return resp.json();
 }
 
 const getAnonKey = () =>
@@ -35,7 +43,6 @@ const getAnonKey = () =>
 
 function proxyFetch(path: string, body: Record<string, unknown> = {}) {
   return async () => {
-    await supabase.auth.refreshSession();
     const { data: { session } } = await supabase.auth.getSession();
     if (!session) throw new Error("Not authenticated");
 
@@ -66,7 +73,6 @@ export function useFriendsList() {
     enabled: !!user,
     queryFn: async () => {
       if (!user) return [];
-      await supabase.auth.refreshSession();
 
       const { data: friendships } = await supabase
         .from("friendship")
@@ -104,7 +110,6 @@ export function usePendingRequests() {
     enabled: !!user,
     queryFn: async () => {
       if (!user) return [];
-      await supabase.auth.refreshSession();
 
       const { data: requests } = await supabase
         .from("friend_request")
@@ -142,7 +147,6 @@ export function useSentRequests() {
     enabled: !!user,
     queryFn: async () => {
       if (!user) return [];
-      await supabase.auth.refreshSession();
 
       const { data: requests } = await supabase
         .from("friend_request")
@@ -254,6 +258,33 @@ export function useFriendWorkoutForDate(friendId: string | null, date: string | 
     queryFn: () => callProxy("friend-workout-for-date", { friend_id: friendId!, date: date! }),
     staleTime: 60_000,
   });
+}
+
+export interface FriendWorkoutForDateResult {
+  friendId: string;
+  workouts: { id?: string; type?: string; name?: string; description?: string; distance_km?: number; duration_minutes?: number; target_pace?: string; workout_steps?: unknown }[];
+}
+
+export function useFriendWorkoutsForDate(friendIds: string[], date: string | null) {
+  const results = useQueries({
+    queries: friendIds.map((friendId) => ({
+      queryKey: ["friend-workout-for-date", friendId, date],
+      enabled: !!friendId && !!date,
+      queryFn: () => callProxy("friend-workout-for-date", { friend_id: friendId, date: date! }),
+      staleTime: 60_000,
+    })),
+  });
+
+  const byFriendId = new Map<string, FriendWorkoutForDateResult>();
+  let isLoading = false;
+  for (let i = 0; i < friendIds.length; i++) {
+    const { data, isLoading: qLoading } = results[i];
+    if (qLoading) isLoading = true;
+    const workouts = (data as { workouts?: unknown[] })?.workouts ?? [];
+    byFriendId.set(friendIds[i], { friendId: friendIds[i], workouts });
+  }
+
+  return { byFriendId, isLoading, results };
 }
 
 export function usePendingInvitesCount() {
