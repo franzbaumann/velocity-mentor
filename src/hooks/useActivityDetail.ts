@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { getSafeAccessToken } from "@/lib/supabase-auth-safe";
 import { decodePolyline } from "@/lib/polyline";
 
 /** Stream arrays aligned by index (time) for charts */
@@ -132,15 +133,19 @@ export function useActivityDetail(activityId: string | undefined) {
       const id = queryKey[1] as string | undefined;
       if (!id) return null;
       const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) return null;
+      if (!session?.user) return null;
 
       const isIntervals = id.startsWith("icu_");
       const intervalsId = isIntervals ? id.replace(/^icu_/, "") : null;
 
       if (isIntervals && intervalsId) {
-        const { data: { session: sess2 } } = await supabase.auth.getSession();
-        const user = sess2?.user ?? null;
-        if (!user) return null;
+        const user = session.user;
+        let accessToken: string;
+        try {
+          accessToken = await getSafeAccessToken();
+        } catch {
+          return null;
+        }
 
         // Fetch DB activity + streams first (always available), then try live API for extra data
         const [dbActivityRes, dbStreamsRes] = await Promise.all([
@@ -164,11 +169,11 @@ export function useActivityDetail(activityId: string | undefined) {
         try {
           [detailRes, streamsRes] = await Promise.all([
             supabase.functions.invoke("intervals-proxy", {
-              headers: { Authorization: `Bearer ${session.access_token}` },
+              headers: { Authorization: `Bearer ${accessToken}` },
               body: { action: "activity", activityId: intervalsId },
             }),
             supabase.functions.invoke("intervals-proxy", {
-              headers: { Authorization: `Bearer ${session.access_token}` },
+              headers: { Authorization: `Bearer ${accessToken}` },
               body: { action: "streams", activityId: intervalsId },
             }),
           ]);

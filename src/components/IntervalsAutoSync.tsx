@@ -1,6 +1,7 @@
 import { useEffect, useRef } from "react";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { supabase } from "@/integrations/supabase/client";
+import { getSafeAccessToken } from "@/lib/supabase-auth-safe";
 
 const LAST_QUICK_SYNC_KEY = "lastQuickSync";
 const ONE_DAY_MS = 24 * 60 * 60 * 1000;
@@ -22,22 +23,19 @@ export function IntervalsAutoSync() {
     const oneDayAgo = Date.now() - ONE_DAY_MS;
     if (lastSync && parseInt(lastSync, 10) >= oneDayAgo) return;
 
-    supabase.auth.refreshSession().then(() =>
-      supabase.auth.getSession()
-    ).then(({ data: { session } }) => {
-      if (!session?.access_token) return;
-      supabase.functions
-        .invoke("intervals-proxy", {
-          headers: { Authorization: `Bearer ${session.access_token}` },
+    void getSafeAccessToken()
+      .then((token) =>
+        supabase.functions.invoke("intervals-proxy", {
+          headers: { Authorization: `Bearer ${token}` },
           body: { action: "quick_sync" },
         })
-        .then(() => {
-          localStorage.setItem(LAST_QUICK_SYNC_KEY, String(Date.now()));
-        })
-        .catch(() => {
-          // Silent fail — no toast, no UI
-        });
-    });
+      )
+      .then(() => {
+        localStorage.setItem(LAST_QUICK_SYNC_KEY, String(Date.now()));
+      })
+      .catch(() => {
+        // Silent fail — no toast, no UI
+      });
   }, [isConnected]);
 
   return null;

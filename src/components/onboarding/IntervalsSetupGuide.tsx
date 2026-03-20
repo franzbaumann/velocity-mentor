@@ -4,6 +4,7 @@ import { Check, ChevronRight, ExternalLink, ArrowLeft, Loader2 } from "lucide-re
 import { Marquee } from "@/components/ui/marquee";
 import { Button } from "@/components/ui/button";
 import { supabase } from "@/integrations/supabase/client";
+import { getSafeAccessToken } from "@/lib/supabase-auth-safe";
 import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useVitalIntegration } from "@/hooks/useVitalIntegration";
 import { useIntervalsSync, SyncProgress } from "@/hooks/useIntervalsSync";
@@ -349,9 +350,9 @@ function Step4({
 
     // Test connection
     try {
-      const { data: { session } } = await supabase.auth.getSession();
+      const token = await getSafeAccessToken();
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${session?.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: { action: "test_connection", athleteId: athleteId.trim(), apiKey: apiKey.trim() },
       });
       if (error) {

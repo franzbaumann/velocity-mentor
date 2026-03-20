@@ -499,7 +499,7 @@ serve(async (req) => {
       .eq("id", seasonId)
       .eq("user_id", user.id);
 
-    await supabase.from("coaching_memory").delete().eq("user_id", user.id).eq("category", "goal");
+    await supabase.from("coaching_memory").delete().eq("user_id", user.id).in("category", ["goal", "race"]);
     await supabase.from("coaching_memory").insert({
       user_id: user.id,
       category: "goal",

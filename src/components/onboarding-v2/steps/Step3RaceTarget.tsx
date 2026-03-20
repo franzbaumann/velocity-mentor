@@ -9,7 +9,7 @@ import { parseGoalTimeToSeconds, formatSecondsToGoalTime } from "@/lib/format";
 import { calculateVDOT } from "@/lib/training/vdot";
 import {
   classifyGoalFeasibility,
-  estimateMaxVdotFromRecentRuns,
+  estimateMaxVdotFromRecentRunsForGoal,
   getRaceDistanceMetersForVdot,
 } from "@/lib/onboarding/estimateBaselineVdot";
 

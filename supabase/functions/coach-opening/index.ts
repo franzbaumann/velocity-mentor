@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { AI_LIMITS } from "../_shared/ai-models.ts";
+import { pickTopMemories } from "../_shared/coaching-memory-ranking.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -261,9 +262,9 @@ serve(async (req) => {
       supabaseAdmin.from("training_plan_workout").select("*").eq("user_id", user.id).gte("date", todayStr).order("date", { ascending: true }).limit(10),
       supabaseAdmin.from("training_plan_workout").select("*").eq("user_id", user.id).gte("date", monStr).lte("date", sunStr),
       supabaseAdmin.from("athlete_profile").select("*").eq("user_id", user.id).maybeSingle(),
-      supabaseAdmin.from("coaching_memory").select("category, content, importance").eq("user_id", user.id)
+      supabaseAdmin.from("coaching_memory").select("category, content, importance, created_at").eq("user_id", user.id)
         .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
-        .order("importance", { ascending: false }).limit(10),
+        .order("created_at", { ascending: false }).limit(30),
       supabaseAdmin.from("coach_message").select("created_at").eq("user_id", user.id).eq("role", "user")
         .order("created_at", { ascending: false }).limit(1),
       supabaseAdmin.from("daily_load").select("total_load_score, mood").eq("user_id", user.id).eq("date", todayStr).maybeSingle(),
@@ -275,7 +276,15 @@ serve(async (req) => {
     const workouts = (workoutsRes?.data ?? []) as Record<string, unknown>[];
     const weekWorkouts = (weekWorkoutsRes?.data ?? []) as Record<string, unknown>[];
     const profile = profileRes?.data as Record<string, unknown> | null;
-    const memories = (memoriesRes?.data ?? []) as { category: string; content: string; importance: number }[];
+    const memPool = (memoriesRes?.data ?? []) as { category: string; content: string; importance: number; created_at?: string }[];
+    const memoriesRanked = pickTopMemories(
+      memPool.map((m) => ({
+        ...m,
+        created_at: m.created_at ?? new Date().toISOString(),
+      })),
+      10,
+    );
+    const memories = memoriesRanked.map(({ category, content, importance }) => ({ category, content, importance }));
     const lastMsg = (lastMsgRes?.data?.[0] as { created_at?: string } | undefined);
     const dailyLoad = dailyLoadRes?.data as { total_load_score?: number; mood?: string } | null;
 

@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import { getSafeAccessToken } from "@/lib/supabase-auth-safe";
 import { useToast } from "@/hooks/use-toast";
 
 interface IntervalsIntegration {
@@ -128,12 +129,10 @@ export function useIntervalsActivitiesChunked(enabled = true) {
   return useQuery({
     queryKey: ["intervals-activities-chunked"],
     queryFn: async () => {
-      await supabase.auth.refreshSession();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not authenticated");
+      const token = await getSafeAccessToken();
       const newest = new Date().toISOString().slice(0, 10);
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: { endpoint: "activities", oldest: OLDEST_ACTIVITIES, newest },
       });
       if (data && typeof data === "object" && "error" in data) throw new Error((data as { error: string }).error);
@@ -158,11 +157,9 @@ export function useIntervalsData(endpoint: string, oldest: string, newest: strin
   return useQuery({
     queryKey: ["intervals-data", endpoint, oldest, newest],
     queryFn: async () => {
-      await supabase.auth.refreshSession();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) throw new Error("Not authenticated");
+      const token = await getSafeAccessToken();
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: { endpoint, oldest, newest },
       });
       // Proxy returns { error: string } on failure - check data first for clearer messages

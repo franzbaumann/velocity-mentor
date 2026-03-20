@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/popover";
 import { DateWheelPicker } from "@/components/ui/date-wheel-picker";
 import { plannedWorkoutDurationMinutes, plannedWorkoutSummary } from "@/lib/format";
+import { getSafeAccessToken } from "@/lib/supabase-auth-safe";
 import { parseSteps, WorkoutStepsDisplay, type WorkoutStep } from "@/lib/workout-steps";
 import { SessionCard } from "@/components/training/SessionCard";
 import type { SessionStructureStored } from "@/lib/training/sessionStructureUi";
@@ -185,13 +186,15 @@ function SessionDetailModal({
     setStepsLoading(true);
     setStepsError(null);
     try {
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      if (!authSession?.access_token) {
+      let token: string;
+      try {
+        token = await getSafeAccessToken();
+      } catch {
         setStepsError("Not signed in");
         return;
       }
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${authSession.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: { action: "workout_steps", workoutId: session.id, regenerate },
       });
       if (error) throw error;
@@ -221,13 +224,15 @@ function SessionDetailModal({
     setCoachNoteLoading(true);
     setCoachNoteError(null);
     try {
-      const { data: { session: authSession } } = await supabase.auth.getSession();
-      if (!authSession?.access_token) {
+      let tokenNote: string;
+      try {
+        tokenNote = await getSafeAccessToken();
+      } catch {
         setCoachNoteError("Not signed in");
         return;
       }
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${authSession.access_token}` },
+        headers: { Authorization: `Bearer ${tokenNote}` },
         body: { action: "workout_coach_note", workoutId: session.id, regenerate },
       });
       if (error) throw error;

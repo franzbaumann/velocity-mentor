@@ -2,6 +2,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
+import { AuthTokenError, getSafeAccessToken } from "@/lib/supabase-auth-safe";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -79,15 +80,25 @@ export function useIntervalsSync() {
     });
 
     try {
-      await supabase.auth.refreshSession();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        setProgress({ stage: "error", detail: "Not signed in", done: true, runsCount: 0, wellnessDays: 0 });
+      let token: string;
+      try {
+        token = await getSafeAccessToken();
+      } catch (e) {
+        const msg = e instanceof AuthTokenError ? e.message : e instanceof Error ? e.message : "Authentication failed";
+        setProgress({
+          stage: "error",
+          detail:
+            msg +
+            (e instanceof AuthTokenError && e.code === "session_fetch_failed"
+              ? " Check your network and try again."
+              : ""),
+          done: true,
+          runsCount: 0,
+          wellnessDays: 0,
+        });
         setSyncing(false);
         return;
       }
-
-      const token = session.access_token;
       const invoke = (body: Record<string, unknown>) =>
         supabase.functions.invoke("intervals-proxy", {
           headers: { Authorization: `Bearer ${token}` },
@@ -190,16 +201,28 @@ export function useIntervalsSync() {
     });
 
     try {
-      await supabase.auth.refreshSession();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        setProgress({ stage: "error", detail: "Not signed in", done: true, runsCount: 0, wellnessDays: 0 });
+      let token: string;
+      try {
+        token = await getSafeAccessToken();
+      } catch (e) {
+        const msg = e instanceof AuthTokenError ? e.message : e instanceof Error ? e.message : "Authentication failed";
+        setProgress({
+          stage: "error",
+          detail:
+            msg +
+            (e instanceof AuthTokenError && e.code === "session_fetch_failed"
+              ? " Check your network and try again."
+              : ""),
+          done: true,
+          runsCount: 0,
+          wellnessDays: 0,
+        });
         setSyncing(false);
         return;
       }
 
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: { action: "quick_sync" },
       });
 

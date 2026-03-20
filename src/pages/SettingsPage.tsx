@@ -21,6 +21,7 @@ import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2, User, Brain, 
 import { Link, useNavigate } from "react-router-dom";
 import { useSeason } from "@/hooks/useSeason";
 import { supabase } from "@/integrations/supabase/client";
+import { AuthTokenError, getSafeAccessToken } from "@/lib/supabase-auth-safe";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { format, subDays } from "date-fns";
 import { toast } from "sonner";
@@ -307,7 +308,7 @@ function TrainingPlanSection({
       for (const p of plans ?? []) {
         await supabase.from("training_plan").delete().eq("id", p.id);
       }
-      await supabase.from("coaching_memory").delete().eq("user_id", user.id).eq("category", "goal");
+      await supabase.from("coaching_memory").delete().eq("user_id", user.id).in("category", ["goal", "race"]);
       queryClient.invalidateQueries({ queryKey: ["coaching_memory"] });
       await supabase.from("athlete_profile").upsert(
         { user_id: user.id, onboarding_complete: false, onboarding_answers: null, updated_at: new Date().toISOString() },
@@ -731,11 +732,14 @@ export default function SettingsPage() {
     queryKey: ["sync_progress", user?.id],
     queryFn: async () => {
       if (!user?.id) return null;
-      await supabase.auth.refreshSession();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) return null;
+      let token: string;
+      try {
+        token = await getSafeAccessToken();
+      } catch {
+        return null;
+      }
       const { data } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: { action: "get_sync_progress" },
       });
       const row = data as { updated_at?: string; done?: boolean } | null;
@@ -745,16 +749,17 @@ export default function SettingsPage() {
   });
 
   const handleSyncPRs = async () => {
-    await supabase.auth.refreshSession();
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-      toast.error("Not signed in");
+    let token: string;
+    try {
+      token = await getSafeAccessToken();
+    } catch (e) {
+      toast.error(e instanceof AuthTokenError ? e.message : "Not signed in");
       return;
     }
     setPbsSyncing(true);
     try {
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: { action: "sync_pbs" },
       });
       if (error) throw error;
@@ -770,16 +775,17 @@ export default function SettingsPage() {
   };
 
   const handleSyncStreams = async () => {
-    await supabase.auth.refreshSession();
-    const { data: { session } } = await supabase.auth.getSession();
-    if (!session?.access_token) {
-      toast.error("Not signed in");
+    let token: string;
+    try {
+      token = await getSafeAccessToken();
+    } catch (e) {
+      toast.error(e instanceof AuthTokenError ? e.message : "Not signed in");
       return;
     }
     setStreamsSyncing(true);
     try {
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: { action: "sync_streams" },
       });
       if (error) throw error;
@@ -935,14 +941,15 @@ export default function SettingsPage() {
   const handleTestConnection = async () => {
     setIsTesting(true);
     try {
-      await supabase.auth.refreshSession();
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) {
-        toast.error("Not signed in — sign out and sign back in, then try again");
+      let token: string;
+      try {
+        token = await getSafeAccessToken();
+      } catch (e) {
+        toast.error(e instanceof AuthTokenError ? e.message : "Not signed in — sign out and sign back in, then try again");
         return;
       }
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: { action: "test_connection" },
       });
       if (error) {

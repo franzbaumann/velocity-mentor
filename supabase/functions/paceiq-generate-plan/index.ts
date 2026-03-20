@@ -511,8 +511,8 @@ serve(async (req) => {
       }
     }
 
-    // Sync coaching memory: replace any existing goal with this plan's goal
-    await supabase.from("coaching_memory").delete().eq("user_id", user.id).eq("category", "goal");
+    // Sync coaching memory: canonical plan goal replaces all goal + race chat rows
+    await supabase.from("coaching_memory").delete().eq("user_id", user.id).in("category", ["goal", "race"]);
     const raceLabel = (goalDistance ?? "marathon").replace(/\b\w/g, (c) => c.toUpperCase());
     const goalContent = goalTime
       ? `Targeting a ${raceLabel.toLowerCase()} finish time of ${goalTime}`

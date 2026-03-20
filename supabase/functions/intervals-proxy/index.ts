@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { AI_LIMITS } from "../_shared/ai-models.ts";
 import { linkActivityToPlannedWorkout } from "../_shared/plan-activity-match.ts";
+import { pickTopMemories } from "../_shared/coaching-memory-ranking.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -2292,14 +2293,25 @@ No markdown, no explanation — ONLY the JSON array.`;
       const ctlVal = (latestR as Record<string, unknown> | null)?.ctl ?? (latestR as Record<string, unknown> | null)?.icu_ctl ?? null;
       const tsbVal = (latestR as Record<string, unknown> | null)?.tsb ?? (latestR as Record<string, unknown> | null)?.icu_tsb ?? null;
 
-      // Fetch coaching memories for context
+      // Fetch coaching memories for context (pool + recency-weighted top 5)
       const { data: memRows } = await supabaseAdmin
         .from("coaching_memory")
-        .select("category, content")
+        .select("category, content, importance, created_at")
         .eq("user_id", user.id)
-        .order("importance", { ascending: false })
-        .limit(5);
-      const memoryLines = (memRows ?? []).map((m: Record<string, unknown>) => `- [${m.category}] ${m.content}`).join("\n");
+        .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
+        .order("created_at", { ascending: false })
+        .limit(30);
+      const memPool = (memRows ?? []) as { category: string; content: string; importance: number; created_at?: string }[];
+      const ranked = pickTopMemories(
+        memPool.map((m) => ({
+          category: m.category,
+          content: m.content,
+          importance: m.importance,
+          created_at: m.created_at ?? new Date().toISOString(),
+        })),
+        5,
+      );
+      const memoryLines = ranked.map((m) => `- [${m.category}] ${m.content}`).join("\n");
 
       let analyzed = 0;
       for (const run of unanalyzed.slice(0, 3)) {

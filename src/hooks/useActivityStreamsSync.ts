@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { supabase } from "@/integrations/supabase/client";
+import { getSafeAccessToken } from "@/lib/supabase-auth-safe";
 
 function isRun(a: Record<string, unknown>): boolean {
   const t = String(a?.type ?? "").toLowerCase();
@@ -45,8 +46,12 @@ async function syncStreamsForActivities(
   const runs = activities.filter(isRun);
   if (runs.length === 0) return;
 
-  const { data: { session } } = await supabase.auth.getSession();
-  if (!session?.access_token) return;
+  let token: string;
+  try {
+    token = await getSafeAccessToken();
+  } catch {
+    return;
+  }
 
   const { data: existing } = await supabase
     .from("activity_streams")
@@ -66,7 +71,7 @@ async function syncStreamsForActivities(
     const activityId = String(a.id ?? a.uid);
     try {
       const { data: streamsData, error } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: { action: "streams", activityId },
       });
 

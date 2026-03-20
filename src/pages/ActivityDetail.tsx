@@ -13,6 +13,7 @@ import { isNonDistanceActivity } from "@/lib/analytics";
 import { formatDistance, formatCadence, formatElevation, normalizePaceDisplay, cadenceToDisplaySpm } from "@/lib/format";
 import { ArrowLeft, BarChart3, Heart, Mountain, MessageCircle, Loader2, FileText, Coffee, Droplets, Download, Trophy, Send, ImagePlus, X } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
+import { getSafeAccessToken } from "@/lib/supabase-auth-safe";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { MapContainer, TileLayer, Polyline, useMap } from "react-leaflet";
@@ -1060,10 +1061,14 @@ function GpxDownloadButton({ activityId, activityName, className }: { activityId
     if (!activityIdForApi || loading) return;
     setLoading(true);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) return;
+      let token: string;
+      try {
+        token = await getSafeAccessToken();
+      } catch {
+        return;
+      }
       const { data, error } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: { action: "gpx", activityId: activityIdForApi },
       });
       if (error || (data && typeof data === "object" && "error" in (data as object))) {
@@ -1330,10 +1335,15 @@ function CoachNote({ activityId, cachedNote }: { activityId: string | undefined;
     setLoading(true);
     setError(false);
     try {
-      const { data: { session } } = await supabase.auth.getSession();
-      if (!session?.access_token) { setError(true); return; }
+      let token: string;
+      try {
+        token = await getSafeAccessToken();
+      } catch {
+        setError(true);
+        return;
+      }
       const { data, error: fnErr } = await supabase.functions.invoke("intervals-proxy", {
-        headers: { Authorization: `Bearer ${session.access_token}` },
+        headers: { Authorization: `Bearer ${token}` },
         body: { action: "activity_coach_note", activityId: activityIdForApi, regenerate: forceRegenerate },
       });
       if (fnErr || !data?.note) { setError(true); return; }

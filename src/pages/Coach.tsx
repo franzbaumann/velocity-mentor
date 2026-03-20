@@ -373,7 +373,7 @@ async function updateCoachMemoryFromPlan(userId: string, plan: Record<string, un
     ? `Targeting a ${raceLabel.toLowerCase()} finish time of ${goalTime}`
     : `Aims to run the ${raceLabel} in ${totalWeeks} weeks`;
 
-  await supabase.from("coaching_memory").delete().eq("user_id", userId).eq("category", "goal");
+  await supabase.from("coaching_memory").delete().eq("user_id", userId).in("category", ["goal", "race"]);
   await supabase.from("coaching_memory").insert({
     user_id: userId,
     category: "goal",

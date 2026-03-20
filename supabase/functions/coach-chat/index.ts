@@ -1,6 +1,7 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { AI_LIMITS } from "../_shared/ai-models.ts";
+import { pickTopMemories } from "../_shared/coaching-memory-ranking.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -483,7 +484,7 @@ async function buildAthleteContext(
   // Ramp rate from latest readiness
   const rampRate = (today.ramp_rate ?? today.icu_ramp_rate ?? null) as number | null;
 
-  // Coaching memories (top 15 by importance, non-expired)
+  // Coaching memories: fetch pool, rank by importance + recency decay, take top 15
   let memories: CoachingMemory[] = [];
   if (userId) {
     const { data: memRows } = await supabaseAdmin
@@ -491,18 +492,18 @@ async function buildAthleteContext(
       .select("id, category, content, importance, created_at, expires_at")
       .eq("user_id", userId)
       .or(`expires_at.is.null,expires_at.gt.${new Date().toISOString()}`)
-      .order("importance", { ascending: false })
       .order("created_at", { ascending: false })
-      .limit(15);
+      .limit(50);
     if (memRows) {
-      memories = (memRows as Record<string, unknown>[]).map((m) => ({
+      const pool = (memRows as Record<string, unknown>[]).map((m) => ({
         id: String(m.id),
         category: String(m.category ?? "other") as CoachingMemory["category"],
         content: String(m.content ?? ""),
         importance: Number(m.importance ?? 5),
-        created_at: String(m.created_at ?? ""),
+        created_at: String(m.created_at ?? new Date().toISOString()),
         expires_at: m.expires_at ? String(m.expires_at) : null,
       }));
+      memories = pickTopMemories(pool, 15);
     }
   }
 
@@ -1031,6 +1032,38 @@ Scaling: CTL<40/<3yr: Easy runs, Z2 Builders, Hill Repeats, Broken Tempo. CTL 40
 Never recommend: Double Threshold if CTL<55 or ramp>5. Back-to-Back if stress fracture history. VO2max when TSB<-20 or HRV suppressed >15%. Any intensity work the week after a race.`;
 }
 
+/** Optional auto-expiry for short-lived extracted memories (illness, trips, one-off activities). */
+function computeMemoryExpiresAtIso(
+  raw: Record<string, unknown>,
+  category: string,
+  content: string,
+): string | null {
+  let days: number | undefined;
+  const eid = raw.expires_in_days;
+  if (typeof eid === "number" && Number.isFinite(eid)) {
+    const rounded = Math.round(eid);
+    if (rounded >= 1 && rounded <= 90) days = rounded;
+  }
+  const c = content.toLowerCase();
+  if (days == null && category === "lifestyle") {
+    if (
+      /\b(recently|last week|just |this week|a few days|few weeks ago|was ill|had the flu|sore throat|cough|recovering from|went skiing|ski trip|went on a trip|traveled)\b/
+        .test(c)
+    ) {
+      days = 28;
+    }
+  }
+  if (days == null && category === "injury") {
+    if (/\b(currently|right now|this week|acute|sore throat|cough|cold|recent illness)\b/.test(c)) {
+      days = 21;
+    }
+  }
+  if (days == null) return null;
+  const d = new Date();
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString();
+}
+
 // ---------------------------------------------------------------------------
 // Edge Function Handler
 // ---------------------------------------------------------------------------
@@ -1122,13 +1155,21 @@ serve(async (req) => {
 
       const extractionPrompt = `You are a memory extractor for an AI running coach. Analyze this conversation and extract key facts worth remembering about this athlete for future sessions.
 
-Extract ONLY concrete, specific facts — not opinions or vague statements. Each memory should be a single sentence.
+Extract ONLY concrete, specific facts — not opinions/vague statements. Each memory should be a single sentence.
 
 Categories: preference, goal, injury, lifestyle, race, personality, other
-Importance: 1-10 (10 = critical for coaching, like injury or race goal; 1 = minor preference)
+Importance: 1-10 (10 = critical: structural injury, key constraints; 1-3 = minor / fleeting)
+
+Rules:
+- race: ONLY upcoming or active race focus the athlete is training for. Past race results / PBs → use category "other", not "race".
+- goal: Prefer omitting if the active training plan already encodes the same target; no duplicate goal lines.
+- lifestyle: One-off trips, seasonal sport, "recently did X" → importance 1-3 OR omit. Do not store old casual activities as high importance.
+- injury: Chronic/repeated injuries = higher importance. Minor acute illness ("cold this week") = importance 2-4 and include optional expires_in_days (e.g. 14-21).
+
+Optional per item: expires_in_days (integer 1-90) ONLY for facts that should fade soon (recent illness, trip, short-term constraint). Omit for durable facts.
 
 Return JSON array only. No explanation. Example:
-[{"category":"injury","content":"Has recurring left Achilles tendinitis, flares up above 60km/week","importance":9},{"category":"goal","content":"Targeting sub-3:30 marathon in October 2026","importance":8}]
+[{"category":"injury","content":"Has recurring left Achilles tendinitis, flares up above 60km/week","importance":9},{"category":"lifestyle","content":"Recently had a cold with cough","importance":3,"expires_in_days":21}]
 
 If nothing worth extracting, return [].
 
@@ -1138,7 +1179,7 @@ ${existingContents.slice(0, 20).map((c) => `- ${c}`).join("\n") || "(none)"}
 Conversation:
 ${conversationText}`;
 
-      let extracted: { category: string; content: string; importance: number }[] = [];
+      let extracted: Record<string, unknown>[] = [];
 
       // Claude Haiku primary (structured JSON extraction)
       for (const key of anthropicKeys) {
@@ -1161,7 +1202,10 @@ ${conversationText}`;
             const block = (json.content ?? []).find((b: { type: string }) => b.type === "text");
             const text = block?.text?.trim() ?? "";
             const match = text.match(/\[[\s\S]*\]/);
-            if (match) extracted = JSON.parse(match[0]);
+            if (match) {
+              const parsed: unknown = JSON.parse(match[0]);
+              extracted = Array.isArray(parsed) ? (parsed as Record<string, unknown>[]) : [];
+            }
             break;
           }
         } catch { /* try next key */ }
@@ -1184,7 +1228,10 @@ ${conversationText}`;
               const json = await res.json();
               const text = json.choices?.[0]?.message?.content?.trim() ?? "";
               const match = text.match(/\[[\s\S]*\]/);
-              if (match) extracted = JSON.parse(match[0]);
+              if (match) {
+                const parsed: unknown = JSON.parse(match[0]);
+                extracted = Array.isArray(parsed) ? (parsed as Record<string, unknown>[]) : [];
+              }
               break;
             }
           } catch { /* try next key */ }
@@ -1209,7 +1256,10 @@ ${conversationText}`;
               const json = await res.json();
               const text = json.candidates?.[0]?.content?.parts?.[0]?.text?.trim() ?? "";
               const match = text.match(/\[[\s\S]*\]/);
-              if (match) extracted = JSON.parse(match[0]);
+              if (match) {
+                const parsed: unknown = JSON.parse(match[0]);
+                extracted = Array.isArray(parsed) ? (parsed as Record<string, unknown>[]) : [];
+              }
               break;
             }
           } catch { /* try next key */ }
@@ -1218,12 +1268,22 @@ ${conversationText}`;
 
       // Deduplicate against existing memories
       const validCategories = new Set(["preference", "goal", "injury", "lifestyle", "race", "personality", "other"]);
-      const newMemories = extracted.filter((m) => {
-        if (!m.content || m.content.length < 5) return false;
-        if (!validCategories.has(m.category)) m.category = "other";
-        m.importance = Math.max(1, Math.min(10, Math.round(m.importance ?? 5)));
-        const lower = m.content.toLowerCase();
-        return !existingContents.some((e) => e.includes(lower) || lower.includes(e));
+      type InsertMem = {
+        category: string;
+        content: string;
+        importance: number;
+        expires_at: string | null;
+      };
+      const newMemories: InsertMem[] = extracted.flatMap((raw) => {
+        const content = typeof raw.content === "string" ? raw.content.trim() : "";
+        if (content.length < 5) return [];
+        let category = typeof raw.category === "string" ? raw.category : "other";
+        if (!validCategories.has(category)) category = "other";
+        const importance = Math.max(1, Math.min(10, Math.round(Number(raw.importance ?? 5))));
+        const lower = content.toLowerCase();
+        if (existingContents.some((e) => e.includes(lower) || lower.includes(e))) return [];
+        const expires_at = computeMemoryExpiresAtIso(raw, category, content);
+        return [{ category, content, importance, expires_at }];
       });
 
       if (newMemories.length > 0) {
@@ -1234,6 +1294,7 @@ ${conversationText}`;
             content: m.content,
             importance: m.importance,
             source: "conversation",
+            expires_at: m.expires_at,
           })),
         );
       }
