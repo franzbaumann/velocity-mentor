@@ -120,6 +120,9 @@ const App = () => (
             </div>
           }>
           <Routes>
+          <Route path="/sign-in" element={<Navigate to="/auth" replace />} />
+          <Route path="/dashboard" element={<Navigate to="/" replace />} />
+          <Route path="/app" element={<Navigate to="/" replace />} />
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/contact" element={<ContactPage />} />
           <Route path="/auth/strava/callback" element={<StravaCallback />} />
