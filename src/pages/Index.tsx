@@ -887,11 +887,23 @@ export default function Dashboard() {
           </div>
         ) : (
           <div className="rounded-xl border border-dashed border-gray-200 dark:border-border bg-card/50 px-4 py-6 text-center text-sm text-muted-foreground">
-            No sessions planned yet.{" "}
-            <Link to="/plan" className="text-[#2563EB] dark:text-primary font-medium hover:underline">
-              Generate your week
-            </Link>
-            {" →"}
+            {planProgress?.planStartDate && planProgress.planStartDate > new Date().toISOString().slice(0, 10) ? (
+              <>
+                Plan starts{" "}
+                {new Date(planProgress.planStartDate + "T00:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" })}{" "}
+                <Link to="/plan" className="text-[#2563EB] dark:text-primary font-medium hover:underline">
+                  View plan →
+                </Link>
+              </>
+            ) : (
+              <>
+                No sessions planned yet.{" "}
+                <Link to="/plan" className="text-[#2563EB] dark:text-primary font-medium hover:underline">
+                  Generate your week
+                </Link>
+                {" →"}
+              </>
+            )}
           </div>
         )}
 

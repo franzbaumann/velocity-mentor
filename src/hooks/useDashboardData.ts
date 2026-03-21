@@ -372,7 +372,7 @@ export function useDashboardData() {
     const thisWeekData = weeks.find((w) => w.week_number === currentWeek) ?? weeks[weeks.length - 1];
     const phase = (thisWeekData?.phase ?? (athleteProfile?.goal_race as { phase?: string } | undefined)?.phase ?? "Build").trim() || "Build";
     const raceType = (planData.plan as { race_type?: string | null } | undefined)?.race_type ?? null;
-    return { currentWeek: Math.min(currentWeek, totalWeeks), totalWeeks, phase, raceType };
+    return { currentWeek: Math.min(currentWeek, totalWeeks), totalWeeks, phase, raceType, planStartDate: planStartStr };
   }, [planData, athleteProfile?.goal_race]);
 
   return {

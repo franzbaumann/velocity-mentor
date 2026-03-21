@@ -12,7 +12,7 @@ import {
   Sun,
   Moon,
   Monitor,
-  Plus,
+  ClipboardCheck,
   Flame,
   Users,
 } from "lucide-react";
@@ -134,7 +134,7 @@ export function AppSidebar() {
             }`}
             title={hasCheckedInToday ? "Check-in done ✓" : "Daily check-in"}
           >
-            <Plus className="w-5 h-5" />
+            <ClipboardCheck className="w-5 h-5" />
             {hasCheckedInToday && (
               <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-green-500 border-2 border-background" />
             )}

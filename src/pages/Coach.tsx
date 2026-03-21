@@ -1675,6 +1675,7 @@ export default function Coach() {
               <button
                 onClick={() => send(message)}
                 disabled={isLoading || !message.trim() || rateLimitSecs > 0}
+                aria-label="Send message"
                 className="w-10 h-10 rounded-full bg-primary flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
                 {isLoading ? (
