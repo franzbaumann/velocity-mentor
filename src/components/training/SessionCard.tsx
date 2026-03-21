@@ -407,7 +407,7 @@ export function SessionCard({
             </span>
           )}
         </div>
-        {descSubtitle ? (
+        {!expanded && descSubtitle ? (
           <p className="text-sm text-muted-foreground mt-1.5 leading-snug pr-8">{descSubtitle}</p>
         ) : null}
       </div>
