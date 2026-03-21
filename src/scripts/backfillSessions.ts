@@ -2,9 +2,11 @@
  * Backfill training_plan_workout.session_library_id, session_structure, control_tool
  * for rows missing library linkage (non-rest).
  *
- * Requires (env or .env in project root):
- *   SUPABASE_URL or VITE_SUPABASE_URL
- *   SUPABASE_SERVICE_ROLE_KEY
+ * Requires:
+ *   SUPABASE_SERVICE_ROLE_KEY — Project Settings → API → service_role (secret). Put in .env.local:
+ *       SUPABASE_SERVICE_ROLE_KEY=eyJ...
+ *   URL — optional if you use the repo default project: falls back to getSupabaseUrl().
+ *   Otherwise set SUPABASE_URL or VITE_SUPABASE_URL in .env / .env.local
  *
  * Usage:
  *   npx tsx src/scripts/backfillSessions.ts
@@ -22,26 +24,60 @@ import {
 import type { TrainingPhase } from "../lib/training/sessionLibrary";
 import { buildSessionStructureFromSelected } from "../lib/training/sessionStructureUi";
 import type { SelectedSession } from "../lib/training/sessionSelector";
+import { getSupabaseUrl } from "../lib/supabase-url";
 
-function loadDotEnv(): void {
-  for (const name of [".env.local", ".env"]) {
-    const p = resolve(process.cwd(), name);
+const ENV_FILES = [
+  ".env",
+  ".env.development",
+  ".env.local",
+  ".env.development.local",
+  "supabase/.env",
+];
+
+/** Parse KEY=value; supports optional quotes; unquoted values may contain = */
+function parseEnvLine(line: string): { key: string; value: string } | null {
+  const t = line.trim();
+  if (!t || t.startsWith("#")) return null;
+  const eq = t.indexOf("=");
+  if (eq <= 0) return null;
+  const key = t.slice(0, eq).trim();
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return null;
+  let value = t.slice(eq + 1).trim();
+  if (
+    (value.startsWith('"') && value.endsWith('"')) ||
+    (value.startsWith("'") && value.endsWith("'"))
+  ) {
+    value = value.slice(1, -1);
+  }
+  return { key, value };
+}
+
+function loadDotEnv(): string[] {
+  const loaded: string[] = [];
+  const cwd = process.cwd();
+  for (const name of ENV_FILES) {
+    const p = resolve(cwd, name);
     if (!existsSync(p)) continue;
+    loaded.push(p);
     const raw = readFileSync(p, "utf8");
     for (const line of raw.split("\n")) {
-      const t = line.trim();
-      if (!t || t.startsWith("#")) continue;
-      const eq = t.indexOf("=");
-      if (eq <= 0) continue;
-      const k = t.slice(0, eq).trim();
-      let v = t.slice(eq + 1).trim();
-      if ((v.startsWith('"') && v.endsWith('"')) || (v.startsWith("'") && v.endsWith("'"))) {
-        v = v.slice(1, -1);
-      }
-      if (process.env[k] === undefined) process.env[k] = v;
+      const parsed = parseEnvLine(line);
+      if (!parsed) continue;
+      process.env[parsed.key] = parsed.value;
     }
-    break;
   }
+  return loaded;
+}
+
+function resolveSupabaseUrl(): string | undefined {
+  const direct =
+    process.env.SUPABASE_URL?.trim() ||
+    process.env.VITE_SUPABASE_URL?.trim() ||
+    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+  if (direct) return direct;
+  const id = process.env.VITE_SUPABASE_PROJECT_ID?.trim();
+  if (id) return `https://${id}.supabase.co`;
+  return getSupabaseUrl();
 }
 
 function mapGoalRaceToTarget(g: string | null | undefined): TargetDistance {
@@ -279,15 +315,32 @@ type WorkoutRow = {
 };
 
 async function main(): Promise<void> {
-  loadDotEnv();
-  const url = process.env.SUPABASE_URL ?? process.env.VITE_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const envPaths = loadDotEnv();
+  const url = resolveSupabaseUrl();
+  const key =
+    process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
+    process.env.SUPABASE_SERVICE_KEY?.trim();
   const dryRun = process.env.DRY_RUN === "1" || process.env.DRY_RUN === "true";
 
   if (!url || !key) {
-    console.error(
-      "Missing SUPABASE_URL (or VITE_SUPABASE_URL) and SUPABASE_SERVICE_ROLE_KEY in environment or .env"
-    );
+    console.error("Backfill needs Supabase URL + service_role key.\n");
+    if (envPaths.length === 0) {
+      console.error("No env files found. Tried (project root):", ENV_FILES.join(", "));
+      console.error("Create .env.local from .env.example and add:\n");
+    } else {
+      console.error("Loaded:", envPaths.join(", "));
+    }
+    if (!url) {
+      console.error(
+        "- URL: set VITE_SUPABASE_URL or SUPABASE_URL, or VITE_SUPABASE_PROJECT_ID (https://<id>.supabase.co)"
+      );
+    }
+    if (!key) {
+      console.error(
+        "- Key: Supabase Dashboard → Project Settings → API → service_role → copy secret key"
+      );
+      console.error("  Add to .env.local (never commit):\n  SUPABASE_SERVICE_ROLE_KEY=<paste here>\n");
+    }
     process.exit(1);
   }
 
