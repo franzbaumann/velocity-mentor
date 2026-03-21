@@ -15,6 +15,8 @@ import {
   Users,
   UserPlus,
   Sparkles,
+  Menu,
+  X,
 } from "lucide-react";
 import { AuroraBackground } from "@/components/ui/aurora-background";
 import { Button } from "@/components/ui/button";
@@ -36,6 +38,7 @@ export default function LandingPage() {
   const [email, setEmail] = useState("");
   const [betaStatus, setBetaStatus] = useState<"idle" | "loading" | "success" | "error">("idle");
   const [betaError, setBetaError] = useState("");
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   async function handleBetaSignup(e: React.FormEvent) {
     e.preventDefault();
@@ -63,6 +66,7 @@ export default function LandingPage() {
           <Link to="/" className="flex items-center gap-2.5">
             <CadeLogo variant="full" size="xl" />
           </Link>
+          {/* Desktop nav */}
           <nav className="hidden sm:flex items-center gap-8">
             {navLinks.map(({ label, href }) =>
               href.startsWith("/") ? (
@@ -90,12 +94,68 @@ export default function LandingPage() {
               Sign in
             </Link>
           </nav>
-          <Link to="/auth">
-            <Button size="sm" className="gap-2 rounded-lg font-medium">
-              Get started <ArrowRight className="w-3.5 h-3.5" />
-            </Button>
-          </Link>
+          {/* Desktop CTA + mobile hamburger */}
+          <div className="flex items-center gap-3">
+            <Link to="/auth" className="hidden sm:block">
+              <Button size="sm" className="gap-2 rounded-lg font-medium">
+                Get started <ArrowRight className="w-3.5 h-3.5" />
+              </Button>
+            </Link>
+            <button
+              className="sm:hidden flex items-center justify-center w-9 h-9 rounded-lg text-foreground hover:bg-accent transition-colors"
+              aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
+              aria-expanded={mobileMenuOpen}
+              onClick={() => setMobileMenuOpen((o) => !o)}
+            >
+              {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+            </button>
+          </div>
         </div>
+        {/* Mobile dropdown */}
+        {mobileMenuOpen && (
+          <nav
+            className="sm:hidden border-t border-border bg-background/95 backdrop-blur-xl"
+            aria-label="Mobile navigation"
+          >
+            <div className="flex flex-col px-4 py-3 gap-1">
+              {navLinks.map(({ label, href }) =>
+                href.startsWith("/") ? (
+                  <Link
+                    key={label}
+                    to={href}
+                    className="px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    {label}
+                  </Link>
+                ) : (
+                  <a
+                    key={label}
+                    href={href}
+                    className="px-3 py-2.5 rounded-lg text-sm text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                    onClick={() => setMobileMenuOpen(false)}
+                  >
+                    {label}
+                  </a>
+                )
+              )}
+              <Link
+                to="/auth"
+                className="px-3 py-2.5 rounded-lg text-sm font-medium text-foreground hover:text-primary hover:bg-accent transition-colors"
+                onClick={() => setMobileMenuOpen(false)}
+              >
+                Sign in
+              </Link>
+              <div className="pt-2 pb-1">
+                <Link to="/auth" onClick={() => setMobileMenuOpen(false)}>
+                  <Button size="sm" className="w-full gap-2 rounded-lg font-medium">
+                    Get started <ArrowRight className="w-3.5 h-3.5" />
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </nav>
+        )}
       </header>
 
       {/* ── HERO ────────────────────────────────────────────────────────── */}
