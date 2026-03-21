@@ -56,7 +56,11 @@ function collapseEasyRunSteps(steps: WorkoutStep[]): string {
   else parts.push("Easy jog");
   if (firstPace) parts.push(`@ ${firstPace}`);
   const hrZones = steps.map((s) => s.target_hr_zone).filter((z): z is number => z != null);
-  if (hrZones.length > 0) parts.push(`HR zone ${Math.min(...hrZones)}–${Math.max(...hrZones)}`);
+  if (hrZones.length > 0) {
+    const minZ = Math.min(...hrZones);
+    const maxZ = Math.max(...hrZones);
+    parts.push(minZ === maxZ ? `HR zone ${minZ}` : `HR zone ${minZ}–${maxZ}`);
+  }
   return parts.join(" ");
 }
 

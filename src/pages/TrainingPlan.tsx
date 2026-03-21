@@ -433,7 +433,7 @@ export default function TrainingPlan() {
     const weeks = plan?.weeks ?? [];
     const sessionWeek = weeks.find((w) => w.sessions.some((s: SessionLike) => s.id === session.id));
     const weekNum = sessionWeek?.week_number ?? "?";
-    const planName = plan?.plan?.plan_name ?? plan?.plan?.philosophy ?? "training plan";
+    const planName = plan?.plan?.philosophy ?? plan?.plan?.plan_name ?? "training plan";
 
     const durationMin = plannedWorkoutDurationMinutes(session);
     const details = [
