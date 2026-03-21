@@ -472,7 +472,7 @@ export default function Dashboard() {
           <h1 className="page-title text-foreground">{greeting}</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {planProgress
-              ? `Week ${planProgress.currentWeek} of ${planProgress.totalWeeks} · ${planProgress.phase} Phase · ${athlete.goalRace.type} in ${planProgress.totalWeeks - planProgress.currentWeek + 1} weeks`
+              ? `Week ${planProgress.currentWeek} of ${planProgress.totalWeeks} · ${planProgress.phase.charAt(0).toUpperCase() + planProgress.phase.slice(1)} Phase · ${planProgress.raceType ?? athlete.goalRace.type} in ${planProgress.totalWeeks - planProgress.currentWeek + 1} weeks`
               : athlete.goalRace.weeksRemaining != null
                 ? `${athlete.goalRace.type} in ${athlete.goalRace.weeksRemaining} weeks`
                 : athlete.goalRace.type}

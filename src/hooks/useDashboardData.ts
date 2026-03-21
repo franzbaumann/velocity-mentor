@@ -371,7 +371,8 @@ export function useDashboardData() {
     const totalWeeks = planData.plan?.total_weeks ?? weeks.length;
     const thisWeekData = weeks.find((w) => w.week_number === currentWeek) ?? weeks[weeks.length - 1];
     const phase = (thisWeekData?.phase ?? (athleteProfile?.goal_race as { phase?: string } | undefined)?.phase ?? "Build").trim() || "Build";
-    return { currentWeek: Math.min(currentWeek, totalWeeks), totalWeeks, phase };
+    const raceType = (planData.plan as { race_type?: string | null } | undefined)?.race_type ?? null;
+    return { currentWeek: Math.min(currentWeek, totalWeeks), totalWeeks, phase, raceType };
   }, [planData, athleteProfile?.goal_race]);
 
   return {
