@@ -219,11 +219,12 @@ export function useTrainingPlan() {
 
   const markDoneMutation = useMutation({
     mutationFn: async ({ sessionId, done }: { sessionId: string; done: boolean }) => {
-      const { error: sessionErr } = await supabase
+      const { data: updatedSessions, error: sessionErr } = await supabase
         .from("training_session")
         .update({ completed_at: done ? new Date().toISOString() : null })
-        .eq("id", sessionId);
-      if (!sessionErr) return { sessionId, done };
+        .eq("id", sessionId)
+        .select("id");
+      if (!sessionErr && updatedSessions && updatedSessions.length > 0) return { sessionId, done };
       const { error: workoutErr } = await supabase
         .from("training_plan_workout")
         .update({ completed: done })
