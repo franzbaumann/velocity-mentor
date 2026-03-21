@@ -187,9 +187,6 @@ export default function LandingPage() {
         </div>
       </section>
 
-      {/* ── SEE THE APP ─────────────────────────────────────────────────── */}
-      <DeviceShowcase />
-
       {/* ── THE PROBLEM ─────────────────────────────────────────────────── */}
       <section className="py-24 px-4 sm:px-6 bg-muted/30 border-t border-border">
         <div className="max-w-[700px] mx-auto text-center">
@@ -209,6 +206,9 @@ export default function LandingPage() {
           <p className="mt-10 text-2xl font-semibold text-gray-900 dark:text-foreground">Cade does.</p>
         </div>
       </section>
+
+      {/* ── SEE THE APP ─────────────────────────────────────────────────── */}
+      <DeviceShowcase />
 
       {/* ── VISION ──────────────────────────────────────────────────────── */}
       <section id="philosophy" className="py-24 px-4 sm:px-6 border-t border-border">
