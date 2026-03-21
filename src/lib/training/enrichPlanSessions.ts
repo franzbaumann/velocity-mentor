@@ -25,10 +25,29 @@ type WorkoutRow = {
   id: string;
   date: string | null;
   type: string | null;
+  skeleton_session_type?: string | null;
+  session_category?: string | null;
   phase: string | null;
   week_number: number | null;
   key_focus: string | null;
 };
+
+/** Prefer architect / skeleton slot, then legacy `type`, then session_category. */
+function resolveWorkoutSlotType(w: WorkoutRow): string {
+  const raw =
+    (w.skeleton_session_type && String(w.skeleton_session_type).trim()) ||
+    (w.type && String(w.type).trim()) ||
+    (w.session_category && String(w.session_category).trim()) ||
+    "easy";
+  return raw.toLowerCase();
+}
+
+/** Monday = 0 … Sunday = 6 */
+function mondayIndexFromDateStr(dateStr: string): number {
+  const d = new Date(`${dateStr}T12:00:00`);
+  const day = d.getDay();
+  return day === 0 ? 6 : day - 1;
+}
 
 /** Re-label workouts using session library (keeps distance, pace, duration from generator). */
 export async function enrichTrainingPlanWorkoutsFromLibrary(planId: string): Promise<void> {
@@ -77,7 +96,7 @@ export async function enrichTrainingPlanWorkoutsFromLibrary(planId: string): Pro
 
   const { data: workouts, error: wErr } = await supabase
     .from("training_plan_workout")
-    .select("id, date, type, phase, week_number, key_focus")
+    .select("id, date, type, skeleton_session_type, session_category, phase, week_number, key_focus")
     .eq("plan_id", planId)
     .order("date", { ascending: true });
 
@@ -93,12 +112,23 @@ export async function enrichTrainingPlanWorkoutsFromLibrary(planId: string): Pro
     if (!w.date) continue;
 
     const phase = (w.phase as TrainingPhase) ?? "base";
-    const dayType = workoutTypeToSelectorDayType(w.type);
+    const slotType = resolveWorkoutSlotType(w);
+    const dayType = workoutTypeToSelectorDayType(slotType);
+    const dow = mondayIndexFromDateStr(w.date);
+    const legacyTypeForRow =
+      dayType === "rest"
+        ? "rest"
+        : dayType === "long"
+          ? "long"
+          : dayType === "quality"
+            ? "tempo"
+            : "easy";
 
     if (dayType === "rest") {
       await supabase
         .from("training_plan_workout")
         .update({
+          type: "rest",
           name: "Rest Day",
           description: "Full rest — absorb training and reset for the next stimulus.",
           session_library_id: "rest",
@@ -115,12 +145,13 @@ export async function enrichTrainingPlanWorkoutsFromLibrary(planId: string): Pro
       injuryFlags: injuryHistory,
       philosophy,
       currentCTL,
-      variationIndex: i + (w.week_number ?? 1) * 7,
+      variationIndex: i + (w.week_number ?? 1) * 13 + dow * 3,
       previousLibraryId,
+      dayOfWeekIndex: dow,
     });
 
     if (!picked) {
-      console.warn("[enrichPlanSessions] no library match", w.type, phase, targetDistance);
+      console.warn("[enrichPlanSessions] no library match", slotType, phase, targetDistance);
       continue;
     }
 
@@ -129,6 +160,7 @@ export async function enrichTrainingPlanWorkoutsFromLibrary(planId: string): Pro
     await supabase
       .from("training_plan_workout")
       .update({
+        type: w.type?.trim() ? w.type : legacyTypeForRow,
         session_library_id: picked.id,
         name: picked.name,
         description: picked.description,

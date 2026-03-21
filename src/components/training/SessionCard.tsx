@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import { ChevronDown, ChevronUp, Target, BarChart2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { SessionStructureStored, ControlToolUi } from "@/lib/training/sessionStructureUi";
-import { plannedWorkoutDurationMinutes, plannedWorkoutSummary } from "@/lib/format";
+import { normalizePaceDisplay, plannedWorkoutDurationMinutes, plannedWorkoutSummary } from "@/lib/format";
+import { sessionDescriptionSubtitle, sessionTypeBadgeClass } from "@/lib/training/sessionDisplay";
 import { format, parseISO } from "date-fns";
 import { Link } from "react-router-dom";
 
@@ -277,6 +278,8 @@ export function SessionCard({
     pace_target: workout.pace_target,
     session_type: workout.session_type,
   } as never);
+  const paceDisplay = workout.pace_target ? normalizePaceDisplay(workout.pace_target) : "";
+  const descSubtitle = sessionDescriptionSubtitle(workout.description);
 
   if (!struct) {
     if (detailsOnly) return null;
@@ -289,7 +292,12 @@ export function SessionCard({
         )}
       >
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted text-muted-foreground capitalize">
+          <span
+            className={cn(
+              "text-xs font-medium px-2 py-0.5 rounded-full capitalize",
+              sessionTypeBadgeClass(workout.session_type),
+            )}
+          >
             {workout.session_type}
           </span>
           {workout.scheduled_date && (
@@ -298,12 +306,27 @@ export function SessionCard({
             </span>
           )}
         </div>
-        <p className="text-sm font-semibold mt-1">{summaryTitle}</p>
-        <p className="text-xs text-muted-foreground mt-1 flex flex-wrap gap-x-2 gap-y-0.5">
-          {workout.distance_km != null && <span>{Math.round(workout.distance_km * 10) / 10} km</span>}
-          {durationMin != null && <span>{durationMin} min</span>}
-          {workout.pace_target && <span>@{workout.pace_target}</span>}
+        <p className={cn("font-semibold mt-1", compact ? "text-sm" : "text-base")}>{summaryTitle}</p>
+        <p className="text-sm text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+          {workout.distance_km != null && workout.distance_km > 0 && (
+            <span>{Math.round(workout.distance_km * 10) / 10} km</span>
+          )}
+          {durationMin != null && durationMin > 0 && (
+            <>
+              {workout.distance_km != null && workout.distance_km > 0 && <span>·</span>}
+              <span>{durationMin} min</span>
+            </>
+          )}
+          {paceDisplay && (
+            <>
+              <span>·</span>
+              <span>@{paceDisplay}</span>
+            </>
+          )}
         </p>
+        {descSubtitle ? (
+          <p className="text-sm text-muted-foreground mt-1.5 leading-snug">{descSubtitle}</p>
+        ) : null}
       </div>
     );
   }
@@ -339,7 +362,12 @@ export function SessionCard({
         className={cn("w-full text-left", alwaysExpanded ? "" : "cursor-pointer")}
       >
         <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-muted capitalize">
+          <span
+            className={cn(
+              "text-xs font-medium px-2 py-0.5 rounded-full capitalize",
+              sessionTypeBadgeClass(workout.session_type),
+            )}
+          >
             {workout.session_type}
           </span>
           {workout.scheduled_date && (
@@ -350,13 +378,19 @@ export function SessionCard({
         </div>
         <p className={cn("font-semibold mt-1", compact ? "text-sm" : "text-base")}>{summaryTitle}</p>
         <div className="text-sm text-muted-foreground mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
-          {workout.distance_km != null && <span>{Math.round(workout.distance_km * 10) / 10} km</span>}
-          {durationMin != null && <span>·</span>}
-          {durationMin != null && <span>{durationMin} min</span>}
-          {workout.pace_target && (
+          {workout.distance_km != null && workout.distance_km > 0 && (
+            <span>{Math.round(workout.distance_km * 10) / 10} km</span>
+          )}
+          {durationMin != null && durationMin > 0 && (
+            <>
+              {workout.distance_km != null && workout.distance_km > 0 && <span>·</span>}
+              <span>{durationMin} min</span>
+            </>
+          )}
+          {paceDisplay && (
             <>
               <span>·</span>
-              <span>@{workout.pace_target}</span>
+              <span>@{paceDisplay}</span>
             </>
           )}
           {!alwaysExpanded && (
@@ -373,6 +407,9 @@ export function SessionCard({
             </span>
           )}
         </div>
+        {descSubtitle ? (
+          <p className="text-sm text-muted-foreground mt-1.5 leading-snug pr-8">{descSubtitle}</p>
+        ) : null}
       </div>
 
       {expanded ? (

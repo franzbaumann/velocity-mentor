@@ -3,8 +3,9 @@
  * Pure logic, no AI calls.
  *
  * Session detail (library id, title, description) is filled in by:
- * - `enrichTrainingPlanWorkoutsFromLibrary` after PaceIQ / season plan insert, or
+ * - `enrichTrainingPlanWorkoutsFromLibrary` after PaceIQ / season plan insert (reads `skeleton_session_type` + `type`),
  * - `weekProposal.checkAndGenerateProposal` → `selectSessionsForWeeks` (AI) when the athlete approves a proposal.
+ * Skeleton rows also set `type` on insert so the UI badge matches easy / long / tempo before enrichment.
  */
 
 import { supabase } from "@/integrations/supabase/client";
@@ -608,6 +609,7 @@ export async function savePlanSkeleton(
       is_hard_day: day.isHardDay,
       is_double_run: day.isDouble,
       session_category: day.sessionCategory,
+      type: day.type === "rest" ? "rest" : day.type === "long" ? "long" : day.type === "quality" ? "tempo" : "easy",
       skeleton_session_type: day.type,
       target_distance_km: day.approximateKm,
       target_duration_minutes: day.approximateDurationMinutes,

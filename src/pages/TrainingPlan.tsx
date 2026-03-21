@@ -17,23 +17,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { DateWheelPicker } from "@/components/ui/date-wheel-picker";
-import { plannedWorkoutDurationMinutes, plannedWorkoutSummary } from "@/lib/format";
+import { normalizePaceDisplay, plannedWorkoutDurationMinutes, plannedWorkoutSummary } from "@/lib/format";
+import { sessionDescriptionSubtitle, sessionTypeBadgeClass } from "@/lib/training/sessionDisplay";
 import { getSafeAccessToken } from "@/lib/supabase-auth-safe";
 import { parseSteps, WorkoutStepsDisplay, type WorkoutStep } from "@/lib/workout-steps";
 import { SessionCard } from "@/components/training/SessionCard";
 import type { SessionStructureStored } from "@/lib/training/sessionStructureUi";
-
-/** Match app theme for session badges */
-const SESSION_COLORS: Record<string, string> = {
-  easy: "bg-accent/15 text-accent",
-  tempo: "bg-primary/15 text-primary",
-  interval: "bg-destructive/15 text-destructive",
-  intervals: "bg-destructive/15 text-destructive",
-  long: "bg-warning/15 text-warning",
-  recovery: "bg-muted text-muted-foreground",
-  rest: "bg-muted text-muted-foreground",
-  strides: "bg-accent/15 text-accent",
-};
+import { cn } from "@/lib/utils";
 
 type SessionLike = {
   id: string;
@@ -279,13 +269,19 @@ function SessionDetailModal({
   }, [session.id]);
 
   const durationMin = plannedWorkoutDurationMinutes(session);
+  const modalDesc = sessionDescriptionSubtitle(session.description);
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
       <div className="glass-card p-6 max-w-lg w-full mx-4 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-center gap-2 mb-3">
-          <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${SESSION_COLORS[session.session_type] ?? "bg-primary/10 text-primary"}`}>
+          <span
+            className={cn(
+              "text-xs font-medium px-2 py-0.5 rounded-full capitalize",
+              sessionTypeBadgeClass(session.session_type),
+            )}
+          >
             {session.session_type}
           </span>
           {session.scheduled_date && (
@@ -300,9 +296,12 @@ function SessionDetailModal({
         <div className="flex flex-wrap gap-3 text-xs text-muted-foreground mb-2">
           {session.distance_km != null && <span className="font-medium">{session.distance_km} km</span>}
           {durationMin != null && <span>{durationMin} min</span>}
-          {session.pace_target && <span>@{session.pace_target}</span>}
+          {session.pace_target && <span>@{normalizePaceDisplay(session.pace_target)}</span>}
           {session.target_hr_zone != null && <span>HR zone {session.target_hr_zone}</span>}
         </div>
+        {modalDesc ? (
+          <p className="text-sm text-muted-foreground mb-2 leading-snug">{modalDesc}</p>
+        ) : null}
         {session.key_focus && (
           <p className="text-xs text-muted-foreground mb-4 italic">{session.key_focus}</p>
         )}

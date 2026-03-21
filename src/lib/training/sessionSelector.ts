@@ -120,8 +120,12 @@ export function getSessionsForDistanceAndPhase(
 
     if (dayType === "rest") return false;
 
-    if (dayType === "easy" || dayType === "long" || dayType === "double") {
-      if (s.category !== "easy" && s.category !== "long" && s.category !== "double") return false;
+    if (dayType === "easy") {
+      if (s.category !== "easy") return false;
+    } else if (dayType === "long") {
+      if (s.category !== "long") return false;
+    } else if (dayType === "double") {
+      if (s.category !== "double" && s.category !== "easy") return false;
     } else if (dayType === "quality") {
       if (s.category !== "quality") return false;
     }
@@ -178,6 +182,135 @@ export function workoutTypeToSelectorDayType(
   return "easy";
 }
 
+/** Map high-level session type labels (tests, external callers) to selector `dayType`. */
+export function mapSessionTypeToDayType(
+  sessionType: string
+): "easy" | "quality" | "long" | "double" | "rest" {
+  const s = sessionType.toLowerCase().trim();
+  if (s === "rest" || s === "off") return "rest";
+  if (s === "long") return "long";
+  if (s.includes("double")) return "double";
+  if (
+    s.includes("threshold") ||
+    s.includes("vo2") ||
+    s.includes("vo2max") ||
+    s.includes("tempo") ||
+    s.includes("interval") ||
+    s.includes("quality") ||
+    s.includes("strides") ||
+    s.includes("speed") ||
+    s.includes("hill")
+  ) {
+    return "quality";
+  }
+  if (s === "recovery") return "easy";
+  return "easy";
+}
+
+export function getDefaultSession(
+  sessionType: string,
+  distance: TargetDistance,
+  phase: TrainingPhase,
+  injuryFlags: string[] = [],
+  philosophy?: string,
+  currentCTL = 55
+): Session | null {
+  const dayType = mapSessionTypeToDayType(sessionType);
+  if (dayType === "rest") return null;
+  const pool = getSessionsForDistanceAndPhase(
+    distance,
+    phase,
+    dayType,
+    injuryFlags,
+    philosophy,
+    currentCTL
+  );
+  if (pool.length > 0) return pool[0]!;
+  return (
+    SESSION_LIBRARY.find(
+      (s) =>
+        s.targetDistances.includes(distance) &&
+        (dayType === "easy" || dayType === "long"
+          ? s.category === "easy" || s.category === "long"
+          : s.category === "quality")
+    ) ?? null
+  );
+}
+
+export interface SelectedSessionSummary {
+  id: string;
+  title: string;
+  name: string;
+  description: string;
+  category: SessionCategory;
+}
+
+/**
+ * Deterministic session choice for a plan slot (no AI). Used by tests and tooling.
+ * Varies by week, weekday, volume, and session type.
+ */
+export function selectSession(params: {
+  distance: TargetDistance;
+  phase: TrainingPhase;
+  sessionType: string;
+  weekNumber: number;
+  dayOfWeek: number;
+  philosophy: string;
+  weeklyVolume: number;
+  previousLibraryId?: string | null;
+  injuryFlags?: string[];
+  currentCTL?: number;
+}): SelectedSessionSummary | null {
+  const dayType = mapSessionTypeToDayType(params.sessionType);
+  if (dayType === "rest") {
+    return {
+      id: "rest",
+      title: "Rest Day",
+      name: "Rest Day",
+      description: "Full rest — absorb training and reset for the next stimulus.",
+      category: "easy",
+    };
+  }
+
+  const variationIndex =
+    params.weekNumber * 31 +
+    params.dayOfWeek * 17 +
+    Math.round(Math.abs(params.weeklyVolume) % 23);
+
+  let picked = pickDeterministicLibrarySession({
+    targetDistance: params.distance,
+    phase: params.phase,
+    dayType,
+    injuryFlags: params.injuryFlags ?? [],
+    philosophy: params.philosophy,
+    currentCTL: params.currentCTL ?? 55,
+    variationIndex,
+    previousLibraryId: params.previousLibraryId ?? null,
+    dayOfWeekIndex: params.dayOfWeek,
+  });
+
+  if (!picked) {
+    picked = getDefaultSession(
+      params.sessionType,
+      params.distance,
+      params.phase,
+      params.injuryFlags ?? [],
+      params.philosophy,
+      params.currentCTL ?? 55
+    );
+  }
+
+  if (!picked) return null;
+
+  return {
+    id: picked.id,
+    title: picked.name,
+    name: picked.name,
+    description: picked.description,
+    category: picked.category,
+  };
+}
+
 /**
  * Pick a library session without AI — varies by `variationIndex` and avoids repeating
  * the same library id as the previous day when possible.
@@ -191,6 +324,8 @@ export function pickDeterministicLibrarySession(input: {
   currentCTL: number;
   variationIndex: number;
   previousLibraryId: string | null;
+  /** 0 = Monday … 6 = Sunday — extra salt for intra-week variety */
+  dayOfWeekIndex?: number;
 }): Session | null {
   if (input.dayType === "rest") return null;
   const pool = getSessionsForDistanceAndPhase(
@@ -202,14 +337,19 @@ export function pickDeterministicLibrarySession(input: {
     input.currentCTL
   );
   if (pool.length === 0) return null;
-  let idx = Math.abs(input.variationIndex) % pool.length;
+  const salt = (input.dayOfWeekIndex ?? 0) * 11;
+  let idx = Math.abs(input.variationIndex + salt) % pool.length;
   let picked = pool[idx]!;
   if (picked.id === input.previousLibraryId && pool.length > 1) {
     idx = (idx + 1) % pool.length;
     picked = pool[idx]!;
   }
   if (import.meta.env.DEV) {
-    console.log("[SessionSelector] deterministic pick:", picked.id, picked.name, "idx", input.variationIndex);
+    console.log("[SessionSelector] selected:", picked.id, "for", {
+      dayType: input.dayType,
+      variationIndex: input.variationIndex,
+      dayOfWeekIndex: input.dayOfWeekIndex,
+    });
   }
   return picked;
 }
@@ -420,13 +560,11 @@ export async function selectSessionForDay(input: {
     throw new Error("Invalid session selector response");
   }
   if (import.meta.env.DEV) {
-    console.log(
-      "[SessionSelector] AI selected:",
-      parsed.sessionLibraryId,
-      parsed.sessionName,
-      input.date.toISOString().slice(0, 10),
-      input.dayType
-    );
+    console.log("[SessionSelector] selected:", parsed.sessionLibraryId, "for", {
+      date: input.date.toISOString().slice(0, 10),
+      dayType: input.dayType,
+      sessionName: parsed.sessionName,
+    });
   }
   return parsed;
 }
