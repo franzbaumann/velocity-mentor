@@ -116,6 +116,10 @@ export default function LandingPage() {
             Cade coaches you the way elite runners are coached — with your actual physiology,
             your training history, and a plan that adjusts when life gets in the way.
           </p>
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-full bg-primary/10 border border-primary/20 text-sm font-medium text-primary">
+            <Sparkles className="w-3.5 h-3.5 shrink-0" />
+            50% off at launch — for beta members
+          </div>
           <div className="flex flex-col sm:flex-row gap-3 mt-2">
             <Link to="/auth">
               <Button size="lg" className="gap-2 rounded-full px-8">
