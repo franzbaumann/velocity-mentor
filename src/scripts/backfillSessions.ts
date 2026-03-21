@@ -204,6 +204,32 @@ function tokens(s: string): Set<string> {
   );
 }
 
+/** Extra tokens appended to row description for scoring (PaceIQ type → library vocabulary). */
+const TYPE_MATCH_ALIASES: Record<string, readonly string[]> = {
+  tempo: ["threshold", "tempo", "lactate"],
+  strides: ["strides", "easy", "acceleration"],
+};
+
+function typeAliasTokensFromType(type: string | null | undefined): string {
+  const t = String(type ?? "").toLowerCase().trim();
+  const out: string[] = [];
+  for (const [key, aliases] of Object.entries(TYPE_MATCH_ALIASES)) {
+    if (t === key || t.includes(key)) {
+      out.push(...aliases);
+    }
+  }
+  return [...new Set(out)].join(" ");
+}
+
+function augmentedMatchDescription(row: {
+  type: string | null;
+  description: string | null;
+}): string {
+  const base = (row.description ?? "").trim();
+  const extra = typeAliasTokensFromType(row.type);
+  return extra ? `${base} ${extra}`.trim() : base;
+}
+
 /** Score 0–100; needs >= MIN_SCORE_TO_MATCH to accept. */
 function nameMatchScore(rowName: string | null, rowDesc: string | null, session: Session): number {
   const n = normalize(rowName ?? "");
@@ -238,7 +264,7 @@ function nameMatchScore(rowName: string | null, rowDesc: string | null, session:
   return 0;
 }
 
-const MIN_SCORE_TO_MATCH = 68;
+const MIN_SCORE_TO_MATCH = 40;
 
 function pickBestSession(
   pool: Session[],
@@ -422,7 +448,7 @@ async function main(): Promise<void> {
 
       const targetDistance = await targetForPlan(row.plan_id);
       const pool = candidatePool(targetDistance, phase, dayType);
-      const picked = pickBestSession(pool, row.name, row.description);
+      const picked = pickBestSession(pool, row.name, augmentedMatchDescription(row));
 
       if (!picked) {
         noMatch += 1;
