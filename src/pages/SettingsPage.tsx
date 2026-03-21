@@ -1012,15 +1012,15 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   {isConnected ? (
-                    <div className="flex gap-2">
-                      <Button onClick={runSync} size="sm" className="rounded-full px-5 pill-button bg-primary text-primary-foreground text-xs" disabled={intervalsSyncing}>
+                    <div className="flex flex-wrap gap-2">
+                      <Button onClick={runSync} size="sm" className="rounded-full px-5 pill-button bg-primary text-primary-foreground text-xs shrink-0" disabled={intervalsSyncing}>
                         {intervalsSyncing ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <RefreshCw className="w-4 h-4 mr-1" />}
                         {intervalsSyncing ? "Syncing..." : "Sync Now"}
                       </Button>
-                      <Button onClick={handleTestConnection} size="sm" variant="outline" className="rounded-full px-5" disabled={isTesting}>
+                      <Button onClick={handleTestConnection} size="sm" variant="outline" className="rounded-full px-5 shrink-0" disabled={isTesting}>
                         {isTesting ? <Loader2 className="w-4 h-4 animate-spin" /> : "Test"}
                       </Button>
-                      <Button onClick={() => disconnect()} size="sm" variant="outline" className="rounded-full px-5">
+                      <Button onClick={() => disconnect()} size="sm" variant="outline" className="rounded-full px-5 shrink-0">
                         <Unlink className="w-4 h-4 mr-1" /> Disconnect
                       </Button>
                     </div>
