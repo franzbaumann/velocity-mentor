@@ -15,7 +15,8 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { existsSync, readFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   SESSION_LIBRARY,
   type Session,
@@ -34,7 +35,21 @@ const ENV_FILES = [
   "supabase/.env",
 ];
 
-/** Parse KEY=value; supports optional quotes; unquoted values may contain = */
+/** Repo root (parent of `src/`), not `process.cwd()` — fixes running tsx from another folder */
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+
+function stripOuterQuotes(s: string): string {
+  const t = s.trim();
+  if (
+    (t.startsWith('"') && t.endsWith('"')) ||
+    (t.startsWith("'") && t.endsWith("'"))
+  ) {
+    return t.slice(1, -1).trim();
+  }
+  return t;
+}
+
+/** Parse KEY=value; supports optional quotes; value may contain = (e.g. JWT) */
 function parseEnvLine(line: string): { key: string; value: string } | null {
   const t = line.trim();
   if (!t || t.startsWith("#")) return null;
@@ -42,40 +57,38 @@ function parseEnvLine(line: string): { key: string; value: string } | null {
   if (eq <= 0) return null;
   const key = t.slice(0, eq).trim();
   if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return null;
-  let value = t.slice(eq + 1).trim();
-  if (
-    (value.startsWith('"') && value.endsWith('"')) ||
-    (value.startsWith("'") && value.endsWith("'"))
-  ) {
-    value = value.slice(1, -1);
-  }
+  let value = stripOuterQuotes(t.slice(eq + 1));
   return { key, value };
 }
 
 function loadDotEnv(): string[] {
   const loaded: string[] = [];
-  const cwd = process.cwd();
   for (const name of ENV_FILES) {
-    const p = resolve(cwd, name);
+    const p = resolve(PROJECT_ROOT, name);
     if (!existsSync(p)) continue;
     loaded.push(p);
-    const raw = readFileSync(p, "utf8");
-    for (const line of raw.split("\n")) {
+    let raw = readFileSync(p, "utf8");
+    raw = raw.replace(/^\uFEFF/, "");
+    for (const line of raw.split(/\r?\n/)) {
       const parsed = parseEnvLine(line);
       if (!parsed) continue;
-      process.env[parsed.key] = parsed.value;
+      const v = parsed.value.trim();
+      if (v === "") continue;
+      process.env[parsed.key] = v;
     }
   }
   return loaded;
 }
 
 function resolveSupabaseUrl(): string | undefined {
-  const direct =
+  const direct = stripOuterQuotes(
     process.env.SUPABASE_URL?.trim() ||
-    process.env.VITE_SUPABASE_URL?.trim() ||
-    process.env.NEXT_PUBLIC_SUPABASE_URL?.trim();
+      process.env.VITE_SUPABASE_URL?.trim() ||
+      process.env.NEXT_PUBLIC_SUPABASE_URL?.trim() ||
+      ""
+  );
   if (direct) return direct;
-  const id = process.env.VITE_SUPABASE_PROJECT_ID?.trim();
+  const id = stripOuterQuotes(process.env.VITE_SUPABASE_PROJECT_ID?.trim() ?? "");
   if (id) return `https://${id}.supabase.co`;
   return getSupabaseUrl();
 }
@@ -317,15 +330,19 @@ type WorkoutRow = {
 async function main(): Promise<void> {
   const envPaths = loadDotEnv();
   const url = resolveSupabaseUrl();
-  const key =
+  const key = stripOuterQuotes(
     process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
-    process.env.SUPABASE_SERVICE_KEY?.trim();
+      process.env.SUPABASE_SERVICE_KEY?.trim() ||
+      ""
+  );
   const dryRun = process.env.DRY_RUN === "1" || process.env.DRY_RUN === "true";
 
   if (!url || !key) {
     console.error("Backfill needs Supabase URL + service_role key.\n");
+    console.error("Project root (env files):", PROJECT_ROOT);
+    console.error("process.cwd():", process.cwd());
     if (envPaths.length === 0) {
-      console.error("No env files found. Tried (project root):", ENV_FILES.join(", "));
+      console.error("No env files found. Tried under project root:", ENV_FILES.join(", "));
       console.error("Create .env.local from .env.example and add:\n");
     } else {
       console.error("Loaded:", envPaths.join(", "));
@@ -339,7 +356,16 @@ async function main(): Promise<void> {
       console.error(
         "- Key: Supabase Dashboard → Project Settings → API → service_role → copy secret key"
       );
-      console.error("  Add to .env.local (never commit):\n  SUPABASE_SERVICE_ROLE_KEY=<paste here>\n");
+      console.error("  In .env or .env.local (never commit):\n  SUPABASE_SERVICE_ROLE_KEY=<paste here>\n");
+      console.error(
+        "  Tip: empty SUPABASE_SERVICE_ROLE_KEY= in .env.local overrides .env — remove the line or fill it."
+      );
+      const setButEmpty =
+        process.env.SUPABASE_SERVICE_ROLE_KEY !== undefined &&
+        process.env.SUPABASE_SERVICE_ROLE_KEY.trim() === "";
+      if (setButEmpty) {
+        console.error("  Detected: SUPABASE_SERVICE_ROLE_KEY is set but empty.");
+      }
     }
     process.exit(1);
   }
