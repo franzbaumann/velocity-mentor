@@ -7,8 +7,9 @@ verify_jwt = true
 [functions.coach-opening]
 verify_jwt = false
 
+# Auth enforced in handler (getUser). Gateway JWT verification can 401 valid Safari/LockManager sessions.
 [functions.intervals-proxy]
-verify_jwt = true
+verify_jwt = false
 
 [functions.coach-generate-plan]
 verify_jwt = true
