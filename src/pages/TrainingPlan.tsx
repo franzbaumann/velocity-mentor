@@ -5,7 +5,7 @@ import { useQuery } from "@tanstack/react-query";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, GripVertical, Check, MessageCircle, Sparkles, RefreshCw, Trophy } from "lucide-react";
 import { UnifiedCalendar } from "@/components/UnifiedCalendar";
-import { useState, useMemo, useEffect, useRef } from "react";
+import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { format, parseISO, isWithinInterval } from "date-fns";
 import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
@@ -405,6 +405,24 @@ const PHILOSOPHY_DISPLAY_NAMES: Record<string, string> = {
   "kenyan": "Kenyan / Ethiopian",
 };
 
+function RaceDayCard({ race }: { race: { name: string; distance: string; priority: string } }) {
+  const priorityColors: Record<string, string> = {
+    A: "bg-yellow-50 border-yellow-400 dark:bg-yellow-950 dark:border-yellow-500",
+    B: "bg-blue-50 border-blue-300 dark:bg-blue-950 dark:border-blue-500",
+    C: "bg-gray-50 border-gray-300 dark:bg-gray-800 dark:border-gray-600",
+  };
+  const colorClass = priorityColors[race.priority] ?? priorityColors.C;
+  return (
+    <div className={`rounded-xl border-2 p-4 flex items-center gap-3 ${colorClass}`}>
+      <span className="text-2xl">🏁</span>
+      <div>
+        <p className="font-semibold text-foreground">{race.name}</p>
+        <p className="text-sm text-muted-foreground">{race.distance} · {race.priority}-Race</p>
+      </div>
+    </div>
+  );
+}
+
 export default function TrainingPlan() {
   const [searchParams] = useSearchParams();
   const philosophyParam = searchParams.get("philosophy");
@@ -454,7 +472,8 @@ export default function TrainingPlan() {
     const weeks = plan?.weeks ?? [];
     const sessionWeek = weeks.find((w) => w.sessions.some((s: SessionLike) => s.id === session.id));
     const weekNum = sessionWeek?.week_number ?? "?";
-    const planName = plan?.plan?.philosophy ?? plan?.plan?.plan_name ?? "training plan";
+    const rawPhilosophy = plan?.plan?.philosophy ?? plan?.plan?.plan_name ?? "";
+    const planName = PHILOSOPHY_DISPLAY_NAMES[rawPhilosophy] ?? rawPhilosophy ?? "Training Plan";
 
     const durationMin = plannedWorkoutDurationMinutes(session);
     const details = [
@@ -467,6 +486,7 @@ export default function TrainingPlan() {
     const hiddenMeta = JSON.stringify({
       fromPlan: true,
       planName,
+      philosophy: rawPhilosophy,
       weekNumber: weekNum,
       sessionType: session.session_type,
       description: session.description,
@@ -488,6 +508,14 @@ export default function TrainingPlan() {
       .sort((a, b) => (a.scheduled_date! < b.scheduled_date! ? -1 : 1))[0];
     return next?.id ?? null;
   }, [weeks]);
+
+  const raceDateMap = useMemo(() => {
+    const map = new Map<string, { name: string; distance: string; priority: string }>();
+    (seasonWithRaces?.races ?? []).forEach((r: { date: string; name: string; distance: string; priority: string }) => {
+      map.set(r.date, r);
+    });
+    return map;
+  }, [seasonWithRaces]);
 
   const toggleWeek = (n: number) => {
     setExpandedWeeks((prev) => {
@@ -670,9 +698,16 @@ export default function TrainingPlan() {
                   </button>
                   {isExpanded && (
                     <div className="px-5 pb-5 pt-0 space-y-2 border-t border-border max-h-[85vh] overflow-y-auto">
-                      {week.sessions.map((session) => (
-                        <TrainingPlanSessionRow
-                          key={session.id}
+                      {week.sessions.map((session) => {
+                        const raceOnDay = session.scheduled_date ? raceDateMap.get(session.scheduled_date) : undefined;
+                        const isRestOrEasyOrRace = ["rest", "easy", "recovery", "race"].includes(session.session_type);
+                        if (raceOnDay && isRestOrEasyOrRace) {
+                          return <RaceDayCard key={session.id} race={raceOnDay} />;
+                        }
+                        return (
+                          <Fragment key={session.id}>
+                            {raceOnDay && <RaceDayCard race={raceOnDay} />}
+                            <TrainingPlanSessionRow
                           session={session as SessionLike}
                           isNextSession={session.id === nextSessionId}
                           expanded={expandedPlanSessions.has(session.id)}
@@ -700,7 +735,9 @@ export default function TrainingPlan() {
                           onAskCoachCade={handleAskCoachCade}
                           onSessionClick={setSelectedSession}
                         />
-                      ))}
+                          </Fragment>
+                        );
+                      })}
                     </div>
                   )}
                 </div>
