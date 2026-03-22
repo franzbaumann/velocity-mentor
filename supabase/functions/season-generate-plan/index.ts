@@ -73,7 +73,26 @@ PLAN GENERATION RULES:
 CRITICAL — QUALITY SESSIONS (NEVER ALL EASY):
 - NEVER generate a plan where weeks are only easy runs. Every week (except taper) MUST include at least 1-2 quality sessions.
 - Marathon plans: Each base/build/peak week needs tempo OR MP run, plus a long run.
-- Hansons: Tuesday = tempo/SOS, Thursday = speed or MP, Sunday = long run (l-03 max 26km).`;
+- Hansons: Tuesday = tempo/SOS, Thursday = speed or MP, Sunday = long run (l-03 max 26km).
+
+7. MINIMUM QUALITY SESSIONS PER WEEK BY PHILOSOPHY (CRITICAL — never generate fewer):
+   Base phase:
+   - Hansons: 1 speed/strength + 1 tempo = 2 quality sessions minimum
+   - Norwegian: 2 threshold double days (count AM+PM pair as 1 workout if athlete isn't doing doubles)
+   - 80_20 / polarized: 2 quality sessions (threshold or VO2max, ZERO zone 3 moderate sessions)
+   - Daniels: 2 quality sessions (Q1 threshold + Q2 intervals)
+   - Lydiard: 0 quality in base (pure aerobic easy running ONLY)
+   - Pfitzinger: 1 medium-long + 1 tempo minimum
+
+   Build/Peak phase (all philosophies except Lydiard base): minimum 2 quality sessions
+
+   Taper phase: 1 quality session only, volume reduced 30-40%
+
+8. FOR HANSONS MARATHON PLANS: Marathon Pace (MP) sessions are MANDATORY. Use m-07 (MP Run Short) in base/early build, m-08 (MP Run Long) in build/peak. At least 1 MP session per week from week 3 onward. MP = athlete's goal marathon pace ±5 sec/km. MP runs have type "tempo" in the JSON.
+
+9. AEROBIC FARTLEK IS NOT A QUALITY SESSION. Sessions at Zone 2-3 (aerobic fartlek, kenyan fartlek, zone 2 builder, a-01, a-03) are EASY sessions, NOT quality/tempo sessions. Quality sessions must be at threshold pace (LT2) or faster, using session IDs: t-01, t-02, t-03, t-04, t-05, v-01 through v-05, m-04, m-05, m-07, m-08, m-14.
+
+10. NEVER generate a week with only 1 quality session for Hansons, Norwegian, 80_20, or Daniels plans in build/peak phase.`;
 
 // VDOT table — Daniels training paces in sec/km (duplicated from client-side vdot.ts for Deno)
 const VDOT_PACE_TABLE: [number, number, number, number, number, number][] = [
@@ -387,6 +406,81 @@ function capLongRunProgression(
   }
 }
 
+function enforceMinimumQualitySessions(
+  weeks: Array<{ phase: string; week_number?: number; workouts: Array<{ type: string; session_library_id?: string | null; day_of_week?: number }> }>,
+  philosophy: string
+): void {
+  const QUALITY_TYPES = new Set(["tempo", "interval"]);
+  const phil = philosophy.toLowerCase();
+
+  const getMinQuality = (phase: string): number => {
+    if (phase === "taper") return 1;
+    if (phase === "base") {
+      if (phil.includes("lydiard")) return 0;
+      if (phil.includes("hansons") || phil.includes("norwegian") || phil.includes("80_20") || phil.includes("polarized") || phil.includes("daniels")) return 2;
+      return 1;
+    }
+    // build/peak
+    if (phil.includes("lydiard")) return 1;
+    return 2;
+  };
+
+  for (const week of weeks) {
+    const min = getMinQuality(week.phase);
+    if (min === 0) continue;
+
+    const qualityCount = week.workouts.filter((w) => QUALITY_TYPES.has(w.type)).length;
+    if (qualityCount >= min) continue;
+
+    const deficit = min - qualityCount;
+    // Prefer Tue(2) and Thu(4) for quality, then Wed(3), avoid Mon(1) and Sun(7)
+    const candidates = week.workouts
+      .filter((w) => w.type === "easy" && w.day_of_week !== 1 && w.day_of_week !== 7)
+      .sort((a, b) => {
+        const priority = (d: number | undefined) => d === 2 ? 0 : d === 4 ? 1 : d === 3 ? 2 : 3;
+        return priority(a.day_of_week) - priority(b.day_of_week);
+      });
+
+    for (let i = 0; i < Math.min(deficit, candidates.length); i++) {
+      candidates[i].type = "tempo";
+      if (phil.includes("hansons") && !(candidates[i].session_library_id ?? "").startsWith("m-")) {
+        candidates[i].session_library_id = "t-02"; // Continuous Tempo
+      } else if (phil.includes("norwegian")) {
+        candidates[i].session_library_id = "t-04"; // Double Threshold
+      } else {
+        candidates[i].session_library_id = "t-01"; // Cruise Intervals (default)
+      }
+    }
+  }
+}
+
+function ensureHansonsMarathonPace(
+  weeks: Array<{ phase: string; week_number?: number; workouts: Array<{ type: string; session_library_id?: string | null; day_of_week?: number; distance_km?: number }> }>,
+  philosophy: string
+): void {
+  if (!philosophy.toLowerCase().includes("hansons")) return;
+
+  for (const week of weeks) {
+    if (week.phase === "base" && (week.week_number ?? 0) < 3) continue;
+    if (week.phase === "taper") continue;
+
+    const hasMPRun = week.workouts.some(
+      (w) => w.session_library_id === "m-07" || w.session_library_id === "m-08"
+    );
+    if (hasMPRun) continue;
+
+    // Prefer Saturday(6) or Wednesday(3), fall back to any non-Monday non-Sunday easy
+    const candidate =
+      week.workouts.find((w) => (w.day_of_week === 6 || w.day_of_week === 3) && w.type === "easy") ??
+      week.workouts.find((w) => w.type === "easy" && w.day_of_week !== 1 && w.day_of_week !== 7);
+
+    if (candidate) {
+      candidate.type = "tempo";
+      candidate.session_library_id = (week.phase === "peak" || (week.week_number ?? 0) > 10) ? "m-08" : "m-07";
+    }
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -589,6 +683,18 @@ serve(async (req) => {
 
       // Cap individual long run progression
       capLongRunProgression(weeks, philosophy);
+
+      // Enforce minimum quality sessions per philosophy (post-process AI output)
+      enforceMinimumQualitySessions(
+        weeks as Array<{ phase: string; week_number?: number; workouts: Array<{ type: string; session_library_id?: string | null; day_of_week?: number }> }>,
+        philosophy
+      );
+
+      // Ensure Hansons plans have MP runs from week 3 onward
+      ensureHansonsMarathonPace(
+        weeks as Array<{ phase: string; week_number?: number; workouts: Array<{ type: string; session_library_id?: string | null; day_of_week?: number; distance_km?: number }> }>,
+        philosophy
+      );
     }
 
     if (weeks.length === 0) {
