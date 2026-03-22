@@ -7,7 +7,7 @@ import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, Grip
 import { UnifiedCalendar } from "@/components/UnifiedCalendar";
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { format, parseISO, isWithinInterval } from "date-fns";
-import { useNavigate, Link, useSearchParams } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -424,8 +424,6 @@ function RaceDayCard({ race }: { race: { name: string; distance: string; priorit
 }
 
 export default function TrainingPlan() {
-  const [searchParams] = useSearchParams();
-  const philosophyParam = searchParams.get("philosophy");
   const { plan, isLoading, rescheduleSession, markSessionDone } = useTrainingPlan();
   const weeks = plan?.weeks ?? [];
   const planRow = plan?.plan as { season_id?: string | null } | undefined;
@@ -472,7 +470,9 @@ export default function TrainingPlan() {
     const weeks = plan?.weeks ?? [];
     const sessionWeek = weeks.find((w) => w.sessions.some((s: SessionLike) => s.id === session.id));
     const weekNum = sessionWeek?.week_number ?? "?";
-    const rawPhilosophy = plan?.plan?.philosophy ?? plan?.plan?.plan_name ?? "";
+    // Always use the canonical philosophy value from the DB — never fall back to plan_name
+    // (which is a human-readable string that could diverge from the canonical key)
+    const rawPhilosophy = plan?.plan?.philosophy ?? "";
     const planName = PHILOSOPHY_DISPLAY_NAMES[rawPhilosophy] ?? rawPhilosophy ?? "Training Plan";
 
     const durationMin = plannedWorkoutDurationMinutes(session);
@@ -601,7 +601,9 @@ export default function TrainingPlan() {
               {(p.goal_time || p.target_time) && ` · ${p.goal_time || p.target_time}`}
             </p>
             {(() => {
-              const philosophyKey = philosophyParam || (p as { philosophy?: string }).philosophy;
+              // Always read from the canonical plan.philosophy DB field — never from URL params
+              // which could be stale or manually set to a different philosophy label
+              const philosophyKey = (p as { philosophy?: string }).philosophy;
               const philosophyName = philosophyKey
                 ? (PHILOSOPHY_DISPLAY_NAMES[philosophyKey] ?? philosophyKey)
                 : null;

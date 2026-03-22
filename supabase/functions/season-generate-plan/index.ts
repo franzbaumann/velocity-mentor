@@ -88,25 +88,27 @@ CRITICAL — QUALITY SESSIONS (NEVER ALL EASY):
 
    Taper phase: 1 quality session only, volume reduced 30-40%
 
-8. FOR HANSONS MARATHON PLANS: Marathon Pace (MP) sessions are MANDATORY. Use m-07 (MP Run Short) in base/early build, m-08 (MP Run Long) in build/peak. At least 1 MP session per week from week 3 onward. MP = athlete's goal marathon pace ±5 sec/km. MP runs have type "tempo" in the JSON.
+8. HANSONS ONLY — FOR HANSONS MARATHON PLANS: Marathon Pace (MP) sessions are MANDATORY. Use m-07 (MP Run Short) in base/early build, m-08 (MP Run Long) in build/peak. At least 1 MP session per week from week 3 onward. MP = athlete's goal marathon pace ±5 sec/km. MP runs have type "tempo" in the JSON. DO NOT add MP sessions to Norwegian, 80/20, Lydiard, Daniels, or Pfitzinger plans.
 
 9. AEROBIC FARTLEK IS NOT A QUALITY SESSION. Sessions at Zone 2-3 (aerobic fartlek, kenyan fartlek, zone 2 builder, a-01, a-03) are EASY sessions, NOT quality/tempo sessions. Quality sessions must be at threshold pace (LT2) or faster, using session IDs: t-01, t-02, t-03, t-04, t-05, v-01 through v-05, m-04, m-05, m-07, m-08, m-14.
 
 10. NEVER generate a week with only 1 quality session for Hansons, Norwegian, 80_20, or Daniels plans in build/peak phase.
 
-NORWEGIAN METHOD — DOUBLE THRESHOLD STRUCTURE (HARD RULE):
+NORWEGIAN METHOD — DOUBLE THRESHOLD STRUCTURE (HARD RULE — ONLY for Norwegian philosophy):
 - In BUILD and PEAK phases, Tuesday (day 2) AND Thursday (day 4) MUST each be double-threshold days.
 - A double-threshold day = TWO sessions on the same day: one morning session (session_library_id: t-01 or t-02, LT1/easy threshold pace) + one afternoon session (session_library_id: t-03 or t-04, LT2/harder threshold pace).
 - Mark morning session rationale with "AM:" prefix and afternoon session with "PM:" prefix.
 - is_double_run=true for both sessions of a double-threshold day.
 - Do NOT spread Norwegian quality sessions across separate days — they MUST be paired AM/PM on Tue and Thu.
 - Base phase Norwegian: at least 1 double-threshold day (Tuesday), second added in week 3+ of base.
+- DO NOT apply double-threshold day structure to Hansons, 80/20, Lydiard, Daniels, or Pfitzinger plans.
 
-LYDIARD BASE PHASE — ZERO QUALITY (HARD RULE):
+LYDIARD BASE PHASE — ZERO QUALITY (HARD RULE — ONLY for Lydiard philosophy):
 - For Lydiard philosophy, during the BASE phase, ALL sessions MUST be type "easy" or "long" ONLY.
 - ZERO threshold sessions, ZERO interval sessions, ZERO tempo sessions in Lydiard base phase.
 - Only permitted session IDs in Lydiard base: e-01, e-02, a-01, a-02, a-03, l-01, l-02 (and rest days).
-- Quality sessions (threshold/interval) are only permitted in Lydiard BUILD phase week 3 onward.`;
+- Quality sessions (threshold/interval) are only permitted in Lydiard BUILD phase week 3 onward.
+- DO NOT apply Lydiard base restrictions to any other philosophy.`;
 
 // VDOT table — Daniels training paces in sec/km (duplicated from client-side vdot.ts for Deno)
 const VDOT_PACE_TABLE: [number, number, number, number, number, number][] = [
@@ -420,6 +422,9 @@ function capLongRunProgression(
   }
 }
 
+// Post-processes AI output to enforce per-philosophy minimum quality session counts.
+// Each philosophy branch is strictly isolated — Norwegian logic ONLY runs for Norwegian,
+// Hansons session IDs ONLY assigned for Hansons, Lydiard stripping ONLY for Lydiard.
 function enforceMinimumQualitySessions(
   weeks: Array<{ phase: string; week_number?: number; workouts: Array<{ type: string; session_library_id?: string | null; day_of_week?: number }> }>,
   philosophy: string
@@ -430,19 +435,19 @@ function enforceMinimumQualitySessions(
   const getMinQuality = (phase: string): number => {
     if (phase === "taper") return 1;
     if (phase === "base") {
-      if (phil.includes("lydiard")) return 0;
+      if (phil.includes("lydiard")) return 0; // LYDIARD ONLY: zero quality in base phase
       if (phil.includes("hansons") || phil.includes("norwegian") || phil.includes("80_20") || phil.includes("polarized") || phil.includes("daniels")) return 2;
       return 1;
     }
     // build/peak
-    if (phil.includes("lydiard")) return 1;
+    if (phil.includes("lydiard")) return 1; // LYDIARD ONLY: quality allowed from build onward
     return 2;
   };
 
   for (const week of weeks) {
     const min = getMinQuality(week.phase);
 
-    // Lydiard base: strip any quality sessions and replace with easy runs
+    // LYDIARD ONLY: strip any quality sessions in base phase and replace with easy runs
     if (min === 0 && phil.includes("lydiard") && week.phase === "base") {
       for (const w of week.workouts) {
         if (QUALITY_TYPES.has(w.type)) {
@@ -460,7 +465,8 @@ function enforceMinimumQualitySessions(
 
     const deficit = min - qualityCount;
 
-    // Norwegian: prefer pairing AM+PM on Tue(2) and Thu(4) — double-threshold structure
+    // NORWEGIAN ONLY: prefer pairing AM+PM on Tue(2) and Thu(4) — double-threshold structure
+    // This block MUST NOT run for Hansons, 80/20, Lydiard, Daniels, or Pfitzinger plans.
     if (phil.includes("norwegian")) {
       const doubleThresholdDays = [2, 4]; // Tuesday, Thursday
       let added = 0;
@@ -473,7 +479,7 @@ function enforceMinimumQualitySessions(
         const easyOnDay = existing.find((w) => w.type === "easy");
         if (easyOnDay) {
           easyOnDay.type = "tempo";
-          easyOnDay.session_library_id = "t-01"; // LT1 threshold (AM)
+          easyOnDay.session_library_id = "t-01"; // Norwegian: LT1 threshold (AM)
           added++;
         }
       }
@@ -481,7 +487,7 @@ function enforceMinimumQualitySessions(
       if (added >= deficit) continue;
     }
 
-    // Prefer Tue(2) and Thu(4) for quality, then Wed(3), avoid Mon(1) and Sun(7)
+    // Generic fallback: prefer Tue(2) and Thu(4) for quality, then Wed(3), avoid Mon(1) and Sun(7)
     const candidates = week.workouts
       .filter((w) => w.type === "easy" && w.day_of_week !== 1 && w.day_of_week !== 7)
       .sort((a, b) => {
@@ -493,20 +499,26 @@ function enforceMinimumQualitySessions(
     for (let i = 0; i < Math.min(remaining, candidates.length); i++) {
       candidates[i].type = "tempo";
       if (phil.includes("hansons") && !(candidates[i].session_library_id ?? "").startsWith("m-")) {
+        // HANSONS ONLY: use Continuous Tempo (not Norwegian double-threshold IDs)
         candidates[i].session_library_id = "t-02"; // Continuous Tempo
       } else if (phil.includes("norwegian")) {
+        // NORWEGIAN ONLY: use LT1 Cruise Intervals
         candidates[i].session_library_id = "t-01"; // LT1 Cruise Intervals
       } else {
-        candidates[i].session_library_id = "t-01"; // Cruise Intervals (default)
+        candidates[i].session_library_id = "t-01"; // Cruise Intervals (default for 80/20, Daniels, Pfitzinger)
       }
     }
   }
 }
 
+// HANSONS ONLY: ensures MP (marathon pace) sessions appear from week 3 onward.
+// The strict guard at the top prevents this from ever running on Norwegian, 80/20,
+// Lydiard, Daniels, or Pfitzinger plans — those philosophies must not get MP sessions injected.
 function ensureHansonsMarathonPace(
   weeks: Array<{ phase: string; week_number?: number; workouts: Array<{ type: string; session_library_id?: string | null; day_of_week?: number; distance_km?: number }> }>,
   philosophy: string
 ): void {
+  // STRICT GUARD: only run for Hansons plans — never for any other philosophy
   if (!philosophy.toLowerCase().includes("hansons")) return;
 
   for (const week of weeks) {
