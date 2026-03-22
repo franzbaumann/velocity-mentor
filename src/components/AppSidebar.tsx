@@ -9,9 +9,6 @@ import {
   BookOpen,
   Settings,
   LogOut,
-  Sun,
-  Moon,
-  Monitor,
   ClipboardCheck,
   Flame,
   Users,
@@ -21,33 +18,25 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { useRef, useCallback } from "react";
 import { useLocation } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import { useTheme, type Theme } from "@/hooks/useTheme";
 import { useSidebar } from "@/components/SidebarContext";
 import { usePendingInvitesCount } from "@/hooks/useFriends";
 import { CadeLogo } from "@/components/CadeLogo";
 
 const navItems = [
+  { title: "Coach Cade", url: "/coach", icon: MessageCircle },
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
   { title: "Training Plan", url: "/plan", icon: Calendar },
   { title: "Season", url: "/season", icon: Trophy },
   { title: "Activities", url: "/activities", icon: Activity },
-  { title: "Coach Cade", url: "/coach", icon: MessageCircle },
   { title: "Stats", url: "/stats", icon: BarChart3 },
   { title: "Community", url: "/community", icon: Users },
   { title: "Philosophy", url: "/philosophy", icon: BookOpen },
   { title: "Settings", url: "/settings", icon: Settings },
 ];
 
-const themeOptions: { value: Theme; icon: typeof Sun; label: string }[] = [
-  { value: "light", icon: Sun, label: "Light" },
-  { value: "dark", icon: Moon, label: "Dark" },
-  { value: "system", icon: Monitor, label: "System" },
-];
-
 export function AppSidebar() {
   const { collapsed, setCollapsed, hoverExpanded, setHoverExpanded } = useSidebar();
   const { openCheckIn, hasCheckedInToday, currentStreak, longestStreak } = useDailyCheckIn();
-  const { theme, setTheme } = useTheme();
   const location = useLocation();
   const hoverTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { data: pendingCount = 0 } = usePendingInvitesCount();
@@ -69,14 +58,6 @@ export function AppSidebar() {
     if (hoverTimeout.current) clearTimeout(hoverTimeout.current);
     hoverTimeout.current = setTimeout(() => setHoverExpanded(false), 200);
   }, [setHoverExpanded]);
-
-  const cycleTheme = () => {
-    const order: Theme[] = ["light", "dark", "system"];
-    const next = order[(order.indexOf(theme) + 1) % order.length];
-    setTheme(next);
-  };
-
-  const ThemeIcon = themeOptions.find((o) => o.value === theme)?.icon ?? Monitor;
 
   return (
     <aside
@@ -151,33 +132,6 @@ export function AppSidebar() {
           {currentStreak > 0 && <p className="text-xs text-muted-foreground mt-0.5">{currentStreak}-day streak{longestStreak > currentStreak ? ` · Best: ${longestStreak}` : ""}</p>}
         </TooltipContent>
       </Tooltip>
-
-      {!expanded ? (
-        <button
-          onClick={cycleTheme}
-          className="flex items-center justify-center px-3 py-2 mx-2 mb-1 rounded-lg text-xs text-muted-foreground hover:bg-gray-100 dark:hover:bg-secondary transition-colors"
-          title={`Theme: ${theme}`}
-        >
-          <ThemeIcon className="w-[18px] h-[18px]" />
-        </button>
-      ) : (
-        <div className="mx-2 mb-1 flex rounded-lg border border-border/60 bg-muted/30 p-0.5">
-          {themeOptions.map((opt) => (
-            <button
-              key={opt.value}
-              onClick={() => setTheme(opt.value)}
-              className={`flex-1 flex items-center justify-center gap-1 py-1 rounded-md text-xs text-muted-foreground transition-all ${
-                theme === opt.value
-                  ? "bg-background text-foreground shadow-sm"
-                  : "hover:text-foreground"
-              }`}
-            >
-              <opt.icon className="w-3 h-3" />
-              <span className="truncate">{opt.label}</span>
-            </button>
-          ))}
-        </div>
-      )}
 
       <button
         onClick={() => supabase.auth.signOut()}
