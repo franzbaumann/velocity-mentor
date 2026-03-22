@@ -97,7 +97,7 @@ export async function enrichTrainingPlanWorkoutsFromLibrary(planId: string): Pro
     .maybeSingle();
 
   const r = readiness as { ctl?: number | null; icu_ctl?: number | null } | null | undefined;
-  const currentCTL = r?.ctl ?? r?.icu_ctl ?? 55;
+  const currentCTL = r?.icu_ctl ?? r?.ctl ?? 55;
 
   const injuryHistory: string[] = Array.isArray(profile?.injury_history)
     ? (profile.injury_history as string[])

@@ -287,10 +287,10 @@ function ctlTrendMultiplier(
   readiness: RacePredictionInput["readiness"]
 ): number {
   if (!ctl || !readiness || readiness.length < 7) return 1.0;
-  const recent = readiness.slice(-14).filter((r) => (r.ctl ?? r.icu_ctl) != null);
+  const recent = readiness.slice(-14).filter((r) => (r.icu_ctl ?? r.ctl) != null);
   if (recent.length < 2) return 1.0;
-  const first = recent[0].ctl ?? recent[0].icu_ctl ?? 0;
-  const last = recent[recent.length - 1].ctl ?? recent[recent.length - 1].icu_ctl ?? 0;
+  const first = recent[0].icu_ctl ?? recent[0].ctl ?? 0;
+  const last = recent[recent.length - 1].icu_ctl ?? recent[recent.length - 1].ctl ?? 0;
   const trend = last - first;
   if (trend > 5) return 1.02; // rising fitness
   if (trend < -5) return 0.98; // declining

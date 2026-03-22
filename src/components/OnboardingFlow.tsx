@@ -145,7 +145,7 @@ export function OnboardingFlow({
 
   const hasIntervalsData = isConnected && (activities.length > 0 || readinessRows.length > 0);
   const latestReadiness = readinessRows.length > 0 ? readinessRows[readinessRows.length - 1] : null;
-  const ctl = latestReadiness?.ctl ?? null;
+  const ctl = latestReadiness?.icu_ctl ?? latestReadiness?.ctl ?? null;
   const mon = startOfWeek(new Date(), { weekStartsOn: 1 });
   const weekKm = activities
     .filter((a) => {
