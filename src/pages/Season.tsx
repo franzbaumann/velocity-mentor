@@ -40,7 +40,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { DateWheelPicker } from "@/components/ui/date-wheel-picker";
 import { TimeWheelPicker } from "@/components/ui/time-wheel-picker";
 import { parseGoalTimeToSeconds, formatSecondsToGoalTime } from "@/lib/format";
 import { format, parseISO } from "date-fns";
@@ -287,37 +286,25 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
             <div className="grid grid-cols-2 gap-4">
           <div>
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">Start date</label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="mt-1 w-full justify-start text-left font-normal">
-                      {startDate ? formatDate(startDate) : "Pick date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <DateWheelPicker
-                      value={startDate ? parseISO(startDate) : new Date()}
-                      onChange={(d) => setStartDate(format(d, "yyyy-MM-dd"))}
-                      size="sm"
-                    />
-                  </PopoverContent>
-                </Popover>
+                <input
+                  type="date"
+                  value={startDate || ""}
+                  min={new Date().toISOString().slice(0, 10)}
+                  max="2030-12-31"
+                  onChange={(e) => setStartDate(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring dark:bg-background"
+                />
           </div>
           <div>
                 <label className="text-xs font-medium text-muted-foreground uppercase tracking-wider">End date</label>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="mt-1 w-full justify-start text-left font-normal">
-                      {endDate ? formatDate(endDate) : "Pick date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <DateWheelPicker
-                      value={endDate ? parseISO(endDate) : new Date()}
-                      onChange={(d) => setEndDate(format(d, "yyyy-MM-dd"))}
-                      size="sm"
-                    />
-                  </PopoverContent>
-                </Popover>
+                <input
+                  type="date"
+                  value={endDate || ""}
+                  min={new Date().toISOString().slice(0, 10)}
+                  max="2030-12-31"
+                  onChange={(e) => setEndDate(e.target.value)}
+                  className="mt-1 w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring dark:bg-background"
+                />
           </div>
         </div>
         <div>
@@ -387,20 +374,14 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
         <div className="grid grid-cols-2 gap-3">
               <Input placeholder="Race name" value={rName} onChange={(e) => setRName(e.target.value)} />
               <div>
-                <Popover>
-                  <PopoverTrigger asChild>
-                    <Button variant="outline" className="w-full justify-start text-left font-normal">
-                      {rDate ? formatDateShort(rDate) : "Race date"}
-                    </Button>
-                  </PopoverTrigger>
-                  <PopoverContent className="w-auto p-0" align="start">
-                    <DateWheelPicker
-                      value={rDate ? parseISO(rDate) : new Date()}
-                      onChange={(d) => setRDate(format(d, "yyyy-MM-dd"))}
-                      size="sm"
-                    />
-                  </PopoverContent>
-                </Popover>
+                <input
+                  type="date"
+                  value={rDate || ""}
+                  min={new Date().toISOString().slice(0, 10)}
+                  max="2030-12-31"
+                  onChange={(e) => setRDate(e.target.value)}
+                  className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring dark:bg-background"
+                />
         </div>
         </div>
             <div className="grid grid-cols-2 gap-3">
