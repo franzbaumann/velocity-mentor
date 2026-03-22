@@ -24,6 +24,7 @@ import AuthPage from "./pages/AuthPage";
 import ContactPage from "./pages/ContactPage";
 import PrivacyPage from "./pages/PrivacyPage";
 import TermsPage from "./pages/TermsPage";
+import PricingPage from "./pages/PricingPage";
 import StravaCallback from "./pages/StravaCallback";
 import VitalCallback from "./pages/VitalCallback";
 import NotFound from "./pages/NotFound";
@@ -127,6 +128,7 @@ const App = () => (
           <Route path="/app" element={<Navigate to="/" replace />} />
           <Route path="/auth" element={<AuthPage />} />
           <Route path="/contact" element={<ContactPage />} />
+          <Route path="/pricing" element={<PricingPage />} />
           <Route path="/privacy" element={<PrivacyPage />} />
           <Route path="/terms" element={<TermsPage />} />
           <Route path="/auth/strava/callback" element={<StravaCallback />} />

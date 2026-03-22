@@ -535,6 +535,9 @@ export default function LandingPage() {
             <Link to="/auth" className="hover:text-foreground transition-colors">
               Sign in to app
             </Link>
+            <Link to="/pricing" className="hover:text-foreground transition-colors">
+              Pricing
+            </Link>
             <Link to="/contact" className="hover:text-foreground transition-colors">
               Contact
             </Link>
