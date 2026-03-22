@@ -24,6 +24,7 @@ import { isRunningActivity } from "@/lib/analytics";
 import { formatDistance } from "@/lib/format";
 import { formatCoachText } from "@/lib/format-coach-text";
 import { checkDailyLimit } from "@/lib/ai/usageGuard";
+import { BETA_LIMITS } from "@/lib/ai/limits";
 import { ChatStatCharts } from "@/components/ChatStatChart";
 
 type Msg = { role: "user" | "assistant"; content: string; isLimitMessage?: boolean };
@@ -279,7 +280,7 @@ async function streamChat({
         intakeAnswers,
         intervalsContext,
         prependContext: prependContext ?? undefined,
-        stream: false,
+        stream: true,
       }),
     });
   } catch (e) {
@@ -1616,11 +1617,11 @@ export default function Coach() {
 
             {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
               <div className="flex gap-3 max-w-lg">
-                <div className="w-8 h-8 rounded-full bg-primary/10 flex items-center justify-center flex-shrink-0">
-                  <span className="text-xs font-semibold text-primary">K</span>
-                </div>
-                <div className="glass-card p-4">
-                  <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />
+                <CadeAvatar size="md" className="flex-shrink-0" />
+                <div className="bg-gray-50 dark:bg-card/80 border border-gray-100 dark:border-border rounded-2xl rounded-tl-sm p-4 flex items-center gap-1.5">
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:0ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:150ms]" />
+                  <span className="w-1.5 h-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:300ms]" />
                 </div>
               </div>
             )}
@@ -1663,7 +1664,7 @@ export default function Coach() {
           {/* Input */}
           <div className="p-4 border-t border-border">
             <div className="flex items-center justify-between mb-2">
-              {msgCount >= 10 ? (
+              {msgCount >= BETA_LIMITS.coachingMessagesPerDay ? (
                 <span className="text-xs text-red-500 dark:text-red-400 font-medium">
                   Daily limit reached —{" "}
                   <Link to="/pricing" className="underline underline-offset-2 hover:text-red-400">
@@ -1673,12 +1674,12 @@ export default function Coach() {
               ) : (
                 <span
                   className={`text-xs ${
-                    msgCount >= 7
+                    msgCount >= BETA_LIMITS.coachingMessagesPerDay - 5
                       ? "text-amber-600 dark:text-amber-400"
                       : "text-muted-foreground"
                   }`}
                 >
-                  {msgCount} / 10 messages today
+                  {msgCount} / {BETA_LIMITS.coachingMessagesPerDay} messages today
                 </span>
               )}
             </div>
@@ -1690,12 +1691,12 @@ export default function Coach() {
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={rateLimitSecs > 0 ? `Wait ${rateLimitSecs}s (rate limit)` : "Tell Coach Cade your story..."}
-                disabled={isLoading || rateLimitSecs > 0 || msgCount >= 10}
+                disabled={isLoading || rateLimitSecs > 0 || msgCount >= BETA_LIMITS.coachingMessagesPerDay}
                 className="flex-1 bg-secondary rounded-full px-5 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
               />
               <button
                 onClick={() => send(message)}
-                disabled={isLoading || !message.trim() || rateLimitSecs > 0 || msgCount >= 10}
+                disabled={isLoading || !message.trim() || rateLimitSecs > 0 || msgCount >= BETA_LIMITS.coachingMessagesPerDay}
                 aria-label="Send message"
                 className="w-10 h-10 rounded-full bg-primary flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
