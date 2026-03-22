@@ -2,9 +2,11 @@ import { AppLayout } from "@/components/AppLayout";
 import { Marquee } from "@/components/ui/marquee";
 import { BookOpen, ChevronDown } from "lucide-react";
 import { useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 interface Philosophy {
   name: string;
+  slug: string;
   founder: string;
   principle: string;
   distribution: { easy: number; moderate: number; hard: number };
@@ -16,6 +18,7 @@ interface Philosophy {
 const philosophies: Philosophy[] = [
   {
     name: "80/20 Polarized",
+    slug: "polarized",
     founder: "Stephen Seiler",
     principle:
       "80% of training at low intensity, 20% at high intensity. Nothing in between. The simplest and most research-backed approach.",
@@ -28,6 +31,7 @@ const philosophies: Philosophy[] = [
   },
   {
     name: "Jack Daniels VDOT",
+    slug: "jack-daniels",
     founder: "Jack Daniels",
     principle:
       "Five precise zones (E/M/T/I/R) all calculated from your most recent race time. Every workout has a specific physiological purpose.",
@@ -40,6 +44,7 @@ const philosophies: Philosophy[] = [
   },
   {
     name: "Lydiard",
+    slug: "lydiard",
     founder: "Arthur Lydiard",
     principle:
       "Build a massive aerobic base first over months, then add speed work only in the final phase before racing. Patience is the ultimate weapon.",
@@ -52,6 +57,7 @@ const philosophies: Philosophy[] = [
   },
   {
     name: "Hansons",
+    slug: "hansons",
     founder: "Hansons-Brooks",
     principle:
       "Cumulative fatigue approach. No single run over 26km, but the weekly volume and back-to-back quality sessions simulate marathon-specific stress.",
@@ -64,6 +70,7 @@ const philosophies: Philosophy[] = [
   },
   {
     name: "Pfitzinger",
+    slug: "pfitzinger",
     founder: "Pete Pfitzinger",
     principle:
       "High volume (100+ km/week), mid-week long runs (MLR), and lactate threshold focus. The approach that built champions through consistent, high mileage.",
@@ -76,6 +83,7 @@ const philosophies: Philosophy[] = [
   },
   {
     name: "Norwegian Method",
+    slug: "norwegian",
     founder: "Gjert Ingebrigtsen / Norwegian school",
     principle:
       "Threshold-dominant training built around double threshold sessions — two threshold workouts in one day separated by 4–6 hours. Minimal VO2max work. Lactate-controlled intensity at LT1–LT2. For most athletes adapted as AM easy + PM threshold.",
@@ -88,6 +96,7 @@ const philosophies: Philosophy[] = [
   },
   {
     name: "Japanese / Ekiden-style",
+    slug: "ekiden",
     founder: "Japanese distance running tradition",
     principle:
       "Extremely high aerobic volume with group-oriented training. Long steady jogs (jogingu) at moderate effort build a massive aerobic base. Quality sessions are shorter but very intense — track repetitions at race pace. Morning runs are a non-negotiable daily habit. Volume before intensity; base periods are long and patient.",
@@ -100,6 +109,7 @@ const philosophies: Philosophy[] = [
   },
   {
     name: "Kenyan/Ethiopian Model",
+    slug: "kenyan",
     founder: "East African tradition",
     principle:
       "High altitude, twice-daily easy running, and extreme patience with aerobic base. Speed emerges naturally from years of consistent volume.",
@@ -183,6 +193,7 @@ function DistributionBar({
 
 function PhilosophyCard({ philosophy }: { philosophy: Philosophy }) {
   const [expanded, setExpanded] = useState(false);
+  const navigate = useNavigate();
 
   const weekDays = philosophy.weekly.split(", ").map((entry) => {
     const [day, ...rest] = entry.split(": ");
@@ -243,6 +254,13 @@ function PhilosophyCard({ philosophy }: { philosophy: Philosophy }) {
           </div>
         )}
       </div>
+
+      <button
+        onClick={() => navigate(`/plan?philosophy=${philosophy.slug}`)}
+        className="mt-1 w-full rounded-lg border border-primary/40 bg-primary/5 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 transition-colors text-left"
+      >
+        Train with {philosophy.name} →
+      </button>
     </div>
   );
 }
@@ -259,6 +277,8 @@ export default function Philosophy() {
             Find the approach that fits your physiology
           </p>
         </div>
+
+        <p className="text-muted-foreground text-center mb-6">Cade supports all major training philosophies. Pick one to shape your plan.</p>
 
         <div className="overflow-hidden -mx-4 py-3 border-y border-border">
           <Marquee pauseOnHover direction="right" duration={45} className="py-1" fadeAmount={12}>

@@ -1,4 +1,6 @@
 import { useState, useEffect, useRef } from "react";
+import { CadeAvatar } from "@/components/CadeAvatar";
+import { useQuery } from "@tanstack/react-query";
 import { ReadinessRing } from "@/components/ReadinessRing";
 import { WorkoutBadge } from "@/components/WorkoutBadge";
 import { Sparkline } from "@/components/Sparkline";
@@ -11,7 +13,7 @@ import { isRunningActivity } from "@/lib/analytics";
 import { predictRaceTime, predictRaceTimeV2, formatRaceTime, calculateZonePaces, findBestEffort } from "@/lib/race-prediction";
 import { useZoneSource } from "@/hooks/useZoneSource";
 import { calculateTaperStart, daysUntil } from "@/lib/season/periodisation";
-import { TrendingDown, Moon, Heart, ChevronRight, ChevronDown, Loader2, Trophy, AlertTriangle, Flame } from "lucide-react";
+import { TrendingDown, Moon, Heart, ChevronRight, ChevronDown, Loader2, Trophy, AlertTriangle, Flame, Brain } from "lucide-react";
 import { useDailyLoad } from "@/hooks/useDailyLoad";
 import { useDailyCheckIn } from "@/components/DailyCheckInContext";
 import { supabase } from "@/integrations/supabase/client";
@@ -29,6 +31,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { WeekProposal } from "@/components/WeekProposal";
 import { toast } from "sonner";
 import { formatCoachText } from "@/lib/format-coach-text";
+import { useAuth } from "@/hooks/use-auth";
 
 const RACE_DISTANCES: { km: number; label: string }[] = [
   { km: 5, label: "5K" },
@@ -358,9 +361,7 @@ function CoachCadeWidget() {
     <Link to="/coach?from=dashboard" className="block h-full">
           <div className="glass-card p-6 h-full hover:opacity-95 transition-opacity cursor-pointer flex flex-col">
         <div className="flex items-center gap-2 mb-3">
-          <div className="w-8 h-8 rounded-full bg-[#2563EB] flex items-center justify-center">
-            <span className="text-sm font-semibold text-white">C</span>
-          </div>
+          <CadeAvatar size="md" />
           <span className="text-sm font-semibold text-foreground">Coach Cade</span>
         </div>
         {loading ? (
@@ -439,6 +440,76 @@ function SeasonWidget() {
         </div>
       </div>
     </Link>
+  );
+}
+
+const MEMORY_CHIP_COLORS: Record<string, string> = {
+  goal: "bg-emerald-500/15 text-emerald-700 dark:text-emerald-400",
+  injury: "bg-red-500/15 text-red-700 dark:text-red-400",
+  lifestyle: "bg-purple-500/15 text-purple-700 dark:text-purple-400",
+  race: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  preference: "bg-blue-500/15 text-blue-700 dark:text-blue-400",
+  personality: "bg-pink-500/15 text-pink-700 dark:text-pink-400",
+  other: "bg-gray-500/15 text-gray-600 dark:text-gray-400",
+};
+
+function CoachingMemoryWidget() {
+  const { user } = useAuth();
+
+  const { data: memories = [], isLoading } = useQuery({
+    queryKey: ["coaching_memory_dashboard", user?.id],
+    queryFn: async () => {
+      if (!user) return [];
+      const { data, error } = await supabase
+        .from("coaching_memory")
+        .select("id, category, content, importance")
+        .eq("user_id", user.id)
+        .order("importance", { ascending: false })
+        .order("created_at", { ascending: false })
+        .limit(3);
+      if (error) return [];
+      return data as { id: string; category: string; content: string; importance: number }[];
+    },
+    enabled: !!user,
+    staleTime: 60_000,
+  });
+
+  if (isLoading) return null;
+
+  return (
+    <div className="rounded-lg border border-border bg-card p-4">
+      <div className="flex items-center justify-between mb-3">
+        <p className="text-sm font-semibold text-foreground flex items-center gap-2">
+          <Brain className="w-4 h-4 text-primary" />
+          What Cade knows about you
+        </p>
+        <Link to="/settings" className="text-xs text-primary hover:underline">
+          View all memories →
+        </Link>
+      </div>
+      {memories.length === 0 ? (
+        <div>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            Start sharing with Coach Cade — your goals, injuries, and schedule — and it will remember everything.
+          </p>
+          <Link to="/coach" className="text-xs font-medium text-primary hover:underline mt-2 inline-block">
+            Tell Cade →
+          </Link>
+        </div>
+      ) : (
+        <div className="flex flex-wrap gap-2">
+          {memories.map((m) => (
+            <span
+              key={m.id}
+              className={`text-xs font-medium px-2.5 py-1 rounded-full ${MEMORY_CHIP_COLORS[m.category] ?? MEMORY_CHIP_COLORS.other}`}
+            >
+              <span className="capitalize">{m.category}</span>:{" "}
+              {m.content.length > 32 ? m.content.slice(0, 32) + "…" : m.content}
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -574,6 +645,9 @@ export default function Dashboard() {
             </div>
           </div>
         </Link>
+
+        {/* Coaching Memory widget */}
+        <CoachingMemoryWidget />
 
         {/* Your Week — proposal or current week */}
         <WeekProposal />

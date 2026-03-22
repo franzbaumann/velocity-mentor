@@ -6,7 +6,7 @@ import { useVitalIntegration } from "@/hooks/useVitalIntegration";
 import { useStravaConnection } from "@/hooks/use-strava-connection";
 import { useAuth } from "@/hooks/use-auth";
 import { syncStravaActivities } from "@/integrations/strava";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -1030,6 +1030,41 @@ export default function SettingsPage() {
                     </Button>
                   )}
                 </div>
+                {!isConnected && (() => {
+                  const seen = typeof window !== "undefined" && localStorage.getItem("icu_onboarding_seen") === "true";
+                  return !seen ? (
+                    <div className="mt-3 rounded-xl border border-border bg-muted/40 p-4 space-y-3">
+                      <div className="flex items-start justify-between gap-2">
+                        <p className="text-sm font-semibold text-foreground">Connect intervals.icu for the full experience</p>
+                        <button
+                          onClick={() => { localStorage.setItem("icu_onboarding_seen", "true"); (document.querySelector("[data-icu-onboarding]") as HTMLElement)?.remove(); }}
+                          className="text-muted-foreground hover:text-foreground transition-colors shrink-0 mt-0.5"
+                          aria-label="Dismiss"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+                      <p className="text-sm text-muted-foreground" data-icu-onboarding>
+                        Cade works best with intervals.icu — a free training log used by serious runners worldwide. Connect it once and Cade will always know your training load, HRV, and history.
+                      </p>
+                      <ol className="text-sm text-muted-foreground space-y-1 list-decimal list-inside">
+                        <li>Create a free account at intervals.icu</li>
+                        <li>Go to Settings → API Access → copy your API key</li>
+                        <li>Paste it in Cade Settings below</li>
+                      </ol>
+                      <a
+                        href="https://intervals.icu"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 text-sm font-medium text-primary hover:underline"
+                        onClick={() => localStorage.setItem("icu_onboarding_seen", "true")}
+                      >
+                        Create free intervals.icu account →
+                      </a>
+                    </div>
+                  ) : null;
+                })()}
+
                 {showIntervalsForm && !isConnected && (
                   <div className="pl-11 space-y-2 pt-2 border-l-2 border-border ml-4">
                     <p className="text-xs text-muted-foreground">API key from intervals.icu → Settings → API (Athlete ID optional, used for display)</p>

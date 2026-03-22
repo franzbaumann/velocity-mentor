@@ -1,3 +1,4 @@
+// TODO: read ?philosophy= param and pre-select philosophy in plan builder
 import { AppLayout } from "@/components/AppLayout";
 import { useTrainingPlan } from "@/hooks/use-training-plan";
 import { supabase } from "@/integrations/supabase/client";
@@ -59,6 +60,7 @@ function TrainingPlanSessionRow({
   onMarkDone,
   onAskCoachCade,
   onSessionClick,
+  isNextSession,
 }: {
   session: SessionLike;
   expanded: boolean;
@@ -72,6 +74,7 @@ function TrainingPlanSessionRow({
   onMarkDone: (args: { sessionId: string; done: boolean }) => void;
   onAskCoachCade?: (session: SessionLike) => void;
   onSessionClick?: (session: SessionLike) => void;
+  isNextSession?: boolean;
 }) {
   const isDone = !!session.completed_at;
 
@@ -103,12 +106,14 @@ function TrainingPlanSessionRow({
             pace_target: session.pace_target,
             target_hr_zone: session.target_hr_zone,
             key_focus: session.key_focus,
+            coach_note: session.coach_note,
             session_structure: session.session_structure ?? null,
           }}
           isExpanded={expanded}
           onToggle={onToggleExpand}
           onMove={onStartMove}
           onAskCoach={() => onAskCoachCade?.(session)}
+          rationaleDefaultOpen={isNextSession}
         />
         {onSessionClick ? (
           <button
@@ -116,7 +121,7 @@ function TrainingPlanSessionRow({
             className="text-xs font-medium text-primary hover:underline pl-1"
             onClick={() => onSessionClick(session)}
           >
-            Steps &amp; coach note…
+            Session details &amp; coaching note →
           </button>
         ) : null}
         {moving ? (
@@ -459,6 +464,15 @@ export default function TrainingPlan() {
     navigate(`/coach?from=plan&session=${encodeURIComponent(visibleMsg)}&planMeta=${encodeURIComponent(hiddenMeta)}`);
   };
 
+  const nextSessionId = useMemo(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    const allSessions = weeks.flatMap((w) => w.sessions as SessionLike[]);
+    const next = allSessions
+      .filter((s) => !s.completed_at && s.scheduled_date && s.scheduled_date >= today)
+      .sort((a, b) => (a.scheduled_date! < b.scheduled_date! ? -1 : 1))[0];
+    return next?.id ?? null;
+  }, [weeks]);
+
   const toggleWeek = (n: number) => {
     setExpandedWeeks((prev) => {
       const next = new Set(prev);
@@ -632,6 +646,7 @@ export default function TrainingPlan() {
                         <TrainingPlanSessionRow
                           key={session.id}
                           session={session as SessionLike}
+                          isNextSession={session.id === nextSessionId}
                           expanded={expandedPlanSessions.has(session.id)}
                           onToggleExpand={() =>
                             setExpandedPlanSessions((prev) => {
