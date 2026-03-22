@@ -1,4 +1,5 @@
 import { NavLink } from "@/components/NavLink";
+import { Link } from "react-router-dom";
 import {
   LayoutDashboard,
   Calendar,
@@ -124,6 +125,18 @@ export function AppSidebar() {
           </NavLink>
         ))}
       </nav>
+
+      {expanded && (
+        <Link
+          to="/pricing"
+          className="mx-3 mb-2 px-3 py-1.5 rounded-lg bg-muted/50 hover:bg-muted transition-colors block"
+          onClick={handleNavClick}
+        >
+          <span className="text-[11px] text-muted-foreground leading-tight">
+            Beta · Free forever? No — Cade Pro launching soon
+          </span>
+        </Link>
+      )}
 
       <Tooltip>
         <TooltipTrigger asChild>

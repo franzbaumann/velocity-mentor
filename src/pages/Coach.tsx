@@ -1,6 +1,6 @@
 import { AppLayout } from "@/components/AppLayout";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams, Link } from "react-router-dom";
 import { Send, Loader2, Activity } from "lucide-react";
 import { supabase } from "@/integrations/supabase/client";
 import ReactMarkdown from "react-markdown";
@@ -724,6 +724,8 @@ export default function Coach() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [message, setMessage] = useState("");
   const [messages, setMessages] = useState<Msg[]>([]);
+  // TODO: reset count daily via API or localStorage with date key
+  const [msgCount, setMsgCount] = useState(0);
   const [openingMessage, setOpeningMessage] = useState<string | null>(null);
   const [openingLoading, setOpeningLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -1135,6 +1137,7 @@ export default function Coach() {
     const newMessages = [...messages, userMsg];
     setMessages(newMessages);
     setMessage("");
+    setMsgCount((c) => c + 1);
     setIsLoading(true);
 
     let assistantSoFar = "";
@@ -1662,17 +1665,26 @@ export default function Coach() {
 
           {/* Input */}
           <div className="p-4 border-t border-border">
-            {usageStatus && usageStatus.used >= 7 && (
-              <div className="text-xs text-muted-foreground flex items-center gap-1 mb-2">
-                <span>Cade</span>
-                <span>•</span>
-                {usageStatus.used < usageStatus.limit ? (
-                  <span>{usageStatus.used} / {usageStatus.limit} messages today</span>
-                ) : (
-                  <span className="text-yellow-600 dark:text-yellow-500">{usageStatus.used} / {usageStatus.limit} — resets tomorrow</span>
-                )}
-              </div>
-            )}
+            <div className="flex items-center justify-between mb-2">
+              {msgCount >= 10 ? (
+                <span className="text-xs text-red-500 dark:text-red-400 font-medium">
+                  Daily limit reached —{" "}
+                  <Link to="/pricing" className="underline underline-offset-2 hover:text-red-400">
+                    → Cade Pro removes limits
+                  </Link>
+                </span>
+              ) : (
+                <span
+                  className={`text-xs ${
+                    msgCount >= 7
+                      ? "text-amber-600 dark:text-amber-400"
+                      : "text-muted-foreground"
+                  }`}
+                >
+                  {msgCount} / 10 messages today
+                </span>
+              )}
+            </div>
             <div className="flex items-center gap-3">
               <input
                 ref={inputRef}
@@ -1681,12 +1693,12 @@ export default function Coach() {
                 onChange={(e) => setMessage(e.target.value)}
                 onKeyDown={handleKeyDown}
                 placeholder={rateLimitSecs > 0 ? `Wait ${rateLimitSecs}s (rate limit)` : "Tell Coach Cade your story..."}
-                disabled={isLoading || rateLimitSecs > 0}
+                disabled={isLoading || rateLimitSecs > 0 || msgCount >= 10}
                 className="flex-1 bg-secondary rounded-full px-5 py-3 text-sm text-foreground placeholder:text-muted-foreground outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50"
               />
               <button
                 onClick={() => send(message)}
-                disabled={isLoading || !message.trim() || rateLimitSecs > 0}
+                disabled={isLoading || !message.trim() || rateLimitSecs > 0 || msgCount >= 10}
                 aria-label="Send message"
                 className="w-10 h-10 rounded-full bg-primary flex items-center justify-center hover:bg-primary/90 transition-colors disabled:opacity-50"
               >
