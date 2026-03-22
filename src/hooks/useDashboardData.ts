@@ -167,7 +167,7 @@ export function useDashboardData() {
         const thisWeekData = weeks.find((w) => w.week_number === currentWeekNum)
           ?? weeks.find((w) => (w.week_number ?? 0) <= currentWeekNum) ?? lastWeek;
         if (thisWeekData) {
-          plannedKm = Math.round((thisWeekData.total_km ?? 81) * 10) / 10;
+          plannedKm = thisWeekData.total_km != null ? Math.round(thisWeekData.total_km * 10) / 10 : null;
           const sess = thisWeekData.sessions ?? [];
           qualityPlanned = sess.filter((s) => !/rest|recovery/i.test(s.type ?? "")).length || 3;
         }
@@ -365,14 +365,19 @@ export function useDashboardData() {
     const planStartStr = planData.plan?.start_date ?? weeks[0]?.start_date;
     if (!planStartStr) return null;
     const planStart = parseISO(planStartStr);
-    const weekStart = startOfWeek(planStart, { weekStartsOn: 1 });
     const today = new Date();
-    const currentWeek = Math.max(1, Math.floor((today.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1);
     const totalWeeks = planData.plan?.total_weeks ?? weeks.length;
+    const raceType = (planData.plan as { race_type?: string | null } | undefined)?.race_type ?? null;
+    // Plan hasn't started yet — expose pre-start state for the dashboard header
+    if (today < planStart) {
+      const daysUntilStart = Math.ceil((planStart.getTime() - today.getTime()) / (24 * 60 * 60 * 1000));
+      return { currentWeek: 0, totalWeeks, phase: "Pre-season", raceType, planStartDate: planStartStr, planNotStarted: true, daysUntilStart };
+    }
+    const weekStart = startOfWeek(planStart, { weekStartsOn: 1 });
+    const currentWeek = Math.max(1, Math.floor((today.getTime() - weekStart.getTime()) / (7 * 24 * 60 * 60 * 1000)) + 1);
     const thisWeekData = weeks.find((w) => w.week_number === currentWeek) ?? weeks[weeks.length - 1];
     const phase = (thisWeekData?.phase ?? (athleteProfile?.goal_race as { phase?: string } | undefined)?.phase ?? "Build").trim() || "Build";
-    const raceType = (planData.plan as { race_type?: string | null } | undefined)?.race_type ?? null;
-    return { currentWeek: Math.min(currentWeek, totalWeeks), totalWeeks, phase, raceType, planStartDate: planStartStr };
+    return { currentWeek: Math.min(currentWeek, totalWeeks), totalWeeks, phase, raceType, planStartDate: planStartStr, planNotStarted: false, daysUntilStart: 0 };
   }, [planData, athleteProfile?.goal_race]);
 
   return {

@@ -489,9 +489,11 @@ async function buildAthleteContext(
   }
 
   // Weeks to race — prefer training plan when active (plan is source of truth for current block)
+  // Only use dates that are in the future — past dates from stale plans corrupt weeks-to-race calculations
   const planRaceDate = planRow?.goal_date ? String(planRow.goal_date) : null;
   const profileRaceDate = p?.goal_race_date ? String(p.goal_race_date) : null;
-  const raceDate = planRaceDate ?? profileRaceDate;
+  const isFutureDate = (d: string | null): d is string => d != null && new Date(d).getTime() > Date.now();
+  const raceDate = [planRaceDate, profileRaceDate].find(isFutureDate) ?? null;
   const weeksToRace = raceDate ? Math.ceil((new Date(raceDate).getTime() - Date.now()) / (1000 * 60 * 60 * 24 * 7)) : null;
 
   // Onboarding answers

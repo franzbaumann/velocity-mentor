@@ -13,6 +13,7 @@ import { isRunningActivity } from "@/lib/analytics";
 import { predictRaceTime, predictRaceTimeV2, formatRaceTime, calculateZonePaces, findBestEffort } from "@/lib/race-prediction";
 import { useZoneSource } from "@/hooks/useZoneSource";
 import { calculateTaperStart, daysUntil } from "@/lib/season/periodisation";
+import { format, parseISO } from "date-fns";
 import { TrendingDown, Moon, Heart, ChevronRight, ChevronDown, Loader2, Trophy, AlertTriangle, Flame, Brain } from "lucide-react";
 import { useDailyLoad } from "@/hooks/useDailyLoad";
 import { useDailyCheckIn } from "@/components/DailyCheckInContext";
@@ -543,7 +544,9 @@ export default function Dashboard() {
           <h1 className="page-title text-foreground">{greeting}</h1>
           <p className="text-sm text-muted-foreground mt-1">
             {planProgress
-              ? `Week ${planProgress.currentWeek} of ${planProgress.totalWeeks} · ${planProgress.phase.charAt(0).toUpperCase() + planProgress.phase.slice(1)} Phase · ${planProgress.raceType ?? athlete.goalRace.type} in ${planProgress.totalWeeks - planProgress.currentWeek + 1} weeks`
+              ? planProgress.planNotStarted
+                ? `Your plan starts ${format(parseISO(planProgress.planStartDate), "MMM d")} — ${planProgress.daysUntilStart} day${planProgress.daysUntilStart === 1 ? "" : "s"} to go`
+                : `Week ${planProgress.currentWeek} of ${planProgress.totalWeeks} · ${planProgress.phase.charAt(0).toUpperCase() + planProgress.phase.slice(1)} Phase · ${planProgress.raceType ?? athlete.goalRace.type} in ${planProgress.totalWeeks - planProgress.currentWeek + 1} weeks`
               : athlete.goalRace.weeksRemaining != null
                 ? `${athlete.goalRace.type} in ${athlete.goalRace.weeksRemaining} weeks`
                 : athlete.goalRace.type}
@@ -674,23 +677,31 @@ export default function Dashboard() {
             <div className="glass-card p-6 space-y-4 hover:opacity-95 transition-opacity cursor-pointer h-full">
               <p className="section-header">This Week</p>
             <div>
-              <div className="flex justify-between text-sm mb-1.5">
-                <span className="text-foreground font-medium">
-                  {isCurrentWeekInPlan
-                    ? `${weekStats.actualKm} / ${weekStats.plannedKm} km`
-                    : `${weekStats.actualKm} km`}
-                </span>
-                {isCurrentWeekInPlan && (
-                  <span className="mono-text text-muted-foreground">{progressPct}%</span>
-                )}
-              </div>
-              {isCurrentWeekInPlan && (
-                <div className="h-2 bg-muted rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-primary rounded-full transition-all duration-500"
-                    style={{ width: `${Math.min(progressPct, 100)}%` }}
-                  />
-                </div>
+              {planProgress?.planNotStarted ? (
+                <p className="text-sm text-muted-foreground">
+                  First session in {planProgress.daysUntilStart} day{planProgress.daysUntilStart === 1 ? "" : "s"} — enjoy the rest!
+                </p>
+              ) : (
+                <>
+                  <div className="flex justify-between text-sm mb-1.5">
+                    <span className="text-foreground font-medium">
+                      {isCurrentWeekInPlan
+                        ? `${weekStats.actualKm} / ${weekStats.plannedKm} km`
+                        : `${weekStats.actualKm} km`}
+                    </span>
+                    {isCurrentWeekInPlan && (
+                      <span className="mono-text text-muted-foreground">{progressPct}%</span>
+                    )}
+                  </div>
+                  {isCurrentWeekInPlan && (
+                    <div className="h-2 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary rounded-full transition-all duration-500"
+                        style={{ width: `${Math.min(progressPct, 100)}%` }}
+                      />
+                    </div>
+                  )}
+                </>
               )}
             </div>
             {isCurrentWeekInPlan && (
