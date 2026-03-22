@@ -1,4 +1,5 @@
 import { AppLayout } from "@/components/AppLayout";
+import { CadeAvatar } from "@/components/CadeAvatar";
 import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { Send, Loader2, Activity } from "lucide-react";
@@ -1495,9 +1496,7 @@ export default function Coach() {
               <>
                 {chatFilter !== "analyses" && (
                   <div className="flex gap-3 max-w-lg">
-                    <div className="w-8 h-8 rounded-full bg-[#2563EB] flex items-center justify-center flex-shrink-0">
-                      <span className="text-xs font-semibold text-white">C</span>
-                    </div>
+                    <CadeAvatar size="md" className="flex-shrink-0" />
                     <div className="bg-gray-50 dark:bg-card/80 border border-gray-100 dark:border-border rounded-2xl rounded-tl-sm p-4 text-sm text-foreground leading-relaxed">
                       {openingLoading ? (
                         <div className="flex items-center gap-2 text-muted-foreground">
@@ -1560,9 +1559,7 @@ export default function Coach() {
                 <div key={i} className={`flex flex-col gap-2 ${msg.role === "user" ? "items-end" : ""} max-w-2xl ${msg.role === "user" ? "ml-auto" : ""}`}>
                   <div className={`flex gap-3 ${msg.role === "user" ? "justify-end" : ""} w-full`}>
                     {msg.role === "assistant" && (
-                      <div className="w-8 h-8 rounded-full bg-[#2563EB] flex items-center justify-center flex-shrink-0">
-                        <span className="text-xs font-semibold text-white">C</span>
-                      </div>
+                      <CadeAvatar size="md" className="flex-shrink-0" />
                     )}
                     <div className={`p-4 text-sm leading-relaxed rounded-2xl flex-1 ${
                       msg.role === "user"

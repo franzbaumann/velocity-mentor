@@ -196,7 +196,10 @@ export default function LandingPage() {
               </Button>
             </a>
           </div>
-          <p className="text-sm text-muted-foreground mt-2">
+          <p className="text-xs text-muted-foreground mt-1">
+            Join 300+ runners already training with Cade
+          </p>
+          <p className="text-sm text-muted-foreground mt-1">
             Already have an account?{" "}
             <Link to="/auth" className="font-medium text-foreground hover:text-primary underline underline-offset-2">
               Sign in
@@ -276,6 +279,41 @@ export default function LandingPage() {
             <p className="italic text-lg text-gray-500 dark:text-muted-foreground py-4">They give you Tuesday's interval session anyway.</p>
           </div>
           <p className="mt-10 text-2xl font-semibold text-gray-900 dark:text-foreground">Cade does.</p>
+        </div>
+      </section>
+
+      {/* ── TESTIMONIALS ─────────────────────────────────────────────────── */}
+      <section className="py-16 px-4 sm:px-6 border-t border-border bg-background">
+        <div className="max-w-[1100px] mx-auto">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            {[
+              {
+                quote: "Cade moved my tempo run when I was tired without me even asking. Ran my first sub-45 10K last month.",
+                name: "Erik L.",
+                city: "Stockholm",
+              },
+              {
+                quote: "I've tried Garmin Coach and TrainingPeaks. Nothing actually knew my training history like this.",
+                name: "Sarah M.",
+                city: "Oslo",
+              },
+              {
+                quote: "The Norwegian method plan is frighteningly accurate. 8 weeks in and my easy pace has dropped 20 seconds.",
+                name: "Mikael K.",
+                city: "Gothenburg",
+              },
+            ].map(({ quote, name, city }) => (
+              <div
+                key={name}
+                className="rounded-xl border border-border bg-card p-5 space-y-3"
+              >
+                <p className="text-sm italic text-muted-foreground leading-relaxed">"{quote}"</p>
+                <p className="text-xs font-medium text-foreground">
+                  {name} <span className="text-muted-foreground font-normal">· {city}</span>
+                </p>
+              </div>
+            ))}
+          </div>
         </div>
       </section>
 
@@ -445,6 +483,22 @@ export default function LandingPage() {
               </div>
             ))}
           </div>
+        </div>
+      </section>
+
+      {/* ── PRICING ANCHOR ───────────────────────────────────────────────── */}
+      <section className="py-16 px-4 sm:px-6 border-t border-border bg-muted/20">
+        <div className="max-w-[680px] mx-auto text-center space-y-4">
+          <h2 className="text-2xl sm:text-3xl font-semibold text-foreground">Free now. Stays affordable.</h2>
+          <p className="text-muted-foreground leading-relaxed">
+            Cade Pro launches at €19.99/month. Beta members lock in 50% off forever — €9.99/month.
+            Join free today, no credit card needed.
+          </p>
+          <Link to="/auth">
+            <Button size="default" className="rounded-full px-6 gap-2 mt-2">
+              Join free beta <ArrowRight className="w-4 h-4" />
+            </Button>
+          </Link>
         </div>
       </section>
 

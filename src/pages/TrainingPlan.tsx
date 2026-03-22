@@ -1,3 +1,4 @@
+// TODO: read ?philosophy= param and pre-select philosophy in plan builder
 import { AppLayout } from "@/components/AppLayout";
 import { useTrainingPlan } from "@/hooks/use-training-plan";
 import { supabase } from "@/integrations/supabase/client";

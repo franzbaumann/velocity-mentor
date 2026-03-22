@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from "react";
+import { CadeAvatar } from "@/components/CadeAvatar";
 import { ReadinessRing } from "@/components/ReadinessRing";
 import { WorkoutBadge } from "@/components/WorkoutBadge";
 import { Sparkline } from "@/components/Sparkline";
@@ -358,9 +359,7 @@ function CoachCadeWidget() {
     <Link to="/coach?from=dashboard" className="block h-full">
           <div className="glass-card p-6 h-full hover:opacity-95 transition-opacity cursor-pointer flex flex-col">
         <div className="flex items-center gap-2 mb-3">
-          <div className="w-8 h-8 rounded-full bg-[#2563EB] flex items-center justify-center">
-            <span className="text-sm font-semibold text-white">C</span>
-          </div>
+          <CadeAvatar size="md" />
           <span className="text-sm font-semibold text-foreground">Coach Cade</span>
         </div>
         {loading ? (
