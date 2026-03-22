@@ -42,6 +42,9 @@ interface VitalSyncResponse extends VitalFunctionError {
   hrv_fetch_status?: number;
   sleep_fetch_status?: number;
   readiness_upserted?: number;
+  streams_candidates?: number;
+  streams_ok?: number;
+  streams_fail?: number;
   provider_capability?: {
     fetched?: boolean;
     providers?: string[];
@@ -220,11 +223,21 @@ export function useVitalIntegration() {
         : 0;
       const hasQualityWarning = totalCandidates > 0 &&
         (fallbackDateRatio > 0.5 || missingDistanceRatio > 0.5 || missingDurationRatio > 0.5);
+      const streamsFail = data.streams_fail ?? 0;
+      const streamsTotal = (data.streams_ok ?? 0) + streamsFail;
+      const hasStreamWarning = streamsTotal > 0 && streamsFail > 0 && streamsFail >= Math.ceil(streamsTotal * 0.5);
 
       if (imported > 0) {
         if (hasQualityWarning) {
           toast.warning(
             `Imported ${imported} activities, but some fields look incomplete (dates/metrics).`
+            + (data.detail ? ` ${data.detail}` : ""),
+          );
+          return;
+        }
+        if (hasStreamWarning) {
+          toast.warning(
+            `Imported ${imported} activities from Vital, but chart data failed for ${streamsFail}/${streamsTotal} activities.`
             + (data.detail ? ` ${data.detail}` : ""),
           );
           return;

@@ -862,6 +862,7 @@ Deno.serve(async (req) => {
         { onConflict: "user_id,vital_id" }
       );
       if (error) {
+        console.warn("[vital-sync] activity upsert failed", { id, date, type: activityType, error: error.message });
         activitiesSkipped += 1;
       } else {
         activitiesUpserted += 1;
@@ -881,7 +882,7 @@ Deno.serve(async (req) => {
     let streams_candidates = 0;
 
     const hasStreamableVitalType = (t: string) =>
-      ["run", "ride", "walk", "hike", "cycl", "indoor", "virtual", "swim", "elliptical", "row", "trail"].some((x) =>
+      ["run", "ride", "walk", "hike", "cycl", "indoor", "virtual", "swim", "elliptical", "row", "trail", "strength", "gym", "yoga", "cross"].some((x) =>
         (t ?? "").toLowerCase().includes(x)
       );
 
@@ -929,17 +930,28 @@ Deno.serve(async (req) => {
           const wid = a.external_id;
           try {
             const raw = await fetchVitalWorkoutStreamPayload(baseUrl, headers, wid);
-            if (!raw) return "fail" as const;
+            if (!raw) {
+              console.warn("[vital-sync] stream payload null for workout", wid);
+              return "fail" as const;
+            }
 
             const norm = normalizeVitalStreamPayload(raw);
             const hasStreamSignal =
-              norm.time.length > 20 &&
+              norm.time.length > 0 &&
               (norm.heartrate.some((h) => h > 0) ||
                 norm.distance.some((d) => d > 10) ||
                 norm.pace.some((p) => p > 0) ||
                 norm.altitude.some((alt) => alt !== 0) ||
                 norm.latlng.length >= 2);
-            if (!hasStreamSignal) return "fail" as const;
+            if (!hasStreamSignal) {
+              console.warn("[vital-sync] stream signal absent for workout", wid, {
+                time: norm.time.length,
+                hr: norm.heartrate.length,
+                dist: norm.distance.length,
+                pace: norm.pace.length,
+              });
+              return "fail" as const;
+            }
 
             const hrZones = norm.heartrate.length && (apLthr != null && apLthr > 0)
               ? buildHrZonesSeries(norm.heartrate, apLthr, apMaxHr)

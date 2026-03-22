@@ -199,10 +199,12 @@ export async function fetchVitalWorkoutStreamPayload(
     if (res.ok) {
       try {
         return await res.json();
-      } catch {
+      } catch (e) {
+        console.warn("[vital-workout-stream] JSON parse failed for", workoutId, e);
         return null;
       }
     }
+    console.warn("[vital-workout-stream] stream fetch non-OK for", workoutId, { status: res.status, path: p });
   }
   return null;
 }
