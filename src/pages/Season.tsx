@@ -124,6 +124,7 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
   const [primaryDistance, setPrimaryDistance] = useState("");
   const [races, setRaces] = useState<WizardRace[]>([]);
   const [endGoalIndex, setEndGoalIndex] = useState<number>(0);
+  const [selectedPhilosophy, setSelectedPhilosophy] = useState("80_20_polarized");
 
   const [rName, setRName] = useState("");
   const [rDate, setRDate] = useState("");
@@ -159,7 +160,7 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
   }, [sortedRaces]);
 
   useEffect(() => {
-    if (step === 4 && sortedRaces.length > 0) setEndGoalIndex(defaultEndGoalIndex);
+    if (step === 5 && sortedRaces.length > 0) setEndGoalIndex(defaultEndGoalIndex);
   }, [step, defaultEndGoalIndex, sortedRaces.length]);
 
   const handleCreate = async () => {
@@ -202,6 +203,7 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
         races: racePayload,
         endGoalRaceIndex: endGoalRaceIndexInRaces,
         userId: uid,
+        philosophy: selectedPhilosophy,
       });
       if (result.planGenerated) {
         toast.success("Season created! Training plan generated.");
@@ -225,7 +227,7 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
     <div className="max-w-2xl mx-auto py-8">
       {/* Step indicator */}
       <div className="flex items-center gap-2 mb-8">
-        {[1, 2, 3, 4, 5].map((s) => (
+        {[1, 2, 3, 4, 5, 6].map((s) => (
           <div key={s} className="flex items-center gap-2">
             <button
               onClick={() => { if (s < step) setStep(s); }}
@@ -235,10 +237,10 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
             >
               {s < step ? <Check className="w-4 h-4" /> : s}
             </button>
-            {s < 5 && <div className={`w-8 h-0.5 ${s < step ? "bg-primary/40" : "bg-border"}`} />}
-              </div>
+            {s < 6 && <div className={`w-6 h-0.5 ${s < step ? "bg-primary/40" : "bg-border"}`} />}
+          </div>
         ))}
-              </div>
+      </div>
 
       {/* STEP 1 — Season Type */}
       {step === 1 && (
@@ -335,12 +337,48 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
           <div className="flex justify-between mt-8">
             <Button variant="ghost" onClick={() => setStep(1)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
             <Button onClick={() => setStep(3)} disabled={!name || !startDate || !endDate}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
-    </div>
+          </div>
         </div>
       )}
 
-      {/* STEP 3 — Add Races */}
+      {/* STEP 3 — Philosophy */}
       {step === 3 && (
+        <div>
+          <h2 className="text-xl font-bold text-foreground mb-1">Choose your training philosophy</h2>
+          <p className="text-muted-foreground text-sm mb-6">This shapes how your plan is built. You can change it later by creating a new season.</p>
+          <div className="grid grid-cols-1 gap-3">
+            {[
+              { id: "80_20_polarized", name: "80/20 Polarized", description: "80% easy, 20% hard. The most researched approach for endurance runners." },
+              { id: "jack_daniels", name: "Jack Daniels", description: "VDOT-based precision. Exact paces for every session type." },
+              { id: "norwegian_method", name: "Norwegian Method", description: "Double threshold days at LT1/LT2. Used by elite Scandinavian runners." },
+              { id: "lydiard", name: "Lydiard", description: "Aerobic base first. Intensity only after a long foundation phase." },
+            ].map(({ id, name: pName, description }) => (
+              <button
+                key={id}
+                onClick={() => setSelectedPhilosophy(id)}
+                className={`p-4 rounded-xl border text-left transition-all ${
+                  selectedPhilosophy === id
+                    ? "border-primary bg-primary/5 dark:bg-primary/10"
+                    : "border-border bg-card hover:border-primary/30"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <p className="font-semibold text-foreground">{pName}</p>
+                  {selectedPhilosophy === id && <Check className="w-4 h-4 text-primary shrink-0" />}
+                </div>
+                <p className="text-xs text-muted-foreground mt-0.5">{description}</p>
+              </button>
+            ))}
+          </div>
+          <div className="flex justify-between mt-8">
+            <Button variant="ghost" onClick={() => setStep(2)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
+            <Button onClick={() => setStep(4)}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
+          </div>
+        </div>
+      )}
+
+      {/* STEP 4 — Add Races */}
+      {step === 4 && (
     <div>
           <h2 className="text-xl font-bold text-foreground mb-1">Add your races</h2>
           <p className="text-muted-foreground text-sm mb-6">Add as many or as few as you know. You can always add more later.</p>
@@ -424,14 +462,14 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
       )}
 
           <div className="flex justify-between mt-8">
-            <Button variant="ghost" onClick={() => setStep(2)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
-            <Button onClick={() => setStep(races.length > 0 ? 4 : 5)}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
-    </div>
+            <Button variant="ghost" onClick={() => setStep(3)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
+            <Button onClick={() => setStep(races.length > 0 ? 5 : 6)}>Next <ChevronRight className="w-4 h-4 ml-1" /></Button>
+          </div>
         </div>
       )}
 
-      {/* STEP 4 — End Goal */}
-      {step === 4 && sortedRaces.length > 0 && (
+      {/* STEP 5 — End Goal */}
+      {step === 5 && sortedRaces.length > 0 && (
         <div>
           <h2 className="text-xl font-bold text-foreground mb-1">Which race is your end goal?</h2>
           <p className="text-muted-foreground text-sm mb-6">The plan will build toward this race. Other races are tune-ups or sharpening.</p>
@@ -454,14 +492,14 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
             ))}
           </div>
           <div className="flex justify-between mt-8">
-            <Button variant="ghost" onClick={() => setStep(3)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
-            <Button onClick={() => setStep(5)}>Review <ChevronRight className="w-4 h-4 ml-1" /></Button>
+            <Button variant="ghost" onClick={() => setStep(4)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
+            <Button onClick={() => setStep(6)}>Review <ChevronRight className="w-4 h-4 ml-1" /></Button>
           </div>
         </div>
       )}
 
-      {/* STEP 5 — Confirmation */}
-      {step === 5 && (
+      {/* STEP 6 — Confirmation */}
+      {step === 6 && (
     <div>
           <h2 className="text-xl font-bold text-foreground mb-4">Review your season</h2>
           <div className="rounded-xl border border-border bg-card p-5 mb-6">
@@ -495,7 +533,7 @@ function CreationWizard({ onDone }: { onDone: () => void }) {
       </div>
 
           <div className="flex justify-between">
-            <Button variant="ghost" onClick={() => setStep(sortedRaces.length > 0 ? 4 : 3)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
+            <Button variant="ghost" onClick={() => setStep(sortedRaces.length > 0 ? 5 : 4)}><ChevronLeft className="w-4 h-4 mr-1" /> Back</Button>
             <Button onClick={handleCreate} disabled={isCreating}>
               {isCreating ? <Loader2 className="w-4 h-4 mr-2 animate-spin" /> : <Trophy className="w-4 h-4 mr-2" />}
             Create season

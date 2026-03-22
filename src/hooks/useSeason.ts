@@ -78,11 +78,13 @@ export function useSeason() {
       races,
       endGoalRaceIndex,
       userId,
+      philosophy,
     }: {
       season: Omit<CompetitionSeason, "id" | "created_at">;
       races: Omit<SeasonRace, "id" | "season_id" | "created_at">[];
       endGoalRaceIndex?: number;
       userId: string;
+      philosophy?: string;
     }) => {
       const { data: s, error: se } = await (supabase as ReturnType<typeof supabase.from>)
         .from("competition_season")
@@ -118,6 +120,7 @@ export function useSeason() {
             body: {
               season_id: created.id,
               end_goal_race_id: endGoalRace.id,
+              ...(philosophy ? { philosophy } : {}),
             },
           });
           if (!error && !(data as { error?: string })?.error) {

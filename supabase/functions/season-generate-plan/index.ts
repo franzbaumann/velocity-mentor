@@ -237,6 +237,63 @@ async function callGemini(userContent: string, retryReason?: string): Promise<Re
   return null;
 }
 
+function fixSessionTypes(workouts: Array<{ session_library_id?: string | null; type: string; name?: string }>): void {
+  const LIBRARY_TYPE_MAP: Record<string, string> = {
+    "e-01": "easy", "e-02": "easy", "e-03": "easy",
+    "a-01": "easy", "a-02": "long", "a-03": "easy",
+    "t-01": "tempo", "t-02": "tempo", "t-03": "tempo", "t-04": "tempo", "t-05": "tempo",
+    "v-01": "interval", "v-02": "interval", "v-03": "interval", "v-04": "interval", "v-05": "interval",
+    "l-01": "long", "l-02": "long", "l-03": "long", "l-04": "long", "l-05": "long", "l-06": "long",
+    "m-01": "easy", "m-02": "easy", "m-03": "easy", "m-04": "tempo", "m-05": "tempo",
+    "m-06": "long", "m-07": "tempo", "m-08": "tempo", "m-09": "long", "m-10": "long",
+    "m-11": "long", "m-12": "interval", "m-13": "easy", "m-14": "tempo", "m-15": "easy", "m-16": "easy",
+    "r-01": "interval", "r-02": "easy", "r-03": "interval",
+  };
+  for (const w of workouts) {
+    if (w.session_library_id && LIBRARY_TYPE_MAP[w.session_library_id]) {
+      w.type = LIBRARY_TYPE_MAP[w.session_library_id];
+    }
+  }
+}
+
+function enforceVolumeProgression(weeks: Array<{ total_km: number; phase: string }>): void {
+  for (let i = 1; i < weeks.length; i++) {
+    const prev = weeks[i - 1].total_km;
+    const curr = weeks[i].total_km;
+    const phase = weeks[i].phase;
+
+    if (curr <= prev) continue;
+    if (phase === "taper") continue;
+
+    const maxAllowed = prev * 1.10;
+    if (curr > maxAllowed) {
+      weeks[i].total_km = Math.round(maxAllowed * 10) / 10;
+    }
+  }
+}
+
+function capLongRunProgression(
+  weeks: Array<{ phase?: string; workouts?: Array<{ type?: string; distance_km?: number }> }>,
+  philosophy: string
+): void {
+  const maxAbsolute = philosophy === "hansons" ? 26 : 35;
+  let prevLongKm = 0;
+  for (const week of weeks) {
+    if (week.phase === "taper") continue;
+    for (const w of week.workouts ?? []) {
+      if (w.type === "long" && w.distance_km != null) {
+        const cap = prevLongKm > 0 ? Math.min(maxAbsolute, prevLongKm * 1.15) : maxAbsolute;
+        if (w.distance_km > cap) {
+          w.distance_km = Math.round(cap * 10) / 10;
+        }
+        if (w.distance_km > prevLongKm) {
+          prevLongKm = w.distance_km;
+        }
+      }
+    }
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -326,7 +383,8 @@ serve(async (req) => {
     const ctl = (latestR?.ctl ?? latestR?.icu_ctl ?? null) as number | null;
 
     const answers = (profile?.onboarding_answers as Record<string, unknown>) ?? {};
-    const philosophy = (profile?.recommended_philosophy as string) ?? "80_20_polarized";
+    const bodyPhilosophy = (body?.philosophy as string | undefined)?.trim() || null;
+    const philosophy = bodyPhilosophy || (profile?.recommended_philosophy as string) || "80_20_polarized";
     const doubleRunsEnabled = !!profile?.double_runs_enabled;
 
     const startDate = getNextMondayFrom(season.start_date as string);
@@ -413,6 +471,22 @@ serve(async (req) => {
     };
 
     const weeks = plan.weeks ?? [];
+
+    if (weeks.length > 0) {
+      // Fix session types based on library ID (deterministic, overrides AI errors)
+      fixSessionTypes(weeks.flatMap((w) => w.workouts ?? []));
+
+      // Enforce 7% weekly volume cap (with 10% buffer to avoid over-clamping)
+      for (const w of weeks) {
+        if (w.total_km == null) w.total_km = 0;
+        if (w.phase == null) w.phase = "base";
+      }
+      enforceVolumeProgression(weeks as Array<{ total_km: number; phase: string }>);
+
+      // Cap individual long run progression
+      capLongRunProgression(weeks, philosophy);
+    }
+
     if (weeks.length === 0) {
       return new Response(JSON.stringify({ error: "Invalid plan: no weeks" }), {
         status: 400,

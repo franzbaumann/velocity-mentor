@@ -1,4 +1,3 @@
-// TODO: read ?philosophy= param and pre-select philosophy in plan builder
 import { AppLayout } from "@/components/AppLayout";
 import { useTrainingPlan } from "@/hooks/use-training-plan";
 import { supabase } from "@/integrations/supabase/client";
@@ -8,7 +7,7 @@ import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, Grip
 import { UnifiedCalendar } from "@/components/UnifiedCalendar";
 import { useState, useMemo, useEffect, useRef } from "react";
 import { format, parseISO, isWithinInterval } from "date-fns";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate, Link, useSearchParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -391,7 +390,24 @@ function SessionDetailModal({
   );
 }
 
+const PHILOSOPHY_DISPLAY_NAMES: Record<string, string> = {
+  "80_20_polarized": "80/20 Polarized",
+  "80_20": "80/20 Polarized",
+  "polarized": "80/20 Polarized",
+  "jack_daniels": "Jack Daniels VDOT",
+  "jack-daniels": "Jack Daniels VDOT",
+  "norwegian_method": "Norwegian Method",
+  "norwegian": "Norwegian Method",
+  "lydiard": "Lydiard",
+  "hansons": "Hansons",
+  "pfitzinger": "Pfitzinger",
+  "ekiden": "Japanese / Ekiden",
+  "kenyan": "Kenyan / Ethiopian",
+};
+
 export default function TrainingPlan() {
+  const [searchParams] = useSearchParams();
+  const philosophyParam = searchParams.get("philosophy");
   const { plan, isLoading, rescheduleSession, markSessionDone } = useTrainingPlan();
   const weeks = plan?.weeks ?? [];
   const planRow = plan?.plan as { season_id?: string | null } | undefined;
@@ -556,6 +572,18 @@ export default function TrainingPlan() {
               {(p.goal_date || p.race_date) && ` · ${format(parseISO(p.goal_date || p.race_date || ""), "MMM d, yyyy")}`}
               {(p.goal_time || p.target_time) && ` · ${p.goal_time || p.target_time}`}
             </p>
+            {(() => {
+              const philosophyKey = philosophyParam || (p as { philosophy?: string }).philosophy;
+              const philosophyName = philosophyKey
+                ? (PHILOSOPHY_DISPLAY_NAMES[philosophyKey] ?? philosophyKey)
+                : null;
+              return philosophyName ? (
+                <span className="inline-flex items-center mt-1.5 text-xs px-2.5 py-0.5 rounded-full bg-primary/10 text-primary dark:bg-primary/20">
+                  <Sparkles className="w-3 h-3 mr-1 shrink-0" />
+                  Plan built with {philosophyName}
+                </span>
+              ) : null;
+            })()}
           </div>
           <div className="flex items-center gap-2">
             <button
