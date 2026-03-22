@@ -385,6 +385,8 @@ RULES YOU MUST NEVER BREAK:
 6. Always calculate exact paces from the provided paceProfile.
 7. Return only valid JSON matching the SelectedSession interface. No markdown, no explanation.
 8. Keep coachingNote under 40 words — a real coach is concise.
+9. whyThisSession MUST reference at least one specific number from the athlete context (CTL, TSB, week number, or days to race). Never write a generic rationale.
+10. coachingNote is what a real coach says to the athlete before the session — brief, specific, motivating. Reference their phase or fitness state.
 
 SelectedSession JSON shape:
 {
@@ -441,12 +443,16 @@ function buildUserPrompt(input: {
     2
   );
 
+  const tsbStatus = input.currentTSB > 5 ? "fresh (good for quality)"
+    : input.currentTSB < -10 ? "fatigued (consider pacing conservatively)"
+    : "neutral";
+
   return `Athlete context:
 - Target race: ${input.targetDistance}
 - Phase: ${input.phase}, week ${input.weekNumberInPhase} of phase
 - Overall week: ${input.weekNumber} of ${input.totalWeeks}
-- Current CTL: ${input.currentCTL}
-- Current TSB: ${input.currentTSB}
+- Current CTL: ${input.currentCTL} (${input.currentCTL > 60 ? "well-trained, can handle quality" : input.currentCTL > 40 ? "moderate fitness" : "building base"})
+- Current TSB: ${input.currentTSB} — ${tsbStatus}
 - Injury flags: ${input.injuryFlags.join(", ") || "none"}
 - Philosophy: ${input.philosophy ?? "evidence-based default"}
 

@@ -608,8 +608,8 @@ serve(async (req) => {
       .from("training_plan")
       .insert({
         user_id: user.id,
-        plan_name: plan.plan_name ?? `${season.name} Plan`,
-        philosophy: plan.philosophy ?? philosophy,
+        plan_name: philosophy,
+        philosophy: philosophy,
         start_date: startDate.toISOString().slice(0, 10),
         end_date: endDate.toISOString().slice(0, 10),
         goal_race: endGoalRace.distance as string,
