@@ -144,7 +144,7 @@ export function normalizeVitalStreamPayload(raw: unknown): NormalizedWorkoutStre
   const heartrate = pickSeries(root, ["heart_rate", "heartrate", "hr", "bpm"]);
   const cadence = pickSeries(root, ["cadence", "run_cadence", "rpm"]);
   const altitude = pickSeries(root, ["altitude", "elevation", "enhanced_altitude", "alt"]);
-  let distance = pickSeries(root, ["distance", "total_distance", "cumulative_distance"]);
+  const distance = pickSeries(root, ["distance", "total_distance", "cumulative_distance"]);
   const speed = pickSeries(root, ["speed", "velocity", "enhanced_speed"]);
 
   if (time.length === 0 && heartrate.length > 0) {

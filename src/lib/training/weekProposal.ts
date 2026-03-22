@@ -248,7 +248,9 @@ export async function checkAndGenerateProposal(userId: string): Promise<WeekProp
           recentRaces: [],
         });
 
-  const goalDistance = mapGoalDistance(profile?.goal_distance ?? plan.goal_race);
+  const goalDistance = mapGoalDistance(
+    plan.goal_race?.trim() || profile?.goal_distance?.trim() || null
+  );
   const goalRaceDate = profile?.goal_race_date
     ? new Date(profile.goal_race_date)
     : plan.start_date

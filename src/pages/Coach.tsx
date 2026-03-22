@@ -16,6 +16,7 @@ import { useIntervalsIntegration } from "@/hooks/useIntervalsIntegration";
 import { useActivities } from "@/hooks/useActivities";
 import { useReadiness, resolveCtlAtlTsb } from "@/hooks/useReadiness";
 import { useAthleteProfile } from "@/hooks/useAthleteProfile";
+import { useOnboardingProgress } from "@/hooks/useOnboardingProgress";
 import { useTrainingPlan } from "@/hooks/use-training-plan";
 import { format, addDays, isToday, startOfWeek } from "date-fns";
 import { isRunningActivity } from "@/lib/analytics";
@@ -808,6 +809,7 @@ export default function Coach() {
   const queryClient = useQueryClient();
   const { onboardingComplete, update: updateProfile, profile: athleteProfile } = useAthleteProfile();
   const { plan: planData, isLoading: planLoading } = useTrainingPlan();
+  const { progress: v2OnboardingProgress, isLoading: v2OnboardingProgressLoading } = useOnboardingProgress();
 
   useEffect(() => {
     if (searchParams.get("import") === "1") {
@@ -880,7 +882,7 @@ export default function Coach() {
       }
     })();
   // wellnessData and activitiesData are intentionally read via refs, not deps.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+   
   }, [messages.length, sessionParam, isConnected]);
 
   useEffect(() => {
@@ -1313,6 +1315,7 @@ export default function Coach() {
 
       queryClient.invalidateQueries({ queryKey: ["athlete_profile"] });
       queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+      queryClient.invalidateQueries({ queryKey: ["onboarding_progress"] });
 
       if (action === "view_plan" && planResult?.plan_id) {
         toast.success("Your plan is ready!");
@@ -1355,10 +1358,19 @@ export default function Coach() {
 
   const hasPlan = !!planData?.plan;
   const fromPlan = searchParams.get("from") === "plan";
+  /** V2 finished in DB — do not re-show wizard even if athlete_profile.onboarding_complete lagged */
+  const v2OnboardingCompleted =
+    USE_NEW_ONBOARDING && Boolean(v2OnboardingProgress?.completed_at);
+  const v2OnboardingResume =
+    USE_NEW_ONBOARDING &&
+    !v2OnboardingProgressLoading &&
+    v2OnboardingProgress != null &&
+    !v2OnboardingProgress.completed_at;
   const showOnboarding =
     !planLoading &&
     !hasPlan &&
-    ((!onboardingComplete && onboardingPhase !== "done") || fromPlan);
+    !v2OnboardingCompleted &&
+    ((!onboardingComplete && onboardingPhase !== "done") || fromPlan || v2OnboardingResume);
 
   if (showOnboarding) {
     if (USE_NEW_ONBOARDING) {

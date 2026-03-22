@@ -1,6 +1,7 @@
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { AI_LIMITS } from "../_shared/ai-models.ts";
 import { linkActivityToPlannedWorkout } from "../_shared/plan-activity-match.ts";
+import { syncDailyLoadForReadinessDates } from "../_shared/upsert-daily-load-from-readiness.ts";
 import { pickTopMemories } from "../_shared/coaching-memory-ranking.ts";
 
 const corsHeaders = {
@@ -394,7 +395,7 @@ ${trkpts}
         const rawType = String(run.type ?? "").trim();
         const KNOWN_TYPES = ["Run", "Ride", "Swim", "Walk", "Hike", "Yoga", "Strength", "VirtualRun", "TrailRun", "WeightTraining"];
         const activityType = KNOWN_TYPES.includes(rawType) ? rawType : rawType.toLowerCase().includes("run") ? "Run" : rawType.toLowerCase().includes("ride") || rawType.toLowerCase().includes("cycl") ? "Ride" : rawType.toLowerCase().includes("walk") ? "Walk" : rawType || "Run";
-        const { error } = await supabaseAdmin.from("activity").upsert({
+        const { data: actRow, error } = await supabaseAdmin.from("activity").upsert({
           user_id: user.id,
           date,
           type: activityType,
@@ -428,7 +429,7 @@ ${trkpts}
           tss: run.tss != null ? Number(run.tss) : null,
           intensity_factor: run.intensity_factor != null ? Number(run.intensity_factor) : null,
           garmin_id: `icu_${externalId}`,
-        }, { onConflict: "user_id,garmin_id" });
+        }, { onConflict: "user_id,garmin_id" }).select("id").maybeSingle();
         if (!error) {
           upserted++;
           await linkActivityToPlannedWorkout(supabaseAdmin, user.id, {
@@ -436,6 +437,7 @@ ${trkpts}
             distanceKm: distKm > 0 ? Math.round(distKm * 100) / 100 : null,
             activityType,
             garminId: `icu_${externalId}`,
+            activityId: actRow?.id ?? null,
           });
         }
       }
@@ -618,6 +620,8 @@ ${trkpts}
         }).filter((r: Record<string, unknown>) => r.date && /^\d{4}-\d{2}-\d{2}$/.test(String(r.date)));
         if (batch.length > 0) {
           await supabaseAdmin.from("daily_readiness").upsert(batch, { onConflict: "user_id,date" });
+          const dts = batch.map((r: { date?: string }) => String(r.date ?? "").slice(0, 10));
+          await syncDailyLoadForReadinessDates(supabaseAdmin, user.id, dts);
           days += batch.length;
         }
       }
@@ -707,7 +711,7 @@ ${trkpts}
             const rawType = String(run.type ?? "").trim();
             const KNOWN_TYPES = ["Run", "Ride", "Swim", "Walk", "Hike", "Yoga", "Strength", "VirtualRun", "TrailRun", "WeightTraining"];
             const activityType = KNOWN_TYPES.includes(rawType) ? rawType : rawType.toLowerCase().includes("run") ? "Run" : rawType.toLowerCase().includes("ride") || rawType.toLowerCase().includes("cycl") ? "Ride" : rawType.toLowerCase().includes("walk") ? "Walk" : rawType || "Run";
-            const { error } = await supabaseAdmin.from("activity").upsert({
+            const { data: actRow, error } = await supabaseAdmin.from("activity").upsert({
               user_id: user.id,
               date,
               type: activityType,
@@ -741,7 +745,7 @@ ${trkpts}
               tss: run.tss != null ? Number(run.tss) : null,
               intensity_factor: run.intensity_factor != null ? Number(run.intensity_factor) : null,
               garmin_id: `icu_${externalId}`,
-            }, { onConflict: "user_id,garmin_id" });
+            }, { onConflict: "user_id,garmin_id" }).select("id").maybeSingle();
             if (!error) {
               activitiesUpserted++;
               await linkActivityToPlannedWorkout(supabaseAdmin, user.id, {
@@ -749,6 +753,7 @@ ${trkpts}
                 distanceKm: distKm > 0 ? Math.round(distKm * 100) / 100 : null,
                 activityType,
                 garminId: `icu_${externalId}`,
+                activityId: actRow?.id ?? null,
               });
             }
           }
@@ -806,6 +811,8 @@ ${trkpts}
           }).filter((r: Record<string, unknown>) => r.date && /^\d{4}-\d{2}-\d{2}$/.test(String(r.date)));
           if (batch.length > 0) {
             await supabaseAdmin.from("daily_readiness").upsert(batch, { onConflict: "user_id,date" });
+            const dts = batch.map((r: { date?: string }) => String(r.date ?? "").slice(0, 10));
+            await syncDailyLoadForReadinessDates(supabaseAdmin, user.id, dts);
             wellnessDays = batch.length;
           }
         }
@@ -1018,7 +1025,7 @@ ${trkpts}
           : rawType || "Run";
         const activityName = String(run.name ?? "").trim() || null;
 
-        const { error } = await supabaseAdmin.from("activity").upsert({
+        const { data: actRow, error } = await supabaseAdmin.from("activity").upsert({
           user_id: user.id,
           date,
           type: activityType,
@@ -1052,7 +1059,7 @@ ${trkpts}
           tss: run.tss != null ? Number(run.tss) : null,
           intensity_factor: run.intensity_factor != null ? Number(run.intensity_factor) : null,
           garmin_id: `icu_${externalId}`,
-        }, { onConflict: "user_id,garmin_id" });
+        }, { onConflict: "user_id,garmin_id" }).select("id").maybeSingle();
 
         if (!error) {
           upsertedCount++;
@@ -1061,6 +1068,7 @@ ${trkpts}
             distanceKm: distKm > 0 ? Math.round(distKm * 100) / 100 : null,
             activityType,
             garminId: `icu_${externalId}`,
+            activityId: actRow?.id ?? null,
           });
         } else console.error("upsert error:", error.message, "for", externalId);
       }
@@ -1377,6 +1385,8 @@ ${trkpts}
             }).filter((r: Record<string, unknown>) => r.date && /^\d{4}-\d{2}-\d{2}$/.test(String(r.date)));
             if (batch.length > 0) {
               await supabaseAdmin.from("daily_readiness").upsert(batch, { onConflict: "user_id,date" });
+              const dts = batch.map((r: { date?: string }) => String(r.date ?? "").slice(0, 10));
+              await syncDailyLoadForReadinessDates(supabaseAdmin, user.id, dts);
             }
             wellnessDays += batch.length;
           }

@@ -368,7 +368,26 @@ export function ChatStatChart({ statType, readiness, activities, lastRunId, last
   const meta = CHART_META[statType];
   const Icon = meta.icon;
 
-  // Activity chart: handled separately — no chartData needed
+  const chartData = useMemo(() => {
+    if (statType === "last_activity") return [];
+    switch (statType) {
+      case "fitness":
+        return buildFitnessData(readiness);
+      case "hrv":
+        return buildHrvData(readiness);
+      case "mileage":
+        return buildMileageData(activities);
+      case "sleep":
+        return buildSleepData(readiness);
+      case "resting_hr":
+        return buildRestingHrData(readiness);
+      case "vo2max":
+        return buildVO2maxData(readiness);
+      default:
+        return [];
+    }
+  }, [statType, readiness, activities]);
+
   if (statType === "last_activity") {
     if (!lastRunId) return null;
     const title = lastRunName ?? "Last Run";
@@ -396,25 +415,6 @@ export function ChatStatChart({ statType, readiness, activities, lastRunId, last
       </div>
     );
   }
-
-  const chartData = useMemo(() => {
-    switch (statType) {
-      case "fitness":
-        return buildFitnessData(readiness);
-      case "hrv":
-        return buildHrvData(readiness);
-      case "mileage":
-        return buildMileageData(activities);
-      case "sleep":
-        return buildSleepData(readiness);
-      case "resting_hr":
-        return buildRestingHrData(readiness);
-      case "vo2max":
-        return buildVO2maxData(readiness);
-      default:
-        return [];
-    }
-  }, [statType, readiness, activities]);
 
   if (!chartData.length) {
     return (

@@ -100,7 +100,7 @@ export function plannedWorkoutSummary(w: {
   return w.description?.trim() || `${type} run`;
 }
 
-/** Duration in minutes for display: derived from distance × pace when both set, else stored duration. */
+/** Duration in minutes for display: prefers explicit stored duration, then distance × pace. */
 export function plannedWorkoutDurationMinutes(w: {
   distance_km?: number | null;
   duration_min?: number | null;
@@ -108,12 +108,15 @@ export function plannedWorkoutDurationMinutes(w: {
   pace_target?: string | null;
   target_pace?: string | null;
 }): number | null {
+  const stored = w.duration_min ?? w.duration_minutes;
+  if (stored != null && stored > 0) return Math.round(stored);
+
   const paceStr = w.pace_target ?? w.target_pace;
   if (w.distance_km != null && w.distance_km > 0 && paceStr) {
     const minPerKm = parsePaceToMinPerKm(paceStr);
     if (minPerKm != null) return Math.round(w.distance_km * minPerKm);
   }
-  return w.duration_min ?? w.duration_minutes ?? null;
+  return null;
 }
 
 /** Parse goal time string (e.g. "2:55:00", "1:25:00", "45:00") to seconds */

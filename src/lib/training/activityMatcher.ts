@@ -1,47 +1,71 @@
-import type { SupabaseClient } from "@supabase/supabase-js";
-
 /**
- * Match a completed activity to a training_plan_workout on the same day (±15% distance).
- * Returns workout id or null. Prefer server-side linking via intervals-proxy; this is for manual/backfill.
+ * Client / script: match Run-like activities to same-day plan workouts.
+ * Edge functions use supabase/functions/_shared/plan-activity-match.ts (same selection rules).
  */
-export async function matchActivityToWorkout(
-  supabase: SupabaseClient,
-  userId: string,
-  activity: { date: string; distance_km: number | null; type?: string | null },
-): Promise<string | null> {
-  const { data: workouts } = await supabase
-    .from("training_plan_workout")
-    .select("id, distance_km, type, name, week_number, phase")
-    .eq("user_id", userId)
-    .eq("date", activity.date)
-    .limit(8);
 
-  if (!workouts?.length) return null;
+import type { SupabaseClient } from "@supabase/supabase-js";
+import {
+  buildPlannedSessionLabel,
+  pickWorkoutForActivity,
+  RUN_LIKE_TYPES,
+  type PlanWorkoutMatchRow,
+} from "./activityMatchLogic.ts";
 
-  const runLike = /run|walk|hike|trail|virtual/i.test(activity.type ?? "Run");
-  const candidates = runLike
-    ? workouts.filter((w) => String(w.type ?? "").toLowerCase() !== "rest")
-    : workouts;
+export { RUN_LIKE_TYPES, pickWorkoutForActivity, buildPlannedSessionLabel };
+export type { PlanWorkoutMatchRow };
 
-  const list = candidates.length ? candidates : workouts;
-  const actualKm = activity.distance_km ?? 0;
-
-  const match = list.find((w) => {
-    const plannedKm = w.distance_km != null ? Number(w.distance_km) : null;
-    if (plannedKm == null || plannedKm <= 0 || actualKm < 0.01) return false;
-    return Math.abs(plannedKm - actualKm) / plannedKm < 0.15;
-  });
-
-  return match?.id ?? list[0]?.id ?? null;
+export interface MatchActivityToWorkoutParams {
+  activityId: string;
+  userId: string;
+  activityDate: string;
+  actualDistanceKm: number | null;
+  activityType: string;
+  /** When false, only sets planned_workout_id on activity (backfill-safe). Default true. */
+  markWorkoutCompleted?: boolean;
 }
 
-export function buildPlannedSessionLabel(workout: {
-  name?: string | null;
-  week_number?: number | null;
-  phase?: string | null;
-}): string {
-  const name = workout.name ?? "";
-  const wn = workout.week_number != null ? `Week ${workout.week_number}` : "";
-  const phase = workout.phase ? String(workout.phase) : "";
-  return [name, wn, phase].filter((s) => s.length > 0).join(" — ").slice(0, 500);
+export async function matchActivityToPlannedWorkout(
+  supabase: SupabaseClient,
+  params: MatchActivityToWorkoutParams,
+): Promise<{ linked: boolean; workoutId: string | null; reason?: string }> {
+  if (!RUN_LIKE_TYPES.has(params.activityType)) {
+    return { linked: false, workoutId: null, reason: "not_run_like" };
+  }
+  const date = params.activityDate.slice(0, 10);
+  const { data: rows, error } = await supabase
+    .from("training_plan_workout")
+    .select("id, distance_km, target_distance_km, type, name, week_number, phase")
+    .eq("user_id", params.userId)
+    .eq("date", date)
+    .limit(12);
+
+  if (error) return { linked: false, workoutId: null, reason: error.message };
+
+  const chosen = pickWorkoutForActivity((rows ?? []) as PlanWorkoutMatchRow[], params.actualDistanceKm ?? 0, 0.2);
+  if (!chosen) return { linked: false, workoutId: null, reason: "no_planned_workouts" };
+
+  const label = buildPlannedSessionLabel(chosen);
+  const { error: u1 } = await supabase
+    .from("activity")
+    .update({ planned_workout_id: chosen.id, planned_session_label: label || null })
+    .eq("id", params.activityId)
+    .eq("user_id", params.userId);
+
+  if (u1) return { linked: false, workoutId: null, reason: u1.message };
+
+  const markComplete = params.markWorkoutCompleted !== false;
+  if (markComplete) {
+    const { error: u2 } = await supabase
+      .from("training_plan_workout")
+      .update({
+        completed: true,
+        completed_activity_id: params.activityId,
+        actual_distance_km: params.actualDistanceKm ?? undefined,
+      })
+      .eq("id", chosen.id)
+      .eq("user_id", params.userId);
+    if (u2) return { linked: true, workoutId: chosen.id, reason: `workout_update:${u2.message}` };
+  }
+
+  return { linked: true, workoutId: chosen.id };
 }

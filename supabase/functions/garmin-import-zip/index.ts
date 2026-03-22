@@ -70,7 +70,7 @@ function parseSummarizedActivitiesExport(
   try {
     const trimmed = text.trim();
     if (!trimmed || trimmed.length < 100) return results;
-    if (!/^\s*[{\[]/.test(trimmed)) return results; // Skip binary / non-JSON files
+    if (!/^\s*(?:\[|{)/.test(trimmed)) return results; // Skip binary / non-JSON files
     // Try NDJSON first (one activity object per line - common in Garmin exports)
     const ndjsonObjs = parseNdjsonActivities(trimmed);
     if (ndjsonObjs.length > 0) {

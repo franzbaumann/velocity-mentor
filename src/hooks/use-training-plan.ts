@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
 import { useToast } from "@/hooks/use-toast";
+import { resolveWorkoutVolumeForDisplay } from "@/lib/training/librarySessionVolume";
 import { resolveSessionStructureForWorkout } from "@/lib/training/sessionStructureUi";
 
 async function triggerNutritionMessage(sessionId: string): Promise<void> {
@@ -151,15 +152,21 @@ export function useTrainingPlan() {
           primary_metric?: string | null;
           control_tool?: string | null;
           why_this_session?: string | null;
+          session_library_id?: string | null;
         };
+        const vol = resolveWorkoutVolumeForDisplay({
+          distance_km: w.distance_km,
+          duration_minutes: w.duration_minutes,
+          session_library_id: row.session_library_id ?? null,
+        });
         rec.sessions.push({
           id: w.id,
           scheduled_date: w.date,
           session_type: w.type ?? "easy",
           name: (w as { name?: string | null }).name ?? null,
           description: w.description ?? w.name ?? "",
-          distance_km: w.distance_km,
-          duration_min: w.duration_minutes,
+          distance_km: vol.distanceKm,
+          duration_min: vol.durationMin,
           pace_target: w.target_pace,
           key_focus: w.key_focus ?? null,
           target_hr_zone: w.target_hr_zone ?? null,
@@ -181,8 +188,8 @@ export function useTrainingPlan() {
             coach_note: (w as { coach_note?: string | null }).coach_note ?? null,
             key_focus: w.key_focus ?? null,
             description: w.description ?? null,
-            distance_km: w.distance_km ?? null,
-            duration_minutes: w.duration_minutes ?? null,
+            distance_km: vol.distanceKm,
+            duration_minutes: vol.durationMin,
             target_pace: w.target_pace ?? null,
           }),
         });

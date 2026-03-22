@@ -203,7 +203,7 @@ export function useActivityDetail(activityId: string | undefined) {
         const startDate = a?.start_date_local ?? a?.startDate ?? a?.date ?? dbAct?.date ?? "";
         const dateStr = startDate ? new Date(String(startDate)).toISOString().slice(0, 10) : "";
 
-        let latlng: [number, number][] = [];
+        const latlng: [number, number][] = [];
         const streams = streamsRes.data as Record<string, unknown> | null;
         const latlngRaw = streams?.latlng;
 

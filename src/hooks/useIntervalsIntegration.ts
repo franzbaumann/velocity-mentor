@@ -18,7 +18,7 @@ export function useIntervalsIntegration() {
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user ?? null;
       if (!user) return null;
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("integrations")
         .select("athlete_id, api_key")
         .eq("user_id", user.id)
@@ -34,7 +34,7 @@ export function useIntervalsIntegration() {
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user ?? null;
       if (!user) throw new Error("Not authenticated");
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("integrations")
         .upsert(
           { user_id: user.id, provider: "intervals_icu", athlete_id: athleteId, api_key: apiKey },
@@ -57,7 +57,7 @@ export function useIntervalsIntegration() {
       const { data: { session } } = await supabase.auth.getSession();
       const user = session?.user ?? null;
       if (!user) throw new Error("Not authenticated");
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("integrations")
         .delete()
         .eq("user_id", user.id)
@@ -173,7 +173,9 @@ export function useIntervalsData(endpoint: string, oldest: string, newest: strin
           try {
             const body = await err.context.json();
             if (body?.error) throw new Error(body.error);
-          } catch (_) {}
+          } catch {
+            /* not JSON or missing error field — fall through */
+          }
         }
         throw error;
       }

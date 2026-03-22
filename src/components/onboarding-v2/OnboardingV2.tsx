@@ -94,6 +94,65 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
+  /** Resume from DB if user cleared storage or switched device */
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user || cancelled) return;
+      const { data: prog } = await supabase
+        .from("onboarding_progress")
+        .select("step_completed, completed_at")
+        .eq("user_id", session.user.id)
+        .maybeSingle();
+      if (cancelled) return;
+      if (!prog || prog.completed_at) return;
+      const serverStep = typeof prog.step_completed === "number" ? prog.step_completed : null;
+      if (serverStep != null && serverStep >= 1) {
+        setState((prev) => (prev.currentStep < serverStep ? { ...prev, currentStep: serverStep } : prev));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /** Persist current wizard step for resume */
+  useEffect(() => {
+    const t = setTimeout(() => {
+      void (async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) return;
+        const { error } = await supabase.from("onboarding_progress").upsert(
+          { user_id: session.user.id, step_completed: state.currentStep },
+          { onConflict: "user_id" },
+        );
+        if (error) console.warn("[OnboardingV2] onboarding_progress upsert", error.message);
+      })();
+    }, 500);
+    return () => clearTimeout(t);
+  }, [state.currentStep]);
+
+  /** Early persist race goal so athlete_profile is not empty if user drops off after step 3 */
+  useEffect(() => {
+    const { raceDistance, raceDate, goalTime } = state.answers;
+    if (!raceDistance && !raceDate) return;
+    const t = setTimeout(() => {
+      void (async () => {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) return;
+        const updates: Record<string, unknown> = { user_id: session.user.id };
+        if (raceDistance) updates.goal_distance = raceDistance;
+        if (raceDate) updates.goal_race_date = raceDate;
+        if (goalTime) updates.goal_time = goalTime;
+        if (raceDistance) updates.goal_race_name = state.answers.raceName || raceDistance;
+        const { error } = await supabase.from("athlete_profile").upsert(updates, { onConflict: "user_id" });
+        if (error) console.warn("[OnboardingV2] partial athlete_profile", error.message);
+      })();
+    }, 600);
+    return () => clearTimeout(t);
+  }, [state.answers.raceDistance, state.answers.raceDate, state.answers.goalTime, state.answers.raceName]);
+
   // ---- Navigation ----
   const stepOrder = getStepOrder(state.answers.goal);
   const currentIndex = stepOrder.indexOf(state.currentStep);
@@ -401,35 +460,51 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
     }
   }, []);
 
+  const markOnboardingProgressComplete = useCallback(async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session?.user) return;
+      await supabase.from("onboarding_progress").upsert(
+        { user_id: session.user.id, completed_at: new Date().toISOString(), step_completed: state.currentStep },
+        { onConflict: "user_id" },
+      );
+    } catch (e) {
+      console.warn("[OnboardingV2] completed_at upsert", e);
+    }
+  }, [state.currentStep]);
+
   const handleViewPlan = useCallback(async () => {
     await saveProfileToSupabase(state.answers, state.selectedPhilosophy);
+    await markOnboardingProgressComplete();
     localStorage.removeItem(STORAGE_KEY);
     onComplete(
       state.answers as unknown as Record<string, unknown>,
       state.generatedPlan ? { plan_id: state.generatedPlan.plan_id } : undefined,
       "view_plan"
     );
-  }, [onComplete, state.answers, state.generatedPlan, state.selectedPhilosophy, saveProfileToSupabase]);
+  }, [onComplete, state.answers, state.generatedPlan, state.selectedPhilosophy, saveProfileToSupabase, markOnboardingProgressComplete]);
 
   const handleChat = useCallback(async () => {
     await saveProfileToSupabase(state.answers, state.selectedPhilosophy);
+    await markOnboardingProgressComplete();
     localStorage.removeItem(STORAGE_KEY);
     onComplete(
       state.answers as unknown as Record<string, unknown>,
       state.generatedPlan ? { plan_id: state.generatedPlan.plan_id } : undefined,
       "chat"
     );
-  }, [onComplete, state.answers, state.generatedPlan, state.selectedPhilosophy, saveProfileToSupabase]);
+  }, [onComplete, state.answers, state.generatedPlan, state.selectedPhilosophy, saveProfileToSupabase, markOnboardingProgressComplete]);
 
   const handleGoToSeason = useCallback(async () => {
     await saveProfileToSupabase(state.answers, state.selectedPhilosophy);
+    await markOnboardingProgressComplete();
     localStorage.removeItem(STORAGE_KEY);
     onComplete(
       state.answers as unknown as Record<string, unknown>,
       undefined,
       "view_season"
     );
-  }, [onComplete, state.answers, state.selectedPhilosophy, saveProfileToSupabase]);
+  }, [onComplete, state.answers, state.selectedPhilosophy, saveProfileToSupabase, markOnboardingProgressComplete]);
 
   // ---- Shared step props ----
   const stepProps: StepProps = {

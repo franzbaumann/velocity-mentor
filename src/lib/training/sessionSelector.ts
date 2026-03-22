@@ -86,8 +86,25 @@ function isInjuryExcluded(session: Session, injuryFlags: string[]): boolean {
   return false;
 }
 
-function mapPhilosophy(philosophy?: string): Philosophy | undefined {
-  if (!philosophy) return undefined;
+/**
+ * Map stored plan/profile philosophy strings to library `Philosophy` keys.
+ * Handles "80/20 Polarized", "8020", etc., so `philosophyForbidden` / `forbiddenFor` apply.
+ */
+export function mapPhilosophy(philosophy?: string): Philosophy | undefined {
+  if (!philosophy?.trim()) return undefined;
+  const key = philosophy.toLowerCase().trim().replace(/\s+/g, "_").replace(/\//g, "_");
+  const compact = key.replace(/_/g, "");
+
+  if (
+    compact.includes("8020") ||
+    (compact.includes("80") && compact.includes("20") && compact.includes("polarized")) ||
+    /^80_20$|^80-20$/i.test(philosophy.trim().replace(/\s/g, "")) ||
+    key === "80_20" ||
+    key.startsWith("80_20_")
+  ) {
+    return "80_20";
+  }
+
   const m: Record<string, Philosophy> = {
     jack_daniels: "daniels",
     daniels: "daniels",
@@ -98,7 +115,7 @@ function mapPhilosophy(philosophy?: string): Philosophy | undefined {
     norwegian: "norwegian",
     japanese: "japanese",
   };
-  return m[philosophy.toLowerCase().replace(/\s/g, "_")];
+  return m[key];
 }
 
 /**
@@ -114,7 +131,7 @@ export function getSessionsForDistanceAndPhase(
 ): Session[] {
   const mappedPhil = mapPhilosophy(philosophy);
 
-  let filtered = SESSION_LIBRARY.filter((s) => {
+  const filtered = SESSION_LIBRARY.filter((s) => {
     if (!s.targetDistances.includes(targetDistance)) return false;
     if (!s.phases.includes(phase)) return false;
 

@@ -122,6 +122,10 @@ interface AthleteContext {
   this_week_km: number;
   planned_week_km: number;
   four_week_avg_km: number;
+  /** Sum of run activities in the last 28 days (km). */
+  last_28_days_run_km: number;
+  /** athlete_profile.current_weekly_km when set (self-reported typical week). */
+  profile_stated_weekly_km: number | null;
   prs: PersonalRecord[];
   plan: PlanSummary | null;
   plan_workouts_text: string;
@@ -155,12 +159,24 @@ function isThisWeek(d: Date): boolean {
   return d >= mon && d < sun;
 }
 
-function calculate4WeekAvg(activities: Record<string, unknown>[]): number {
-  if (!activities.length) return 0;
+/** Runs only — aligns with Cade activity rules (type = Run). */
+function isActivityRun(a: Record<string, unknown>): boolean {
+  return String(a.type ?? "").toLowerCase() === "run";
+}
+
+function calculate4WeekAvg(runActivities: Record<string, unknown>[]): number {
+  if (!runActivities.length) return 0;
   const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
-  const recent = activities.filter((a) => new Date(String(a.date ?? "")) >= fourWeeksAgo);
+  const recent = runActivities.filter((a) => new Date(String(a.date ?? "")) >= fourWeeksAgo);
   const totalKm = recent.reduce((s, a) => s + (Number(a.distance_km) || 0), 0);
   return Math.round((totalKm / 4) * 10) / 10;
+}
+
+function total28DayRunKm(runActivities: Record<string, unknown>[]): number {
+  const fourWeeksAgo = new Date(Date.now() - 28 * 24 * 60 * 60 * 1000);
+  const recent = runActivities.filter((a) => new Date(String(a.date ?? "")) >= fourWeeksAgo);
+  const totalKm = recent.reduce((s, a) => s + (Number(a.distance_km) || 0), 0);
+  return Math.round(totalKm * 10) / 10;
 }
 
 async function buildSeasonContext(
@@ -293,7 +309,7 @@ async function buildAthleteContext(
   const [profileRes, readinessRes, activitiesRes, planRes, workoutsRes, pbsRes, dailyLoadRes] = await Promise.all([
     supabaseAdmin.from("athlete_profile").select("*").eq("user_id", userId).maybeSingle(),
     supabaseAdmin.from("daily_readiness").select("*").eq("user_id", userId).order("date", { ascending: false }).limit(7),
-    supabaseAdmin.from("activity").select("*").eq("user_id", userId).order("date", { ascending: false }).limit(30),
+    supabaseAdmin.from("activity").select("*").eq("user_id", userId).order("date", { ascending: false }).limit(100),
     supabaseAdmin.from("training_plan").select("*").eq("user_id", userId).eq("is_active", true).order("created_at", { ascending: false }).limit(1).maybeSingle(),
     supabaseAdmin.from("training_plan_workout").select("*").eq("user_id", userId).order("date", { ascending: true }).limit(200),
     supabaseAdmin.from("personal_records").select("distance, date_achieved, best_time_seconds, best_pace").eq("user_id", userId).order("date_achieved", { ascending: false }).limit(20),
@@ -303,6 +319,7 @@ async function buildAthleteContext(
   const p = profileRes?.data as Record<string, unknown> | null;
   const readiness = (readinessRes?.data ?? []) as Record<string, unknown>[];
   const activities = (activitiesRes?.data ?? []) as Record<string, unknown>[];
+  const runActivities = activities.filter(isActivityRun);
   const planRow = planRes?.data as Record<string, unknown> | null;
   const workouts = (workoutsRes?.data ?? []) as Record<string, unknown>[];
   const pbs = (pbsRes?.data ?? []) as Record<string, unknown>[];
@@ -327,8 +344,8 @@ async function buildAthleteContext(
     return `${r.date}: CTL ${c ?? "?"} | ATL ${a ?? "?"} | TSB ${t ?? "?"} | HRV ${hrv}ms | sleep ${sleep}h | RHR ${rhr}`;
   }).join("\n");
 
-  // Recent activities
-  const recentActivities: RecentActivity[] = activities.slice(0, 14).map((a) => ({
+  // Recent activities (runs only)
+  const recentActivities: RecentActivity[] = runActivities.slice(0, 14).map((a) => ({
     date: String(a.date ?? "?"),
     name: String(a.type ?? a.name ?? "run"),
     distance_km: a.distance_km != null ? Number(a.distance_km) : null,
@@ -338,7 +355,7 @@ async function buildAthleteContext(
   }));
 
   const thisWeekKm = Math.round(
-    activities.filter((a) => isThisWeek(new Date(String(a.date ?? "")))).reduce((s, a) => s + (Number(a.distance_km) || 0), 0) * 10,
+    runActivities.filter((a) => isThisWeek(new Date(String(a.date ?? "")))).reduce((s, a) => s + (Number(a.distance_km) || 0), 0) * 10,
   ) / 10;
 
   // PRs
@@ -352,6 +369,7 @@ async function buildAthleteContext(
   let planSummary: PlanSummary | null = null;
   let planWorkoutsText = "";
   let plannedWeekKm = 0;
+  let nextPlannedSession: NextPlannedSessionForPrompt | null = null;
 
   if (planRow) {
     const todayStr = new Date().toISOString().slice(0, 10);
@@ -564,10 +582,16 @@ async function buildAthleteContext(
     recent_activities: recentActivities,
     this_week_km: thisWeekKm,
     planned_week_km: Math.round(plannedWeekKm * 10) / 10,
-    four_week_avg_km: calculate4WeekAvg(activities),
+    four_week_avg_km: calculate4WeekAvg(runActivities),
+    last_28_days_run_km: total28DayRunKm(runActivities),
+    profile_stated_weekly_km:
+      typeof p?.current_weekly_km === "number" && Number.isFinite(p.current_weekly_km)
+        ? p.current_weekly_km
+        : null,
     prs: prList,
     plan: planSummary,
     plan_workouts_text: planWorkoutsText,
+    next_planned_session: nextPlannedSession,
     onboarding_answers: onboarding,
     readiness_history_text: readinessHistoryText,
     memories,
@@ -770,8 +794,10 @@ Injury history: ${v(ctx.injuries, "none reported")}
 Last 14 days:
 ${activitiesBlock}
 
-This week: ${ctx.this_week_km}km of planned ${ctx.planned_week_km}km
-Last 4 weeks avg: ${ctx.four_week_avg_km}km/week
+This week (completed runs): ${ctx.this_week_km}km · Planned current week (plan): ${ctx.planned_week_km}km
+Last 4 weeks avg (runs only): ${ctx.four_week_avg_km}km/week · Last 28 days runs: ${ctx.last_28_days_run_km}km total
+Profile stated typical week: ${ctx.profile_stated_weekly_km != null ? `${ctx.profile_stated_weekly_km}km/week` : "not set"}
+When commenting on plan volume or progression, use completed run history and these averages — do not assume the athlete is already doing peak plan distances.
 Personal records: ${prsBlock}
 
 ${ctx.plan ? `ACTIVE TRAINING PLAN
@@ -1347,7 +1373,8 @@ ${conversationText}`;
           resting_hr: null, philosophy: null,
           goal: null, goal_time: null, race_date: null, weeks_to_race: null,
           injuries: null, recent_activities: [], this_week_km: 0, planned_week_km: 0,
-          four_week_avg_km: 0, prs: [], plan: null, plan_workouts_text: "", next_planned_session: null,
+          four_week_avg_km: 0, last_28_days_run_km: 0, profile_stated_weekly_km: null,
+          prs: [], plan: null, plan_workouts_text: "", next_planned_session: null,
           onboarding_answers: null, readiness_history_text: "", memories: [],
         });
     if (prependContext && prependContext.trim()) {
@@ -1469,8 +1496,6 @@ ${conversationText}`;
     }
 
     // Streaming: try Groq first (fastest), then Gemini, then Claude
-    let streamBody: ReadableStream<Uint8Array>;
-
     async function tryClaude(key: string): Promise<{ stream: ReadableStream<Uint8Array> | null; rateLimit?: boolean } | null> {
       const claudeMessages = chatMessages
         .filter((m) => m.role !== "system")
@@ -1679,7 +1704,7 @@ ${conversationText}`;
       }).then(() => {});
     }
 
-    return new Response(streamBody, {
+    return new Response(stream, {
       headers: { ...corsHeaders, "Content-Type": "text/event-stream" },
     });
   } catch (e) {

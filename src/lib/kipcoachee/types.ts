@@ -99,6 +99,8 @@ export interface AthleteContext {
   this_week_km: number;
   planned_week_km: number;
   four_week_avg_km: number;
+  last_28_days_run_km: number;
+  profile_stated_weekly_km: number | null;
   prs: PersonalRecord[];
   plan: PlanSummary | null;
   plan_workouts_text: string;

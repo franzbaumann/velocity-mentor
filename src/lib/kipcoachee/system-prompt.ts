@@ -70,8 +70,10 @@ Injury history: ${v(ctx.injuries, "none reported")}
 Last 14 days:
 ${activitiesBlock}
 
-This week: ${ctx.this_week_km}km of planned ${ctx.planned_week_km}km
-Last 4 weeks avg: ${ctx.four_week_avg_km}km/week
+This week (completed runs): ${ctx.this_week_km}km · Planned current week (plan): ${ctx.planned_week_km}km
+Last 4 weeks avg (runs only): ${ctx.four_week_avg_km}km/week · Last 28 days runs: ${ctx.last_28_days_run_km}km total
+Profile stated typical week: ${ctx.profile_stated_weekly_km != null ? `${ctx.profile_stated_weekly_km}km/week` : "not set"}
+When commenting on plan volume or progression, use completed run history and these averages — do not assume the athlete is already doing peak plan distances.
 Personal records: ${prsBlock}
 
 ${ctx.plan ? `ACTIVE TRAINING PLAN

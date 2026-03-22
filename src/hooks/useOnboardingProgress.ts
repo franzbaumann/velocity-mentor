@@ -1,19 +1,13 @@
 import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { supabase } from "@/integrations/supabase/client";
+import type { Database } from "@/integrations/supabase/types";
 
-export interface OnboardingProgress {
-  user_id: string;
-  step_completed: number;
-  intervals_connected: boolean;
-  garmin_connected: boolean;
-  historical_data_requested: boolean;
-  api_key_saved: boolean;
-  first_sync_completed: boolean;
-  completed_at: string | null;
-}
+export type OnboardingProgress = Database["public"]["Tables"]["onboarding_progress"]["Row"];
 
-type ProgressFields = Partial<Omit<OnboardingProgress, "user_id">>;
+type ProgressFields = Partial<
+  Omit<Database["public"]["Tables"]["onboarding_progress"]["Update"], "user_id">
+>;
 
 export function useOnboardingProgress() {
   const queryClient = useQueryClient();
@@ -23,13 +17,13 @@ export function useOnboardingProgress() {
     queryFn: async () => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) return null;
-      const { data, error } = await (supabase as any)
+      const { data, error } = await supabase
         .from("onboarding_progress")
         .select("*")
         .eq("user_id", session.user.id)
         .maybeSingle();
       if (error) throw error;
-      return (data as OnboardingProgress | null);
+      return data;
     },
     staleTime: 30_000,
   });
@@ -38,7 +32,7 @@ export function useOnboardingProgress() {
     mutationFn: async (fields: ProgressFields) => {
       const { data: { session } } = await supabase.auth.getSession();
       if (!session?.user) throw new Error("Not authenticated");
-      const { error } = await (supabase as any)
+      const { error } = await supabase
         .from("onboarding_progress")
         .upsert(
           { user_id: session.user.id, ...fields },

@@ -3,20 +3,29 @@
  * for rows missing library linkage (non-rest).
  *
  * Requires:
- *   SUPABASE_SERVICE_ROLE_KEY — Project Settings → API → service_role (secret). Put in .env.local:
- *       SUPABASE_SERVICE_ROLE_KEY=eyJ...
- *   URL — optional if you use the repo default project: falls back to getSupabaseUrl().
- *   Otherwise set SUPABASE_URL or VITE_SUPABASE_URL in .env / .env.local
+ *   SUPABASE_SERVICE_ROLE_KEY — Dashboard → Settings → API → service_role (secret).
+ *       Put in `.env` (or `.env.local`); scripts auto-load `.env` first — dotenv-cli optional.
+ *   URL — optional: falls back to getSupabaseUrl() from repo. Or set SUPABASE_URL / VITE_SUPABASE_URL.
  *
  * Usage:
  *   npx tsx src/scripts/backfillSessions.ts
  *   DRY_RUN=1 npx tsx src/scripts/backfillSessions.ts   # log only, no updates
+ *
+ * After the main pass (rows missing session_library_id), a second pass fills
+ * session_structure + control_tool for rows that already have session_library_id
+ * but session_structure IS NULL (looks up SESSION_LIBRARY by id; does not change
+ * distance_km / duration_minutes unless you run the main pass).
+ *
+ * Rows whose name contains "race day" are skipped (no session_library_id). If an older
+ * backfill linked them to a quality session, clear in SQL: set session_library_id,
+ * session_id, session_structure, control_tool to NULL where name ilike '%race day%'.
  */
 
 import { createClient } from "@supabase/supabase-js";
-import { existsSync, readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import {
+  defaultDistanceKmFromSession,
+  defaultDurationMinutesFromSession,
+} from "../lib/training/librarySessionVolume";
 import {
   SESSION_LIBRARY,
   type Session,
@@ -26,59 +35,12 @@ import type { TrainingPhase } from "../lib/training/sessionLibrary";
 import { buildSessionStructureFromSelected } from "../lib/training/sessionStructureUi";
 import type { SelectedSession } from "../lib/training/sessionSelector";
 import { getSupabaseUrl } from "../lib/supabase-url";
-
-const ENV_FILES = [
-  ".env",
-  ".env.development",
-  ".env.local",
-  ".env.development.local",
-  "supabase/.env",
-];
-
-/** Repo root (parent of `src/`), not `process.cwd()` — fixes running tsx from another folder */
-const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-
-function stripOuterQuotes(s: string): string {
-  const t = s.trim();
-  if (
-    (t.startsWith('"') && t.endsWith('"')) ||
-    (t.startsWith("'") && t.endsWith("'"))
-  ) {
-    return t.slice(1, -1).trim();
-  }
-  return t;
-}
-
-/** Parse KEY=value; supports optional quotes; value may contain = (e.g. JWT) */
-function parseEnvLine(line: string): { key: string; value: string } | null {
-  const t = line.trim();
-  if (!t || t.startsWith("#")) return null;
-  const eq = t.indexOf("=");
-  if (eq <= 0) return null;
-  const key = t.slice(0, eq).trim();
-  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return null;
-  let value = stripOuterQuotes(t.slice(eq + 1));
-  return { key, value };
-}
-
-function loadDotEnv(): string[] {
-  const loaded: string[] = [];
-  for (const name of ENV_FILES) {
-    const p = resolve(PROJECT_ROOT, name);
-    if (!existsSync(p)) continue;
-    loaded.push(p);
-    let raw = readFileSync(p, "utf8");
-    raw = raw.replace(/^\uFEFF/, "");
-    for (const line of raw.split(/\r?\n/)) {
-      const parsed = parseEnvLine(line);
-      if (!parsed) continue;
-      const v = parsed.value.trim();
-      if (v === "") continue;
-      process.env[parsed.key] = v;
-    }
-  }
-  return loaded;
-}
+import {
+  getEnvFilesTried,
+  getScriptProjectRoot,
+  loadProjectEnv,
+  stripOuterQuotes,
+} from "./loadProjectEnv";
 
 function resolveSupabaseUrl(): string | undefined {
   const direct = stripOuterQuotes(
@@ -258,7 +220,13 @@ function nameMatchScore(rowName: string | null, rowDesc: string | null, session:
     }
     const union = tRow.size + tSes.size - inter;
     const j = union > 0 ? inter / union : 0;
-    if (j >= 0.34) return 70 + Math.round(j * 25);
+    if (j >= 0.28) return 70 + Math.round(j * 25);
+    // PaceIQ titles often share only 1–2 tokens with library names; the old hard
+    // cutoff at j>=0.34 made every pair score 0 and blocked all backfills.
+    if (inter > 0) {
+      const soft = Math.round(32 + j * 85);
+      return Math.min(72, Math.max(MIN_SCORE_TO_MATCH, soft));
+    }
   }
 
   return 0;
@@ -295,11 +263,13 @@ function selectedCategory(session: Session): SelectedSession["category"] {
 
 function buildPseudoSelected(session: Session, row: WorkoutRow): SelectedSession {
   const dayType = workoutTypeToSelectorDayType(row.type);
-  const km = Math.max(0, row.distance_km ?? session.distanceKmMin ?? session.distanceKmMax ?? 8);
+  const libKm = defaultDistanceKmFromSession(session);
+  const libMin = defaultDurationMinutesFromSession(session);
+  const km = libKm ?? Math.max(0, row.distance_km ?? session.distanceKmMin ?? session.distanceKmMax ?? 8);
   const totalMin =
-    row.duration_minutes ??
-    (km > 0 ? Math.round(km * 6) : session.durationMinRange) ??
-    45;
+    libMin > 0
+      ? libMin
+      : row.duration_minutes ?? (km > 0 ? Math.round(km * 6) : session.durationMinRange) ?? 45;
   const paceStr = row.target_pace?.trim() ?? "";
   const primaryMetric: "pace" | "hr" | "rpe" =
     dayType === "quality" ? "pace" : row.type?.toLowerCase().includes("ultra") ? "rpe" : "hr";
@@ -353,8 +323,12 @@ type WorkoutRow = {
   target_pace: string | null;
 };
 
+type WorkoutRowWithLibraryId = WorkoutRow & {
+  session_library_id: string | null;
+};
+
 async function main(): Promise<void> {
-  const envPaths = loadDotEnv();
+  const envPaths = loadProjectEnv();
   const url = resolveSupabaseUrl();
   const key = stripOuterQuotes(
     process.env.SUPABASE_SERVICE_ROLE_KEY?.trim() ||
@@ -365,11 +339,11 @@ async function main(): Promise<void> {
 
   if (!url || !key) {
     console.error("Backfill needs Supabase URL + service_role key.\n");
-    console.error("Project root (env files):", PROJECT_ROOT);
+    console.error("Project root (env files):", getScriptProjectRoot());
     console.error("process.cwd():", process.cwd());
     if (envPaths.length === 0) {
-      console.error("No env files found. Tried under project root:", ENV_FILES.join(", "));
-      console.error("Create .env.local from .env.example and add:\n");
+      console.error("No env files found. Tried under project root:", getEnvFilesTried().join(", "));
+      console.error("Copy .env.example to .env and add SUPABASE_SERVICE_ROLE_KEY:\n");
     } else {
       console.error("Loaded:", envPaths.join(", "));
     }
@@ -403,6 +377,7 @@ async function main(): Promise<void> {
   let from = 0;
   let matched = 0;
   let noMatch = 0;
+  let skipped = 0;
   let errors = 0;
 
   const planCache = new Map<string, TargetDistance>();
@@ -446,6 +421,13 @@ async function main(): Promise<void> {
       const dayType = workoutTypeToSelectorDayType(row.type);
       if (dayType === "rest") continue;
 
+      const rowNameNorm = normalize(row.name ?? "");
+      if (/\brace day\b/.test(rowNameNorm)) {
+        skipped += 1;
+        console.log(`[SKIP_RACE_DAY] id=${row.id} name=${JSON.stringify(row.name ?? "")}`);
+        continue;
+      }
+
       const targetDistance = await targetForPlan(row.plan_id);
       const pool = candidatePool(targetDistance, phase, dayType);
       const picked = pickBestSession(pool, row.name, augmentedMatchDescription(row));
@@ -477,6 +459,8 @@ async function main(): Promise<void> {
           session_id: session.id,
           session_structure: sessionStructure as unknown as Record<string, unknown>,
           control_tool: controlTool,
+          distance_km: defaultDistanceKmFromSession(session),
+          duration_minutes: defaultDurationMinutesFromSession(session),
         })
         .eq("id", row.id);
 
@@ -491,10 +475,85 @@ async function main(): Promise<void> {
   }
 
   console.log(
-    `[backfill] done matched=${matched} no_match=${noMatch} errors=${errors}${dryRun ? " (dry run)" : ""}`
+    `[backfill] pass1 done matched=${matched} no_match=${noMatch} skipped=${skipped} errors=${errors}${dryRun ? " (dry run)" : ""}`
+  );
+
+  // Pass 2: session_library_id set but session_structure missing (enrich without structure, etc.)
+  let structFilled = 0;
+  let structSkipped = 0;
+  let structErrors = 0;
+  let structFrom = 0;
+
+  for (;;) {
+    const { data: structRows, error: sErr } = await supabase
+      .from("training_plan_workout")
+      .select(
+        "id, plan_id, type, name, description, phase, distance_km, duration_minutes, target_pace, session_library_id"
+      )
+      .not("session_library_id", "is", null)
+      .is("session_structure", null)
+      .neq("type", "rest")
+      .order("date", { ascending: true })
+      .range(structFrom, structFrom + pageSize - 1);
+
+    if (sErr) {
+      console.error("[backfill] pass2 query error", sErr.message);
+      process.exit(1);
+    }
+    const sBatch = (structRows ?? []) as WorkoutRowWithLibraryId[];
+    if (sBatch.length === 0) break;
+
+    for (const row of sBatch) {
+      const libId = String(row.session_library_id ?? "").trim();
+      if (!libId || libId === "rest") {
+        structSkipped += 1;
+        console.log(`[STRUCT_SKIP] id=${row.id} library_id=${JSON.stringify(libId)}`);
+        continue;
+      }
+
+      const session = SESSION_LIBRARY.find((s) => s.id === libId);
+      if (!session) {
+        structSkipped += 1;
+        console.log(`[STRUCT_UNKNOWN_LIBRARY] id=${row.id} session_library_id=${JSON.stringify(libId)}`);
+        continue;
+      }
+
+      const pseudo = buildPseudoSelected(session, row);
+      const sessionStructure = buildSessionStructureFromSelected(pseudo);
+      const controlTool = sessionStructure.control_tool;
+
+      structFilled += 1;
+      console.log(
+        `[STRUCT] id=${row.id} library_id=${session.id} control_tool=${controlTool}`
+      );
+
+      if (dryRun) continue;
+
+      const { error: uErr } = await supabase
+        .from("training_plan_workout")
+        .update({
+          session_id: session.id,
+          session_structure: sessionStructure as unknown as Record<string, unknown>,
+          control_tool: controlTool,
+          why_this_session: session.purpose ?? null,
+        })
+        .eq("id", row.id);
+
+      if (uErr) {
+        structErrors += 1;
+        console.error(`[STRUCT_ERROR] id=${row.id}`, uErr.message);
+      }
+    }
+
+    structFrom += pageSize;
+    if (sBatch.length < pageSize) break;
+  }
+
+  console.log(
+    `[backfill] pass2 structure filled=${structFilled} skipped=${structSkipped} errors=${structErrors}${dryRun ? " (dry run)" : ""}`
   );
   console.log(
-    "[backfill] verify SQL:\n  SELECT type, name, session_library_id IS NOT NULL AS matched FROM training_plan_workout ORDER BY date ASC LIMIT 20;"
+    "[backfill] verify SQL:\n  SELECT session_library_id IS NOT NULL AS has_lib, session_structure IS NOT NULL AS has_struct FROM training_plan_workout WHERE type != 'rest' ORDER BY date ASC LIMIT 20;"
   );
 }
 
