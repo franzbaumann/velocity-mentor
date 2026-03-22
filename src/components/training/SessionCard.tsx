@@ -18,6 +18,7 @@ export type TrainingPlanWorkoutForCard = {
   pace_target: string | null;
   target_hr_zone?: number | null;
   key_focus?: string | null;
+  coach_note?: string | null;
   session_structure?: SessionStructureStored | null;
 };
 
@@ -33,6 +34,8 @@ export interface SessionCardProps {
   alwaysExpanded?: boolean;
   /** Only the warmup / main / cooldown blocks (no title row) */
   detailsOnly?: boolean;
+  /** When true, “Why Cade chose this” rationale section starts expanded */
+  rationaleDefaultOpen?: boolean;
   className?: string;
 }
 
@@ -253,9 +256,11 @@ export function SessionCard({
   compact = false,
   alwaysExpanded = false,
   detailsOnly = false,
+  rationaleDefaultOpen = false,
   className,
 }: SessionCardProps) {
   const [internalOpen, setInternalOpen] = useState(false);
+  const [rationaleOpen, setRationaleOpen] = useState(rationaleDefaultOpen);
   const expanded = alwaysExpanded ? true : (controlledExpanded ?? internalOpen);
   const toggle = () => {
     if (alwaysExpanded || detailsOnly) return;
@@ -411,6 +416,24 @@ export function SessionCard({
           <p className="text-sm text-muted-foreground mt-1.5 leading-snug pr-8">{descSubtitle}</p>
         ) : null}
       </div>
+
+      {workout.coach_note ? (
+        <div className="mt-2" onClick={(e) => e.stopPropagation()}>
+          <button
+            type="button"
+            onClick={() => setRationaleOpen((o) => !o)}
+            className="text-xs font-medium text-primary flex items-center gap-1 hover:underline"
+          >
+            Why Cade chose this for you{" "}
+            {rationaleOpen ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+          </button>
+          {rationaleOpen ? (
+            <div className="mt-2 rounded-lg bg-primary/5 border border-primary/20 p-3">
+              <p className="text-sm text-foreground/90">{workout.coach_note}</p>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
 
       {expanded ? (
         <SessionDetailBody
