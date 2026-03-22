@@ -142,8 +142,8 @@ interface AthleteContext {
 // ---------------------------------------------------------------------------
 
 function resolveCtlAtlTsb(r: Record<string, unknown>) {
-  const ctl = (r.ctl ?? r.icu_ctl ?? null) as number | null;
-  const atl = (r.atl ?? r.icu_atl ?? null) as number | null;
+  const ctl = (r.icu_ctl ?? r.ctl ?? null) as number | null;
+  const atl = (r.icu_atl ?? r.atl ?? null) as number | null;
   const rawTsb = (r.tsb ?? r.icu_tsb ?? null) as number | null;
   const tsb = rawTsb ?? (ctl != null && atl != null ? ctl - atl : null);
   return { ctl, atl, tsb };

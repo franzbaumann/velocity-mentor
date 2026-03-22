@@ -51,9 +51,9 @@ export function resolveCtlAtlTsb(r: {
   icu_atl?: number | null;
   icu_tsb?: number | null;
 }) {
-  const ctl = r.ctl ?? r.icu_ctl ?? null;
-  const atl = r.atl ?? r.icu_atl ?? null;
-  const tsb = r.tsb ?? r.icu_tsb ?? (ctl != null && atl != null ? ctl - atl : null);
+  const ctl = r.icu_ctl ?? r.ctl ?? null;
+  const atl = r.icu_atl ?? r.atl ?? null;
+  const tsb = r.icu_tsb ?? r.tsb ?? (ctl != null && atl != null ? ctl - atl : null);
   return { ctl, atl, tsb };
 }
 

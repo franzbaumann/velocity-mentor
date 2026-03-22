@@ -852,7 +852,7 @@ ${trkpts}
         error: null,
         activities_upserted: activitiesUpserted,
         wellness_days: wellnessDays,
-        ctl: latestReadiness?.ctl ?? null,
+        ctl: latestReadiness?.icu_ctl ?? latestReadiness?.ctl ?? null,
         atl: latestReadiness?.atl ?? null,
         tsb: latestReadiness?.tsb ?? null,
       });
@@ -877,7 +877,7 @@ ${trkpts}
         done: true,
         activities: activitiesUpserted,
         wellness: wellnessDays,
-        ctl: latestReadiness?.ctl ?? null,
+        ctl: latestReadiness?.icu_ctl ?? latestReadiness?.ctl ?? null,
         atl: latestReadiness?.atl ?? null,
         tsb: latestReadiness?.tsb ?? null,
       });
@@ -1461,7 +1461,7 @@ ${trkpts}
         upserted: upsertedCount,
         streams: { ok: streamsOk, failed: streamsFail, skipped: existingIds.size },
         wellness: wellnessDays,
-        ctl: latestReadiness?.ctl ?? null,
+        ctl: latestReadiness?.icu_ctl ?? latestReadiness?.ctl ?? null,
         atl: latestReadiness?.atl ?? null,
         tsb: latestReadiness?.tsb ?? null,
         log,
@@ -1479,7 +1479,7 @@ ${trkpts}
         intervals_count: intervalsCount,
         wellness_days: wellnessDays,
         pbs_count: pbsCount,
-        ctl: latestReadiness?.ctl ?? null,
+        ctl: latestReadiness?.icu_ctl ?? latestReadiness?.ctl ?? null,
         atl: latestReadiness?.atl ?? null,
         tsb: latestReadiness?.tsb ?? null,
       });
@@ -1906,7 +1906,7 @@ Reply with ONLY the coach feedback. No greeting or sign-off. 2-4 punchy, persona
       ).join("\n");
 
       const readinessContext = (readinessRows ?? []).map((r: Record<string, unknown>) => {
-        const ctl = r.ctl ?? r.icu_ctl ?? "?";
+        const ctl = r.icu_ctl ?? r.ctl ?? "?";
         const atl = r.atl ?? r.icu_atl ?? "?";
         const rawTsb = r.tsb ?? r.icu_tsb;
         const tsb = rawTsb != null ? rawTsb : (typeof ctl === "number" && typeof atl === "number" ? ctl - atl : "?");
@@ -2300,7 +2300,7 @@ No markdown, no explanation — ONLY the JSON array.`;
         .order("date", { ascending: false })
         .limit(1)
         .maybeSingle();
-      const ctlVal = (latestR as Record<string, unknown> | null)?.ctl ?? (latestR as Record<string, unknown> | null)?.icu_ctl ?? null;
+      const ctlVal = (latestR as Record<string, unknown> | null)?.icu_ctl ?? (latestR as Record<string, unknown> | null)?.ctl ?? null;
       const tsbVal = (latestR as Record<string, unknown> | null)?.tsb ?? (latestR as Record<string, unknown> | null)?.icu_tsb ?? null;
 
       // Fetch coaching memories for context (pool + recency-weighted top 5)
