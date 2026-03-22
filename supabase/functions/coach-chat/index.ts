@@ -1339,9 +1339,10 @@ ${conversationText}`;
     }
 
     // Beta usage limit: check daily coaching messages (only for main chat, not extract_memories)
-    const COACHING_DAILY_LIMIT = 10;
+    // BETA OVERRIDE: raised from 10 → 50 to allow heavy exploration during beta testing. Revert at launch.
+    const COACHING_DAILY_LIMIT = 50;
     const LIMIT_MSG =
-      "You've used your 10 daily messages with Cade. Your limit resets tomorrow. During beta, usage is capped — this changes at launch.";
+      "You've used your 50 daily messages with Cade. Your limit resets tomorrow. During beta, usage is capped — this changes at launch.";
 
     if (user) {
       const today = new Date().toISOString().slice(0, 10);
