@@ -3,7 +3,6 @@ import { differenceInWeeks, format, parseISO, isValid } from "date-fns";
 import type { StepWithDataProps } from "../types";
 import { TwoColumnLayout } from "../OnboardingLayout";
 import { ExpandableText } from "../components/ExpandableText";
-import { DateWheelPicker } from "@/components/ui/date-wheel-picker";
 import { TimeWheelPicker } from "@/components/ui/time-wheel-picker";
 import { parseGoalTimeToSeconds, formatSecondsToGoalTime } from "@/lib/format";
 import { calculateVDOT } from "@/lib/training/vdot";
@@ -211,14 +210,14 @@ export function Step3RaceTarget({ answers, onUpdate, onNext, onBack, intervalsDa
           <label className="text-[11px] font-bold text-muted-foreground/70 uppercase tracking-wider block mb-2.5">
             Race date
           </label>
-          <div className="rounded-2xl border border-border bg-card p-3">
-            <DateWheelPicker
-              value={answers.raceDate ? parseISO(answers.raceDate) : new Date()}
-              onChange={(d) => onUpdate({ raceDate: format(d, "yyyy-MM-dd") })}
-              minYear={new Date().getFullYear()}
-              size="sm"
-            />
-          </div>
+          <input
+            type="date"
+            value={answers.raceDate || ""}
+            min={new Date().toISOString().slice(0, 10)}
+            max="2030-12-31"
+            onChange={(e) => onUpdate({ raceDate: e.target.value })}
+            className="w-full rounded-lg border border-input bg-background px-3 py-2 text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring dark:bg-background"
+          />
         </div>
 
         {/* Goal time */}

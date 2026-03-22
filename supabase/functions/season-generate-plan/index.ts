@@ -75,6 +75,95 @@ CRITICAL — QUALITY SESSIONS (NEVER ALL EASY):
 - Marathon plans: Each base/build/peak week needs tempo OR MP run, plus a long run.
 - Hansons: Tuesday = tempo/SOS, Thursday = speed or MP, Sunday = long run (l-03 max 26km).`;
 
+// VDOT table — Daniels training paces in sec/km (duplicated from client-side vdot.ts for Deno)
+const VDOT_PACE_TABLE: [number, number, number, number, number, number][] = [
+  // [vdot, easyMin, easyMax, marathon, threshold, interval]
+  [30, 480, 534, 444, 408, 378],
+  [32, 462, 516, 426, 390, 363],
+  [34, 444, 498, 408, 375, 348],
+  [36, 429, 480, 393, 360, 336],
+  [38, 414, 462, 378, 348, 324],
+  [40, 399, 450, 366, 336, 312],
+  [42, 387, 435, 354, 324, 301],
+  [44, 375, 420, 342, 315, 291],
+  [46, 363, 408, 330, 304, 282],
+  [48, 354, 396, 321, 295, 273],
+  [50, 342, 384, 311, 286, 264],
+  [52, 333, 375, 302, 278, 256],
+  [54, 324, 363, 294, 270, 249],
+  [56, 315, 354, 286, 263, 243],
+  [58, 307, 345, 279, 256, 237],
+  [60, 300, 336, 272, 250, 231],
+  [62, 292, 328, 265, 244, 225],
+  [64, 285, 321, 259, 238, 220],
+  [66, 279, 313, 253, 233, 215],
+  [68, 273, 306, 247, 228, 210],
+  [70, 267, 300, 242, 223, 205],
+  [72, 261, 294, 237, 218, 201],
+  [74, 256, 288, 232, 214, 197],
+  [76, 251, 282, 227, 209, 193],
+  [78, 246, 277, 223, 205, 189],
+  [80, 242, 272, 219, 201, 185],
+  [82, 237, 267, 215, 198, 182],
+  [85, 231, 260, 209, 193, 177],
+];
+
+function interpolateVdotPace(vdot: number, colIndex: number): number {
+  const clamped = Math.max(30, Math.min(85, vdot));
+  const low = VDOT_PACE_TABLE.filter((r) => r[0] <= clamped).at(-1) ?? VDOT_PACE_TABLE[0];
+  const high = VDOT_PACE_TABLE.find((r) => r[0] >= clamped) ?? VDOT_PACE_TABLE[VDOT_PACE_TABLE.length - 1];
+  if (low[0] === high[0]) return low[colIndex];
+  const t = (clamped - low[0]) / (high[0] - low[0]);
+  return Math.round(low[colIndex] + t * (high[colIndex] - low[colIndex]));
+}
+
+function fmtPace(secPerKm: number): string {
+  const s = Math.round(secPerKm);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}/km`;
+}
+
+function vdotToPaceGuidance(vdot: number): string {
+  const easyMin = interpolateVdotPace(vdot, 1);
+  const easyMax = interpolateVdotPace(vdot, 2);
+  const marathon = interpolateVdotPace(vdot, 3);
+  const threshold = interpolateVdotPace(vdot, 4);
+  const interval = interpolateVdotPace(vdot, 5);
+  return `PACE ZONES (calculated from VDOT ${Math.round(vdot)}):
+- Easy/Long run: ${fmtPace(easyMin)}–${fmtPace(easyMax)} (NEVER slower than ${fmtPace(easyMax)} — this is the correct easy pace for this athlete)
+- Threshold/Tempo: ${fmtPace(threshold)}
+- VO2max intervals: ${fmtPace(interval)}
+- Marathon Pace: ${fmtPace(marathon)} (or use athlete's goal time if provided)
+IMPORTANT: Do NOT use slower paces for easy runs. ${fmtPace(easyMin)}–${fmtPace(easyMax)} is the correct easy range for VDOT ${Math.round(vdot)}.`;
+}
+
+// Jack Daniels VDOT formula — duplicated inline for Deno (matches client-side vdot.ts)
+function calculateVDOTInline(distanceMeters: number, timeSeconds: number): number {
+  if (distanceMeters <= 0 || timeSeconds <= 0) return 40;
+  const velocity = distanceMeters / timeSeconds;
+  const v60 = velocity * 60;
+  const VO2 = -4.6 + 0.182258 * v60 + 0.000104 * v60 * v60;
+  const tMin = timeSeconds / 60;
+  const percentMax =
+    0.8 +
+    0.1894393 * Math.exp(-0.012778 * tMin) +
+    0.2989558 * Math.exp(-0.1932605 * tMin);
+  const vdot = VO2 / percentMax;
+  return Math.max(30, Math.min(85, Math.round(vdot * 10) / 10));
+}
+
+const GOAL_DISTANCE_METERS: Record<string, number> = {
+  "1500m": 1500, "Mile": 1609.34, "5K": 5000, "10K": 10000,
+  "Half Marathon": 21097.5, "Marathon": 42195, "Ultra": 50000,
+};
+
+function parseGoalTimeToSeconds(goalTime: string | null | undefined): number | null {
+  if (!goalTime) return null;
+  const parts = goalTime.split(":").map(Number);
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return null;
+}
+
 function buildSeasonPlanUserPrompt(
   answers: Record<string, unknown>,
   philosophy: string,
@@ -85,6 +174,7 @@ function buildSeasonPlanUserPrompt(
   ctl: number | null,
   doubleRunsEnabled: boolean,
   peakWeeklyKm: number,
+  vdot: number | null,
   retryReason?: string
 ): string {
   let prompt = `Athlete onboarding: ${JSON.stringify(answers)}.\n\n`;
@@ -95,6 +185,9 @@ function buildSeasonPlanUserPrompt(
   prompt += `- All races in season: ${JSON.stringify(allRaces)}\n`;
   prompt += `- You MUST generate exactly ${requiredWeeks} weeks. The last week must be taper ending on ${endGoalRace.date}.\n`;
   prompt += `- CTL: ${ctl ?? "unknown"}. Double runs enabled: ${doubleRunsEnabled}. Peak weekly km: ${peakWeeklyKm}.\n`;
+  if (vdot != null && vdot > 0) {
+    prompt += `\n${vdotToPaceGuidance(vdot)}\n`;
+  }
   if (retryReason) prompt += `\nRETRY: ${retryReason}\n`;
   return prompt;
 }
@@ -404,6 +497,16 @@ serve(async (req) => {
       goal_time: r.goal_time ?? null,
     }));
 
+    // Resolve VDOT: use stored value, or calculate from goal time + distance
+    let resolvedVdot: number | null = (profile?.vdot as number | null) ?? null;
+    if ((resolvedVdot == null || resolvedVdot <= 0) && endGoalRace.goal_time && endGoalRace.distance) {
+      const distMeters = GOAL_DISTANCE_METERS[endGoalRace.distance as string] ?? null;
+      const goalSec = parseGoalTimeToSeconds(endGoalRace.goal_time as string);
+      if (distMeters && goalSec) {
+        resolvedVdot = calculateVDOTInline(distMeters, goalSec);
+      }
+    }
+
     const userContent = buildSeasonPlanUserPrompt(
       answers,
       philosophy,
@@ -419,7 +522,8 @@ serve(async (req) => {
       requiredWeeks,
       ctl,
       doubleRunsEnabled,
-      peakWeeklyKm
+      peakWeeklyKm,
+      resolvedVdot
     );
 
     const tryGenerate = async (retryReason?: string) =>
