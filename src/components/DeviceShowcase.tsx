@@ -35,7 +35,7 @@ export function DeviceShowcase() {
           </p>
         </motion.div>
 
-        <div className="flex items-end justify-center gap-4 overflow-x-auto pb-4 md:gap-6 lg:gap-8">
+        <div className="flex items-end justify-center gap-4 overflow-x-auto pb-4 md:gap-6 lg:gap-8" id="device-scroll-container">
           {/* Left phones */}
           <motion.div
             initial={{ opacity: 0, x: -30 }}
@@ -89,6 +89,22 @@ export function DeviceShowcase() {
             </DeviceIphone>
           </motion.div>
         </div>
+
+        {/* Navigation dots */}
+        <div className="flex justify-center gap-2 mt-8">
+          {["Stats", "Philosophy", "Dashboard", "Wellness", "Onboarding"].map((label, i) => (
+            <div
+              key={label}
+              title={label}
+              className={`rounded-full transition-all ${
+                i === 2
+                  ? "w-4 h-1.5 bg-slate-400"
+                  : "w-1.5 h-1.5 bg-slate-600"
+              }`}
+            />
+          ))}
+        </div>
+        <p className="text-center text-xs text-slate-500 mt-3 md:hidden">Scroll to explore</p>
       </div>
     </section>
   );

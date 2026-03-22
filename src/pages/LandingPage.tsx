@@ -207,9 +207,12 @@ export default function LandingPage() {
               <Check className="w-4 h-4 text-green-600 shrink-0" />
               Free during beta
             </span>
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 relative group cursor-help">
               <Check className="w-4 h-4 text-green-600 shrink-0" />
               Works with intervals.icu
+              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 rounded-md bg-popover border border-border shadow-sm text-xs text-popover-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                intervals.icu — free training log used by serious runners
+              </span>
             </span>
             <span className="flex items-center gap-1.5">
               <Check className="w-4 h-4 text-green-600 shrink-0" />
@@ -233,7 +236,12 @@ export default function LandingPage() {
             <span className="mx-8 text-muted-foreground">·</span>
             <span className="mx-8 text-lg font-medium text-muted-foreground">Suunto</span>
             <span className="mx-8 text-muted-foreground">·</span>
-            <span className="mx-8 text-lg font-medium text-muted-foreground">intervals.icu</span>
+            <span className="mx-8 relative group cursor-help">
+              <span className="text-lg font-medium text-muted-foreground">intervals.icu</span>
+              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 rounded-md bg-popover border border-border shadow-sm text-xs text-popover-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                intervals.icu — free training log used by serious runners
+              </span>
+            </span>
           </Marquee>
           <Marquee pauseOnHover direction="right" duration={40} className="py-2">
             <span className="mx-8 text-lg font-medium text-muted-foreground">80/20 Polarized</span>
@@ -367,16 +375,19 @@ export default function LandingPage() {
                 icon: MessageCircle,
                 title: "Coach Cade — AI Coach",
                 desc: "Ask Coach Cade anything — pre-run readiness, post-workout analysis (every run interpreted automatically), race strategy, pacing. Every answer references your CTL, HRV and zones — never generic advice.",
+                core: true,
               },
               {
                 icon: Trophy,
                 title: "Season Planning",
                 desc: "Create your season with A/B/C races, set your end goal (e.g. Stockholm Marathon), and Cade generates a plan that tapers around every race.",
+                core: true,
               },
               {
                 icon: Calendar,
                 title: "Philosophy-Based Training Plans",
                 desc: "80/20 polarized, Jack Daniels VDOT, Lydiard, Pfitzinger, Hansons, Norwegian method. Doubles for high volume (e.g. 180 km/week) when you enable them.",
+                core: true,
               },
               {
                 icon: Users,
@@ -408,16 +419,27 @@ export default function LandingPage() {
                 title: "Weekly plan proposals",
                 desc: "Review AI-proposed weeks, approve or tweak sessions, and keep your plan aligned with recovery — without losing the big picture.",
               },
-            ].map(({ icon: Icon, title, desc }) => (
+            ].map(({ icon: Icon, title, desc, core }) => (
               <div
                 key={title}
-                className="glass-card p-6 rounded-xl border border-border hover:border-gray-300 dark:hover:border-border transition-colors"
+                className={`glass-card p-6 rounded-xl border transition-colors ${
+                  core
+                    ? "border-primary/40 hover:border-primary/60"
+                    : "border-border hover:border-gray-300 dark:hover:border-border"
+                }`}
               >
                 <div className="flex items-start gap-3 mb-3">
                   <div className="w-10 h-10 rounded-xl bg-primary/10 flex items-center justify-center shrink-0">
                     <Icon className="w-6 h-6 text-primary stroke-[1.75]" />
                   </div>
-                  <h3 className="text-base font-medium text-foreground pt-1.5">{title}</h3>
+                  <div className="flex-1 flex items-start justify-between pt-1.5 gap-2">
+                    <h3 className="text-base font-medium text-foreground">{title}</h3>
+                    {core && (
+                      <span className="shrink-0 text-[10px] font-semibold tracking-wide uppercase px-1.5 py-0.5 rounded bg-primary/10 text-primary">
+                        Core
+                      </span>
+                    )}
+                  </div>
                 </div>
                 <p className="text-sm text-muted-foreground leading-relaxed">{desc}</p>
               </div>
@@ -480,9 +502,12 @@ export default function LandingPage() {
           )}
 
           <div className="flex flex-wrap items-center justify-center gap-5 text-sm text-muted-foreground mt-8">
-            <span className="flex items-center gap-1.5">
+            <span className="flex items-center gap-1.5 relative group cursor-help">
               <Check className="w-4 h-4 text-green-600 shrink-0" />
               Works with intervals.icu
+              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 rounded-md bg-popover border border-border shadow-sm text-xs text-popover-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+                intervals.icu — free training log used by serious runners
+              </span>
             </span>
             <span className="flex items-center gap-1.5">
               <Check className="w-4 h-4 text-green-600 shrink-0" />
@@ -512,6 +537,12 @@ export default function LandingPage() {
             </Link>
             <Link to="/contact" className="hover:text-foreground transition-colors">
               Contact
+            </Link>
+            <Link to="/privacy" className="hover:text-foreground transition-colors">
+              Privacy Policy
+            </Link>
+            <Link to="/terms" className="hover:text-foreground transition-colors">
+              Terms of Service
             </Link>
             <a href="mailto:info@caderunning.com" className="hover:text-foreground transition-colors">
               info@caderunning.com
