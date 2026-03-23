@@ -541,6 +541,80 @@ export default function ActivityDetail() {
   const hasResp = chartData.some((d) => d.respiration_rate > 0);
   const hasGraphs = hasPace || hasHr || hasAlt || hasTemp || hasResp;
 
+  // ── New computed stats ──────────────────────────────────────────────────────
+
+  /** Best (fastest) pace from the stream, ignoring stops and GPS glitches */
+  const bestPace = useMemo(() => {
+    if (!chartData.length) return null;
+    const valid = chartData.map((d) => d.pace).filter((p) => p > 2 && p < 12);
+    return valid.length ? Math.min(...valid) : null;
+  }, [chartData]);
+
+  /** Total elevation loss (sum of negative altitude deltas) from the raw stream */
+  const elevationLoss = useMemo(() => {
+    const alt = activity?.streams?.altitude;
+    if (!alt || alt.length < 2) return null;
+    let loss = 0;
+    for (let i = 1; i < alt.length; i++) {
+      const diff = alt[i] - alt[i - 1];
+      if (diff < 0) loss += Math.abs(diff);
+    }
+    return loss > 1 ? Math.round(loss) : null;
+  }, [activity]);
+
+  /**
+   * TSS: use intervals.icu training load when available; otherwise compute
+   * rTSS = (dur_h) × (threshold_pace / avg_pace)² × 100
+   */
+  const tss = useMemo(() => {
+    if (activity?.load != null && activity.load > 0) return Math.round(activity.load);
+    const durSec = activity?.duration_seconds ?? 0;
+    const paceStr = activity?.avg_pace;
+    if (!durSec || !paceStr) return null;
+    const m = paceStr.match(/(\d+):(\d+)/);
+    if (!m) return null;
+    const avgPaceSec = parseInt(m[1]) * 60 + parseInt(m[2]);
+    if (avgPaceSec <= 0) return null;
+    const ltPaceStr = athleteProfile?.lactate_threshold_pace;
+    let thresholdSec = 300; // default 5:00/km
+    if (ltPaceStr) {
+      const lt = String(ltPaceStr).match(/(\d+):(\d+)/);
+      if (lt) thresholdSec = parseInt(lt[1]) * 60 + parseInt(lt[2]);
+    }
+    return Math.round((durSec / 3600) * Math.pow(thresholdSec / avgPaceSec, 2) * 100);
+  }, [activity, athleteProfile]);
+
+  /** Efficiency Factor = avg pace (m/s) / avg HR — higher is more efficient */
+  const ef = useMemo(() => {
+    const avgHr = activity?.avg_hr;
+    const paceStr = activity?.avg_pace;
+    if (!avgHr || avgHr <= 0 || !paceStr) return null;
+    const m = paceStr.match(/(\d+):(\d+)/);
+    if (!m) return null;
+    const paceSec = parseInt(m[1]) * 60 + parseInt(m[2]);
+    if (paceSec <= 0) return null;
+    return ((1000 / paceSec) / avgHr).toFixed(3);
+  }, [activity]);
+
+  /**
+   * Aerobic Decoupling % = ((EF_first_half - EF_second_half) / EF_first_half) × 100
+   * Split by number of chart points (proxy for distance midpoint).
+   */
+  const aerobicDecoupling = useMemo(() => {
+    const pts = chartData.filter((d) => d.pace > 0 && d.hr > 0);
+    if (pts.length < 20) return null;
+    const mid = Math.floor(pts.length / 2);
+    const halfEF = (data: typeof pts) => {
+      const ap = data.reduce((s, d) => s + d.pace, 0) / data.length;
+      const ah = data.reduce((s, d) => s + d.hr, 0) / data.length;
+      return ah > 0 && ap > 0 ? (1000 / (ap * 60)) / ah : 0;
+    };
+    const e1 = halfEF(pts.slice(0, mid));
+    const e2 = halfEF(pts.slice(mid));
+    if (e1 <= 0) return null;
+    return ((e1 - e2) / e1) * 100;
+  }, [chartData]);
+
   if (isLoading) {
     return (
       <AppLayout>
@@ -639,12 +713,22 @@ export default function ActivityDetail() {
             {/* Secondary stats row */}
             <div className="flex flex-wrap gap-x-5 gap-y-1 mt-4 text-xs text-muted-foreground">
               {activity.max_hr != null && <StatChip label="Max HR" value={`${activity.max_hr} bpm`} />}
+              {bestPace != null && <StatChip label="Best Pace" value={`${formatPace(bestPace)}/km`} />}
               {activity.intensity != null && <StatChip label="Intensity" value={`${Math.round(activity.intensity)}%`} />}
-              {activity.load != null && <StatChip label="Load" value={`${Math.round(activity.load)}`} />}
+              {tss != null && <StatChip label="TSS" value={`${tss}`} />}
               {activity.trimp != null && <StatChip label="TRIMP" value={`${Math.round(activity.trimp)}`} />}
               {activity.perceived_exertion != null && <StatChip label="RPE" value={`${activity.perceived_exertion}/10`} />}
               {activity.cadence != null && activity.cadence > 0 && <StatChip label="Cadence" value={formatCadence(cadenceToDisplaySpm(activity.cadence) ?? activity.cadence)} />}
-              {activity.elevation_gain != null && activity.elevation_gain > 0 && <StatChip label="Climbing" value={formatElevation(activity.elevation_gain)} />}
+              {activity.elevation_gain != null && activity.elevation_gain > 0 && <StatChip label="Elev ↑" value={formatElevation(activity.elevation_gain)} />}
+              {elevationLoss != null && <StatChip label="Elev ↓" value={`${elevationLoss} m`} />}
+              {ef != null && <StatChip label="EF" value={String(ef)} />}
+              {aerobicDecoupling != null && (
+                <StatChip
+                  label="Decoupling"
+                  value={`${aerobicDecoupling > 0 ? "+" : ""}${aerobicDecoupling.toFixed(1)}%`}
+                  color={aerobicDecoupling < 5 ? "hsl(142 71% 45%)" : aerobicDecoupling < 8 ? "hsl(38 92% 50%)" : "hsl(0 84% 60%)"}
+                />
+              )}
               {activity.calories != null && activity.calories > 0 && <StatChip label="Calories" value={`${Math.round(activity.calories)}`} />}
             </div>
 
@@ -871,17 +955,22 @@ export default function ActivityDetail() {
                   </div>
                 )}
 
-                {!hasAlt && !hasTemp && !hasResp && (
-                  <div className="px-2 pb-2">
-                    <div className="h-[20px]">
-                      <ResponsiveContainer width="100%" height="100%">
-                        <ComposedChart data={chartData} margin={{ top: 0, right: 44, left: -4, bottom: 0 }}>
-                          <XAxis dataKey="timeLabel" tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }} interval="preserveStartEnd" tickLine={false} axisLine={false} />
-                        </ComposedChart>
-                      </ResponsiveContainer>
-                    </div>
+                <div className="px-2 pb-2">
+                  <div className="h-[20px]">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <ComposedChart data={chartData} margin={{ top: 0, right: 44, left: -4, bottom: 0 }}>
+                        <XAxis
+                          dataKey="km"
+                          tick={{ fontSize: 9, fill: "hsl(var(--muted-foreground))" }}
+                          interval="preserveStartEnd"
+                          tickLine={false}
+                          axisLine={false}
+                          tickFormatter={(v: number) => `${v.toFixed(1)} km`}
+                        />
+                      </ComposedChart>
+                    </ResponsiveContainer>
                   </div>
-                )}
+                </div>
               </div>
             )}
 
@@ -903,6 +992,49 @@ export default function ActivityDetail() {
 
             {/* Mean Maximal HR Curve */}
             {hasHr && <MeanMaxHrChart chartData={chartData} />}
+
+            {/* HR Zones — compact horizontal bars, always visible in charts tab when HR data exists */}
+            {hrZoneTimesForTable != null && hrZoneTimesForTable.some((t) => t > 0) && (
+              <div className="card-standard card-standard--no-padding overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-border flex items-center justify-between gap-2 bg-muted/30">
+                  <div className="flex items-center gap-2">
+                    <Heart className="w-3.5 h-3.5 text-primary" />
+                    <span className="text-xs font-semibold text-foreground">HR Zones</span>
+                  </div>
+                  {hrZonesFromStream ? (
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground font-medium">from stream</span>
+                  ) : (
+                    <ZoneSourceBadge />
+                  )}
+                </div>
+                <div className="p-4 space-y-2">
+                  {(() => {
+                    const total = hrZoneTimesForTable.reduce((a, b) => a + b, 0);
+                    const maxT = Math.max(...hrZoneTimesForTable);
+                    return hrZoneTimesForTable.map((t, i) => {
+                      if (t <= 0) return null;
+                      const pct = total > 0 ? (t / total) * 100 : 0;
+                      const barPct = maxT > 0 ? (t / maxT) * 100 : 0;
+                      const mins = Math.floor(t / 60);
+                      const secs = Math.round(t % 60);
+                      return (
+                        <div key={i} className="flex items-center gap-3 text-xs">
+                          <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ backgroundColor: HR_ZONE_COLORS[i] }} />
+                          <span className="w-24 text-muted-foreground shrink-0">{HR_ZONE_NAMES[i] ?? `Zone ${i + 1}`}</span>
+                          <div className="flex-1 h-3 bg-muted/40 rounded overflow-hidden">
+                            <div className="h-full rounded transition-all" style={{ width: `${barPct}%`, backgroundColor: HR_ZONE_COLORS[i] }} />
+                          </div>
+                          <span className="w-14 text-right tabular-nums text-foreground font-medium shrink-0">
+                            {mins}:{String(secs).padStart(2, "0")}
+                          </span>
+                          <span className="w-10 text-right tabular-nums text-muted-foreground shrink-0">{pct.toFixed(0)}%</span>
+                        </div>
+                      );
+                    });
+                  })()}
+                </div>
+              </div>
+            )}
 
             {!hasGraphs && (
               <div className="rounded-xl border border-border bg-card p-12 text-center">
@@ -974,8 +1106,20 @@ export default function ActivityDetail() {
                   {activity.intensity != null && <SummaryItem label="Intensity" value={`${Math.round(activity.intensity)}%`} />}
                   {activity.perceived_exertion != null && <SummaryItem label="RPE" value={`${activity.perceived_exertion}/10`} />}
                   {activity.cadence != null && activity.cadence > 0 && <SummaryItem label="Avg Cadence" value={formatCadence(cadenceToDisplaySpm(activity.cadence) ?? activity.cadence)} />}
-                  {activity.elevation_gain != null && activity.elevation_gain > 0 && <SummaryItem label="Climbing" value={`${formatElevation(activity.elevation_gain)} m`} />}
+                  {activity.elevation_gain != null && activity.elevation_gain > 0 && <SummaryItem label="Elev Gain" value={`${formatElevation(activity.elevation_gain)} m`} />}
+                  {elevationLoss != null && <SummaryItem label="Elev Loss" value={`${elevationLoss} m`} />}
+                  {bestPace != null && <SummaryItem label="Best Pace" value={`${formatPace(bestPace)}/km`} />}
+                  {tss != null && <SummaryItem label="TSS" value={`${tss}`} />}
                   {activity.calories != null && activity.calories > 0 && <SummaryItem label="Calories" value={`${Math.round(activity.calories)} kcal`} />}
+                  {ef != null && <SummaryItem label="Efficiency Factor" value={String(ef)} />}
+                  {aerobicDecoupling != null && (
+                    <div>
+                      <p className="text-xs text-muted-foreground">Aerobic Decoupling</p>
+                      <p className={`font-semibold tabular-nums ${aerobicDecoupling < 5 ? "text-green-500" : aerobicDecoupling < 8 ? "text-amber-500" : "text-red-500"}`}>
+                        {aerobicDecoupling > 0 ? "+" : ""}{aerobicDecoupling.toFixed(1)}%
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -991,19 +1135,21 @@ export default function ActivityDetail() {
                   <table className="w-full text-sm">
                     <thead>
                       <tr className="border-b border-border bg-muted/20">
-                        <th className="text-left py-2.5 px-4 font-medium text-muted-foreground">#</th>
+                        <th className="text-left py-2.5 px-4 font-medium text-muted-foreground">Km</th>
                         <th className="text-right py-2.5 px-4 font-medium text-muted-foreground">Time</th>
                         <th className="text-right py-2.5 px-4 font-medium text-muted-foreground">Pace</th>
                         {activity.splits.some(s => s.hr != null) && <th className="text-right py-2.5 px-4 font-medium text-muted-foreground">Avg HR</th>}
                         {activity.splits.some(s => s.hr != null) && <th className="text-right py-2.5 px-4 font-medium text-muted-foreground">Zone</th>}
+                        {activity.splits.some(s => s.elevation != null) && <th className="text-right py-2.5 px-4 font-medium text-muted-foreground">Elev</th>}
                       </tr>
                     </thead>
                     <tbody>
                       {activity.splits.map((s, i) => {
                         const zone = s.hr != null ? (s.hr < 130 ? 1 : s.hr < 145 ? 2 : s.hr < 160 ? 3 : s.hr < 175 ? 4 : 5) : null;
+                        const hasElevCol = activity.splits.some(sp => sp.elevation != null);
                         return (
                           <tr key={i} className="border-b border-border/40 hover:bg-muted/20">
-                            <td className="py-2 px-4 font-medium tabular-nums text-foreground">{i + 1}</td>
+                            <td className="py-2 px-4 font-medium tabular-nums text-foreground">{s.km != null ? s.km : i + 1}</td>
                             <td className="py-2 px-4 text-right tabular-nums">{s.elapsed_sec != null ? formatDuration(s.elapsed_sec) : "—"}</td>
                             <td className="py-2 px-4 text-right tabular-nums font-medium text-foreground">{(normalizePaceDisplay(s.pace) || s.pace) ?? "—"}</td>
                             {activity.splits.some(sp => sp.hr != null) && <td className="py-2 px-4 text-right tabular-nums">{s.hr ?? "—"}</td>}
@@ -1017,6 +1163,7 @@ export default function ActivityDetail() {
                                 )}
                               </td>
                             )}
+                            {hasElevCol && <td className="py-2 px-4 text-right tabular-nums text-muted-foreground">{s.elevation != null ? `${Math.round(s.elevation)} m` : "—"}</td>}
                           </tr>
                         );
                       })}
