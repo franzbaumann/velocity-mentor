@@ -246,6 +246,50 @@ serve(async (req) => {
     }
 
     const todayStr = new Date().toISOString().slice(0, 10);
+
+    // Cache check: return the cached opening if it was generated within the last 60 minutes
+    // on the same calendar day, and no new activity has been synced since.
+    // Invalidation triggers: new activity synced, new calendar day, or cache > 60 min old.
+    if (!short) {
+      const cachedRes = await supabaseAdmin
+        .from("coach_message")
+        .select("content, created_at")
+        .eq("user_id", user.id)
+        .eq("role", "assistant")
+        .eq("triggered_by", "opening")
+        .order("created_at", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+
+      const cached = cachedRes.data as { content: string; created_at: string } | null;
+      if (cached) {
+        const cacheAgeMs = Date.now() - new Date(cached.created_at).getTime();
+        const cacheDay = cached.created_at.slice(0, 10);
+        const SIXTY_MIN_MS = 60 * 60 * 1000;
+
+        if (cacheAgeMs < SIXTY_MIN_MS && cacheDay === todayStr) {
+          // Check if a new activity was synced after the cache was generated.
+          const newestActivityRes = await supabaseAdmin
+            .from("activity")
+            .select("created_at")
+            .eq("user_id", user.id)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle();
+
+          const newestActivity = newestActivityRes.data as { created_at: string } | null;
+          const activityNewerThanCache = newestActivity &&
+            new Date(newestActivity.created_at).getTime() > new Date(cached.created_at).getTime();
+
+          if (!activityNewerThanCache) {
+            return new Response(JSON.stringify({ message: cached.content, cached: true }), {
+              status: 200,
+              headers: { ...corsHeaders, "Content-Type": "application/json" },
+            });
+          }
+        }
+      }
+    }
     const mon = new Date();
     mon.setDate(mon.getDate() - ((mon.getDay() + 6) % 7));
     mon.setHours(0, 0, 0, 0);
@@ -383,6 +427,17 @@ serve(async (req) => {
       finalMessage = "Here's your week. What's on your mind?";
     } else {
       finalMessage = "Here's your week. What's on your mind?";
+    }
+
+    // Cache the generated opening for future calls within the same 60-minute window.
+    // Only cache the full opening (not the short dashboard snippet).
+    if (!short && !rateLimitHit && user) {
+      supabaseAdmin.from("coach_message").insert({
+        user_id: user.id,
+        role: "assistant",
+        content: finalMessage,
+        triggered_by: "opening",
+      }).then(() => {});
     }
 
     return new Response(JSON.stringify({ message: finalMessage, rateLimitHit }), {
