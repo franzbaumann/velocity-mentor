@@ -1,23 +1,30 @@
+import { motion } from "framer-motion";
+
 interface ProgressBarProps {
-  progress: number;
+  currentIndex: number;
+  total: number;
 }
 
-export function ProgressBar({ progress }: ProgressBarProps) {
-  const clamped = Math.min(100, Math.max(0, progress));
-
+export function ProgressBar({ currentIndex, total }: ProgressBarProps) {
   return (
-    <div className="fixed top-0 left-0 right-0 z-50">
-      <div className="h-[3px] bg-card">
-        <div
-          className="h-full bg-primary transition-all duration-500 ease-out will-change-[width]"
-          style={{ width: `${clamped}%` }}
-        />
+    <div className="fixed top-0 left-0 right-0 z-50 flex justify-center pt-4">
+      <div className="flex items-center gap-1.5">
+        {Array.from({ length: total }).map((_, i) => {
+          const isActive = i === currentIndex;
+          const isPast = i < currentIndex;
+          return (
+            <motion.div
+              key={i}
+              animate={{
+                width: isActive ? 20 : 6,
+                opacity: isPast ? 0.5 : isActive ? 1 : 0.2,
+              }}
+              transition={{ duration: 0.3, ease: "easeInOut" }}
+              className={`h-1.5 rounded-full ${isActive ? "bg-primary" : isPast ? "bg-primary" : "bg-muted-foreground"}`}
+            />
+          );
+        })}
       </div>
-      {clamped > 0 && (
-        <span className="absolute right-5 top-2.5 text-[10px] font-bold text-muted-foreground/70 tabular-nums tracking-wider">
-          {Math.round(clamped)}%
-        </span>
-      )}
     </div>
   );
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import { addDays, format } from "date-fns";
 import { FunctionsHttpError } from "@supabase/supabase-js";
 import { supabase } from "@/integrations/supabase/client";
@@ -156,7 +157,6 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
   // ---- Navigation ----
   const stepOrder = getStepOrder(state.answers.goal);
   const currentIndex = stepOrder.indexOf(state.currentStep);
-  const progress = stepOrder.length > 1 ? (currentIndex / (stepOrder.length - 1)) * 100 : 0;
 
   const goNext = useCallback(() => {
     const order = getStepOrder(state.answers.goal);
@@ -520,46 +520,68 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
   };
 
   // ---- Render ----
-  const animClass = direction === "forward" ? "onboarding-slide-forward" : "onboarding-slide-backward";
+
+  const variants = {
+    enter: (dir: "forward" | "backward") => ({
+      opacity: 0,
+      y: dir === "forward" ? 22 : -22,
+    }),
+    center: { opacity: 1, y: 0 },
+    exit: (dir: "forward" | "backward") => ({
+      opacity: 0,
+      y: dir === "forward" ? -22 : 22,
+    }),
+  };
 
   return (
     <div className="fixed inset-0 bg-background overflow-y-auto">
-      <ProgressBar progress={progress} />
+      <ProgressBar currentIndex={currentIndex} total={stepOrder.length} />
 
-      <div key={state.currentStep} className={`pt-10 pb-16 ${animClass}`}>
-        {state.currentStep === 1 && <Step1Welcome {...stepWithData} />}
-        {state.currentStep === 2 && <Step2Goal {...stepProps} />}
-        {state.currentStep === 3 && <Step3RaceTarget {...stepWithData} />}
-        {state.currentStep === 4 && <Step4CurrentTraining {...stepWithData} />}
-        {state.currentStep === 5 && <Step5Availability {...stepProps} />}
-        {state.currentStep === 6 && <Step6Injuries {...stepProps} />}
-        {state.currentStep === 7 && <Step7Background {...stepProps} />}
-        {state.currentStep === 8 && (
-          <Step8Philosophy
-            {...stepProps}
-            recommendation={state.recommendedPhilosophy}
-            loading={philoLoading}
-            error={philoError}
-            onSelectPhilosophy={handleSelectPhilosophy}
-            onRetry={handleRetryPhilosophy}
-          />
-        )}
-        {state.currentStep === 9 && state.answers.goal === "plan_season" && (
-          <Step9SeasonCreation onGoToSeason={handleGoToSeason} onBack={goBack} />
-        )}
-        {state.currentStep === 9 && state.answers.goal !== "plan_season" && (
-          <Step9PlanGeneration
-            planResult={state.generatedPlan}
-            loading={planLoading}
-            error={planError}
-            onViewPlan={handleViewPlan}
-            onChat={handleChat}
-            onBack={goBack}
-            onRetry={handleRetryPlan}
-            onStartOver={handleStartOver}
-          />
-        )}
-      </div>
+      <AnimatePresence mode="wait" initial={false} custom={direction}>
+        <motion.div
+          key={state.currentStep}
+          custom={direction}
+          variants={variants}
+          initial="enter"
+          animate="center"
+          exit="exit"
+          transition={{ duration: 0.28, ease: [0.25, 0.1, 0.25, 1] }}
+          className="pt-10 pb-16"
+        >
+          {state.currentStep === 1 && <Step1Welcome {...stepWithData} />}
+          {state.currentStep === 2 && <Step2Goal {...stepProps} />}
+          {state.currentStep === 3 && <Step3RaceTarget {...stepWithData} />}
+          {state.currentStep === 4 && <Step4CurrentTraining {...stepWithData} />}
+          {state.currentStep === 5 && <Step5Availability {...stepProps} />}
+          {state.currentStep === 6 && <Step6Injuries {...stepProps} />}
+          {state.currentStep === 7 && <Step7Background {...stepProps} />}
+          {state.currentStep === 8 && (
+            <Step8Philosophy
+              {...stepProps}
+              recommendation={state.recommendedPhilosophy}
+              loading={philoLoading}
+              error={philoError}
+              onSelectPhilosophy={handleSelectPhilosophy}
+              onRetry={handleRetryPhilosophy}
+            />
+          )}
+          {state.currentStep === 9 && state.answers.goal === "plan_season" && (
+            <Step9SeasonCreation onGoToSeason={handleGoToSeason} onBack={goBack} />
+          )}
+          {state.currentStep === 9 && state.answers.goal !== "plan_season" && (
+            <Step9PlanGeneration
+              planResult={state.generatedPlan}
+              loading={planLoading}
+              error={planError}
+              onViewPlan={handleViewPlan}
+              onChat={handleChat}
+              onBack={goBack}
+              onRetry={handleRetryPlan}
+              onStartOver={handleStartOver}
+            />
+          )}
+        </motion.div>
+      </AnimatePresence>
     </div>
   );
 }
