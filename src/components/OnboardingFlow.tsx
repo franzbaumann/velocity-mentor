@@ -25,6 +25,8 @@ import {
   getSafeAccessToken,
 } from "@/lib/supabase-auth-safe";
 import { getSupabaseUrl } from "@/lib/supabase-url";
+import { calculateVDOT, pacesFromVDOT } from "@/lib/training/vdot";
+import { isRunningActivity } from "@/lib/analytics";
 
 const TOTAL_STEPS = 9;
 const GOALS_SKIP_RACE = ["aerobic_base", "return_injury", "stay_consistent"];
@@ -422,18 +424,45 @@ export function OnboardingFlow({
   // Step 3 — Race / Target (conditional)
   if (step === 3) {
     const suggestedGoalTime = (() => {
-      if (!bestPace || !answers.goalDistance) return null;
-      const paceSecPerKm = parsePace(bestPace);
-      if (paceSecPerKm <= 0 || paceSecPerKm >= 999) return null;
-      const dist = String(answers.goalDistance).toLowerCase();
-      let factor = 1.15;
-      if (dist.includes("marathon")) factor = 1.2;
-      else if (dist.includes("half")) factor = 1.08;
-      else if (dist.includes("10")) factor = 1.05;
-      else if (dist.includes("5")) factor = 1.02;
-      const estPaceSecPerKm = paceSecPerKm * factor;
-      const distKm = dist.includes("marathon") ? 42.195 : dist.includes("half") ? 21.1 : dist.includes("10") ? 10 : 5;
-      const totalSec = distKm * estPaceSecPerKm;
+      if (!answers.goalDistance) return null;
+      // Compute best VDOT from recent running activities (ignore easy-pace averages)
+      const DIST_METERS: Record<string, number> = {
+        "5K": 5000, "10K": 10000, "Half Marathon": 21097.5, "Marathon": 42195, "Ultra": 50000,
+      };
+      const distMeters = DIST_METERS[answers.goalDistance];
+      if (!distMeters) return null;
+
+      let bestVdot: number | null = null;
+      for (const a of activities) {
+        if (!isRunningActivity(a.type)) continue;
+        const km = a.distance_km ?? 0;
+        const sec = a.duration_seconds;
+        if (!sec || sec <= 0 || km < 3) continue;
+        const paceSecPerKm = sec / km;
+        // Ignore implausibly fast (<165 s/km) or walk-pace (>720 s/km) efforts
+        if (paceSecPerKm < 165 || paceSecPerKm > 720) continue;
+        const v = calculateVDOT(km * 1000, sec);
+        if (bestVdot == null || v > bestVdot) bestVdot = v;
+      }
+      if (bestVdot == null) return null;
+
+      // Invert calculateVDOT: binary-search for race time at this VDOT over target distance
+      let lo = 60, hi = 7 * 3600;
+      for (let i = 0; i < 60; i++) {
+        const mid = (lo + hi) / 2;
+        if (calculateVDOT(distMeters, mid) > bestVdot) {
+          lo = mid; // predicted time too fast → need longer time
+        } else {
+          hi = mid;
+        }
+      }
+      const totalSec = Math.round((lo + hi) / 2);
+
+      // Sanity check: race pace must be faster than easy pace min
+      const easyPaceMin = pacesFromVDOT(bestVdot).easy.min; // sec/km
+      const racePaceSecPerKm = totalSec / (distMeters / 1000);
+      if (racePaceSecPerKm >= easyPaceMin) return null;
+
       const h = Math.floor(totalSec / 3600);
       const m = Math.floor((totalSec % 3600) / 60);
       const s = Math.round(totalSec % 60);
@@ -447,8 +476,8 @@ export function OnboardingFlow({
           <p className="text-lg text-foreground mb-6">Which race are you targeting?</p>
           {suggestedGoalTime && (
             <div className="rounded-lg bg-primary/5 border border-primary/20 p-3 mb-4">
-              <p className="text-xs font-medium text-primary mb-1">Suggested goal (from your recent pace)</p>
-              <p className="text-sm text-foreground">Based on {bestPace}/km recent effort → ~{suggestedGoalTime} for {answers.goalDistance}</p>
+              <p className="text-xs font-medium text-primary mb-1">Suggested goal</p>
+              <p className="text-sm text-foreground">Estimated from your recent training fitness → ~{suggestedGoalTime} for {answers.goalDistance}</p>
               <button
                 type="button"
                 onClick={() => onAnswersChange({ ...answers, goalTime: suggestedGoalTime })}
