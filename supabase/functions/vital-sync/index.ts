@@ -1094,6 +1094,17 @@ Deno.serve(async (req) => {
       ? "Vital sync imported activities, but many rows were missing core metrics or relied on fallback dates."
       : undefined;
 
+    // Fire-and-forget: recalculate CTL/ATL/TSB from Vital data after sync
+    const ctlFnUrl = `${Deno.env.get("SUPABASE_URL")}/functions/v1/calculate-vital-ctl`;
+    fetch(ctlFnUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")}`,
+      },
+      body: JSON.stringify({ user_id: user.id }),
+    }).catch((err) => console.warn("[vital-sync] calculate-vital-ctl trigger failed:", err));
+
     return json({
       ok: true,
       request_id: requestId,
