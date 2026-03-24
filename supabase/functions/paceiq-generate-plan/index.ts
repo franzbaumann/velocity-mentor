@@ -72,6 +72,71 @@ function dayNameToDow(name: string): number | null {
   return v ?? null;
 }
 
+/** Validate AI-produced workout_steps for DB JSONB. */
+function normalizeWorkoutSteps(raw: unknown): unknown[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const out: unknown[] = [];
+  for (const item of raw) {
+    if (item && typeof item === "object" && "phase" in item && "label" in item) {
+      const o = item as Record<string, unknown>;
+      const phase = String(o.phase ?? "");
+      const label = String(o.label ?? "").trim();
+      if (!label) continue;
+      if (!["warmup", "main", "cooldown", "note"].includes(phase)) continue;
+      out.push(item);
+    }
+  }
+  return out.length ? out : null;
+}
+
+type SupabaseAdmin = ReturnType<typeof createClient>;
+
+async function fetchAthleteConstraintsBlock(supabase: SupabaseAdmin, userId: string): Promise<string> {
+  const { data: profile } = await supabase
+    .from("athlete_profile")
+    .select("injury_history, injury_history_text")
+    .eq("user_id", userId)
+    .maybeSingle();
+
+  const { data: memories } = await supabase
+    .from("coaching_memory")
+    .select("content, importance, created_at")
+    .eq("user_id", userId)
+    .eq("category", "injury")
+    .order("importance", { ascending: false })
+    .limit(12);
+
+  const parts: string[] = [];
+  if (profile?.injury_history_text && String(profile.injury_history_text).trim()) {
+    parts.push(`Injury notes (profile): ${String(profile.injury_history_text).trim()}`);
+  }
+  if (Array.isArray(profile?.injury_history) && profile.injury_history.length > 0) {
+    parts.push(`Injury history (profile): ${JSON.stringify(profile.injury_history)}`);
+  }
+  if (memories?.length) {
+    const sorted = [...memories].sort((a, b) => {
+      const ia = Number(a.importance ?? 0);
+      const ib = Number(b.importance ?? 0);
+      if (ib !== ia) return ib - ia;
+      const ta = String(a.created_at ?? "");
+      const tb = String(b.created_at ?? "");
+      return tb.localeCompare(ta);
+    });
+    const top = sorted.slice(0, 8);
+    const lines = top.map((m) =>
+      `- (importance ${m.importance ?? "?"}): ${String(m.content ?? "").slice(0, 450)}`
+    );
+    parts.push(`Recent injury-related coaching memory:\n${lines.join("\n")}`);
+  }
+  if (parts.length === 0) {
+    return "";
+  }
+  return (
+    `ATHLETE_CONSTRAINTS (health / injury context — use to personalize strength, mobility, and running stress; this is coaching context only, not a medical diagnosis. If pain is severe or unclear, advise seeing a qualified clinician):\n` +
+    `${parts.join("\n\n")}\n\n`
+  );
+}
+
 const PLAN_PROMPT = `You are Coach Cade — an elite AI running coach built into Cade — building a training plan.
 Return ONLY valid JSON, no markdown, no explanation:
 {
@@ -86,21 +151,34 @@ Return ONLY valid JSON, no markdown, no explanation:
     "total_km": number,
     "workouts": [{
       "day_of_week": number,
-      "type": "easy|tempo|interval|long|rest|strides",
+      "type": "easy|tempo|interval|long|rest|strides|strength|mobility",
       "session_library_id": string_or_null,
       "name": string,
       "description": string,
       "key_focus": string,
-      "distance_km": number,
+      "distance_km": number_or_null,
       "duration_minutes": number,
-      "target_pace": string,
-      "target_hr_zone": number,
-      "tss_estimate": number,
+      "target_pace": string_or_null,
+      "target_hr_zone": number_or_null,
+      "tss_estimate": number_or_null,
       "structure_detail": string_or_null,
-      "is_double_run": boolean
+      "is_double_run": boolean,
+      "workout_steps": array_or_null
     }]
   }]
 }
+
+For each workout, "workout_steps" (REQUIRED when type is strength or mobility) is a JSON array of step objects. Each step:
+- "phase": one of "warmup", "main", "cooldown", "note"
+- "label": short title (exercise or block name)
+- "duration_min": number or null
+- "distance_km": number or null (usually null for strength/mobility)
+- "target_pace": string or null
+- "target_hr_zone": number or null
+- "notes": string or null — include sets x reps, tempo, coaching cues, and "if pain then swap for …" per exercise
+- "reps", "rep_distance_km", "rest_label": optional, same as running sessions
+
+For type strength or mobility: use one "main" or "note" step per exercise; pack sets/reps/cues/swap in "notes". Set distance_km to null. Set duration_minutes to total session minutes.
 
 SESSION LIBRARY IDs — you MUST choose from these when possible:
 Easy/Recovery: e-01 Recovery Run, e-02 Easy Run with Strides, e-03 Double Easy (CTL>65 only)
@@ -110,6 +188,15 @@ VO2max: v-01 Classic Intervals, v-02 Billat 30-30, v-03 Pyramid Session, v-04 Hi
 Marathon: m-01 to m-16 (Easy Run, Recovery, Z2 Builder, Tempo, Cruise Intervals, Progressive Long, MP Run Short, MP Run Long, Fueling Long Run, Dress Rehearsal, Aerobic Long Run, Hill Repeats, Strides, Broken Tempo, Taper Run, Easy Double)
 Long Runs: l-01 Classic Long Run, l-02 Progressive Long Run, l-03 Hanson Long Run, l-04 Back-to-Back Day 1, l-05 Back-to-Back Day 2, l-06 Kipchoge Long Run (elite only)
 Race-Specific: r-01 Race Pace Rehearsal, r-02 Pre-Race Tune-Up, r-03 Sharpening Session
+Strength (runner-specific): str-01 Runner Strength Foundation, str-02 Runner Strength Maintenance
+Mobility: mob-01 Post-Run Mobility, mob-02 Mobility Session
+
+STRENGTH AND MOBILITY RULES:
+- Include personalized strength and mobility across the plan: adapt exercise choice to ATHLETE_CONSTRAINTS and onboarding injuries — avoid loads or movements that clearly aggravate reported areas; prefer isometric, gradual, and unilateral stability work when returning from injury.
+- NEVER schedule strength on the same calendar day as tempo, interval, threshold, strides, or race-pace quality. Prefer strength after an easy day or as its own short slot; mobility can follow easy runs or long runs (mob-01) or on rest days (mob-02).
+- Base/Build: typically 2 strength sessions/week (can be str-01 or customized via workout_steps) when healthy; 1 maintenance (str-02) when constrained. Peak: often 1–2 shorter maintenance sessions. Taper: reduce or omit heavy strength; keep light mobility.
+- Every strength and mobility workout MUST include session_library_id when using a template (str-01, str-02, mob-01, mob-02) OR set name/description from scratch and still provide full workout_steps.
+- total_km in each week refers to running volume only; strength/mobility do not add distance.
 
 PLAN GENERATION RULES:
 1. ALWAYS reference sessions by their library ID in session_library_id field.
@@ -134,9 +221,13 @@ function buildPlanUserPrompt(
   philosophy: string,
   raceDate: string | null,
   requiredWeeks: number | null,
-  retryReason?: string
+  retryReason?: string,
+  athleteConstraintsBlock?: string
 ): string {
   let prompt = `Athlete onboarding: ${JSON.stringify(answers)}.\n\n`;
+  if (athleteConstraintsBlock?.trim()) {
+    prompt += athleteConstraintsBlock.trim() + "\n";
+  }
   prompt += `CRITICAL: The athlete chose philosophy "${philosophy}". Build the plan STRICTLY using this philosophy — every workout type, volume, and progression must align with it.\n\n`;
   if (retryReason) {
     prompt += `RETRY: ${retryReason}\n\n`;
@@ -196,9 +287,17 @@ async function callClaude(
   philosophy: string,
   raceDate: string | null,
   requiredWeeks: number | null,
-  retryReason?: string
+  retryReason?: string,
+  athleteConstraintsBlock?: string
 ): Promise<unknown> {
-  const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks, retryReason);
+  const userContent = buildPlanUserPrompt(
+    answers,
+    philosophy,
+    raceDate,
+    requiredWeeks,
+    retryReason,
+    athleteConstraintsBlock
+  );
   const prompt = `${PLAN_PROMPT}\n\n${userContent}`;
   for (const key of anthropicKeys()) {
     const url = "https://api.anthropic.com/v1/messages";
@@ -236,9 +335,17 @@ async function callGroq(
   philosophy: string,
   raceDate: string | null,
   requiredWeeks: number | null,
-  retryReason?: string
+  retryReason?: string,
+  athleteConstraintsBlock?: string
 ): Promise<unknown> {
-  const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks, retryReason);
+  const userContent = buildPlanUserPrompt(
+    answers,
+    philosophy,
+    raceDate,
+    requiredWeeks,
+    retryReason,
+    athleteConstraintsBlock
+  );
   for (const key of groqKeys()) {
     console.log("paceiq-generate-plan: trying Groq...");
     const url = "https://api.groq.com/openai/v1/chat/completions";
@@ -272,9 +379,17 @@ async function callGemini(
   philosophy: string,
   raceDate: string | null,
   requiredWeeks: number | null,
-  retryReason?: string
+  retryReason?: string,
+  athleteConstraintsBlock?: string
 ): Promise<unknown> {
-  const userContent = buildPlanUserPrompt(answers, philosophy, raceDate, requiredWeeks, retryReason);
+  const userContent = buildPlanUserPrompt(
+    answers,
+    philosophy,
+    raceDate,
+    requiredWeeks,
+    retryReason,
+    athleteConstraintsBlock
+  );
   const prompt = `${PLAN_PROMPT}\n\n${userContent}`;
   for (const key of geminiKeys()) {
     const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${key}`;
@@ -371,11 +486,17 @@ serve(async (req) => {
       )
       : null;
 
+    const supabaseAdminEarly = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+    );
+    const athleteConstraintsBlock = await fetchAthleteConstraintsBlock(supabaseAdminEarly, user.id);
+
     // Priority: Claude (primary) → Groq → Gemini. Retry once if plan too short.
     const tryGenerate = async (retryReason?: string) =>
-      (await callClaude(mergedAnswers, philosophy, raceDate, requiredWeeks, retryReason)) ??
-      (await callGroq(mergedAnswers, philosophy, raceDate, requiredWeeks, retryReason)) ??
-      (await callGemini(mergedAnswers, philosophy, raceDate, requiredWeeks, retryReason));
+      (await callClaude(mergedAnswers, philosophy, raceDate, requiredWeeks, retryReason, athleteConstraintsBlock)) ??
+      (await callGroq(mergedAnswers, philosophy, raceDate, requiredWeeks, retryReason, athleteConstraintsBlock)) ??
+      (await callGemini(mergedAnswers, philosophy, raceDate, requiredWeeks, retryReason, athleteConstraintsBlock));
 
     let planRaw = await tryGenerate();
     if (planRaw && requiredWeeks != null && requiredWeeks > 0) {
@@ -411,11 +532,15 @@ serve(async (req) => {
           name?: string;
           description?: string;
           key_focus?: string;
-          distance_km?: number;
+          distance_km?: number | null;
           duration_minutes?: number;
           target_pace?: string;
           target_hr_zone?: number;
           tss_estimate?: number;
+          session_library_id?: string | null;
+          structure_detail?: string | null;
+          is_double_run?: boolean;
+          workout_steps?: unknown;
         }>;
       }>;
     };
@@ -428,10 +553,7 @@ serve(async (req) => {
       });
     }
 
-    const supabase = createClient(
-      Deno.env.get("SUPABASE_URL")!,
-      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-    );
+    const supabase = supabaseAdminEarly;
 
     const goalTime = (answers as { goalTime?: string }).goalTime ?? null;
     const goalDistance =
@@ -482,11 +604,17 @@ serve(async (req) => {
         if (!firstWorkoutOut) {
           firstWorkoutOut = { name: (w.name ?? w.description ?? "Workout") as string, date: workoutYmd };
         }
+        const wType = String(w.type ?? "easy").toLowerCase();
+        const isStrengthMobility = wType === "strength" || wType === "mobility";
         let durationMinutes = w.duration_minutes ?? null;
-        if (w.distance_km != null && w.distance_km > 0 && w.target_pace) {
+        if (!isStrengthMobility && w.distance_km != null && w.distance_km > 0 && w.target_pace) {
           const minPerKm = parsePaceToMinPerKm(w.target_pace);
           if (minPerKm != null) durationMinutes = Math.round(w.distance_km * minPerKm);
         }
+        const distanceKm = isStrengthMobility
+          ? (typeof w.distance_km === "number" && w.distance_km > 0 ? w.distance_km : null)
+          : (w.distance_km ?? null);
+        const stepsJson = normalizeWorkoutSteps(w.workout_steps);
         await supabase.from("training_plan_workout").insert({
           user_id: user.id,
           plan_id: planRow.id,
@@ -498,14 +626,15 @@ serve(async (req) => {
           name: w.name ?? w.description ?? "",
           description: w.description ?? "",
           key_focus: w.key_focus ?? null,
-          distance_km: w.distance_km ?? null,
+          distance_km: distanceKm,
           duration_minutes: durationMinutes,
-          target_pace: w.target_pace ?? null,
-          target_hr_zone: w.target_hr_zone ?? null,
-          tss_estimate: w.tss_estimate ?? null,
+          target_pace: isStrengthMobility ? null : (w.target_pace ?? null),
+          target_hr_zone: isStrengthMobility ? null : (w.target_hr_zone ?? null),
+          tss_estimate: isStrengthMobility ? null : (w.tss_estimate ?? null),
           session_library_id: w.session_library_id ?? null,
           structure_detail: w.structure_detail ?? null,
           is_double_run: w.is_double_run ?? false,
+          workout_steps: stepsJson,
           completed: false,
         });
       }

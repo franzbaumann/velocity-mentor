@@ -222,14 +222,15 @@ Use action "adjust_plan" when modifying, "create_plan" for new plans. Always exp
         "workouts": [
           {
             "day_of_week": 1,
-            "type": "easy|tempo|interval|long|rest|race",
+            "type": "easy|tempo|interval|long|rest|race|strides|strength|mobility",
             "name": "Easy Run",
             "description": "45 minutes easy pace",
             "distance_km": 8,
             "duration_minutes": 45,
             "target_pace": "5:30/km",
             "target_hr_zone": 2,
-            "tss_estimate": 45
+            "tss_estimate": 45,
+            "workout_steps": null
           }
         ]
       }
@@ -237,6 +238,8 @@ Use action "adjust_plan" when modifying, "create_plan" for new plans. Always exp
   }
 }
 \`\`\`
+
+For type "strength" or "mobility": set distance_km to null; set duration_minutes; prefer session library IDs str-01, str-02, mob-01, mob-02 in description/name; include "workout_steps" as a JSON array (phase warmup|main|cooldown|note, label, notes with sets/reps/cues and pain-swap options per exercise). Never schedule strength on the same day as tempo/interval/threshold quality. Personalize to injury history and coaching_memory injury context. Not medical advice.
 
 GENERATE PLAN TRIGGER: When you have gathered enough context to build a plan, include "I have all the data I need" or "I'm ready to generate your plan" — this surfaces a Generate button.
 
@@ -333,6 +336,12 @@ CRITICAL — QUALITY SESSIONS (NEVER ALL EASY):
 - Marathon plans: Each base/build/peak week needs tempo OR MP run, plus a long run. Use t-02, t-01, m-07, m-08, l-03, l-01.
 - Hansons specifically: Tuesday = tempo/SOS (t-02 or m-04), Thursday = speed or MP (t-01, m-07), Sunday = long run (l-03 max 26km). Easy runs fill other days.
 - 80/20: 80% easy, 20% hard — include tempo or intervals weekly.
+
+STRENGTH AND MOBILITY (sessionLibrary: str-01, str-02, mob-01, mob-02):
+- Include personalized strength and mobility in full plans and adjustments; adapt to the athlete's injury history, niggles, and constraints — avoid movements that clearly aggravate reported areas.
+- Do not place strength on the same day as tempo, intervals, threshold, strides, or race-pace work. Prefer strength after easy days or as a dedicated short slot. Mobility can follow easy/long runs or sit on lighter/rest days.
+- Base/Build: ~2 strength/week when healthy; Peak: shorter maintenance; Taper: lighter mobility, minimal heavy strength.
+- When emitting plan JSON, use type "strength" or "mobility", null distance_km, duration_minutes, and populate "workout_steps" so the athlete can execute without external apps.
 
 HOW TO USE THIS KNOWLEDGE
 When recommending a session: name it from the library by ID, give exact structure (reps × distance × pace × rest), explain the purpose in one sentence, state actual pace in athlete's zones.

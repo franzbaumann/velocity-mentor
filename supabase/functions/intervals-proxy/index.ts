@@ -2062,7 +2062,9 @@ Reply with ONLY the coach description. No greeting or sign-off. 1-2 concise sent
 
       const { data: workout, error: workoutErr } = await supabaseAdmin
         .from("training_plan_workout")
-        .select("id, date, type, name, description, key_focus, distance_km, duration_minutes, target_pace, target_hr_zone, week_number, phase, plan_id, workout_steps")
+        .select(
+          "id, date, type, name, description, key_focus, distance_km, duration_minutes, target_pace, target_hr_zone, week_number, phase, plan_id, workout_steps, session_library_id",
+        )
         .eq("user_id", user.id)
         .eq("id", workoutId)
         .maybeSingle();
@@ -2082,6 +2084,45 @@ Reply with ONLY the coach description. No greeting or sign-off. 1-2 concise sent
       }
 
       const isEasyRun = /^(easy|recovery)$/i.test(wType);
+      const isStrengthMobility = wType === "strength" || wType === "mobility";
+
+      let injuryContextForSteps = "";
+      if (isStrengthMobility) {
+        const { data: profileWs } = await supabaseAdmin
+          .from("athlete_profile")
+          .select("injury_history, injury_history_text")
+          .eq("user_id", user.id)
+          .maybeSingle();
+        const { data: memoriesWs } = await supabaseAdmin
+          .from("coaching_memory")
+          .select("content, importance, created_at")
+          .eq("user_id", user.id)
+          .eq("category", "injury")
+          .order("importance", { ascending: false })
+          .limit(12);
+        const partsWs: string[] = [];
+        if (profileWs?.injury_history_text && String(profileWs.injury_history_text).trim()) {
+          partsWs.push(`Profile injury notes: ${String(profileWs.injury_history_text).trim()}`);
+        }
+        if (Array.isArray(profileWs?.injury_history) && profileWs.injury_history.length > 0) {
+          partsWs.push(`Profile injury_history: ${JSON.stringify(profileWs.injury_history)}`);
+        }
+        if (memoriesWs?.length) {
+          const sortedM = [...memoriesWs].sort((a, b) => {
+            const ia = Number(a.importance ?? 0);
+            const ib = Number(b.importance ?? 0);
+            if (ib !== ia) return ib - ia;
+            return String(b.created_at ?? "").localeCompare(String(a.created_at ?? ""));
+          });
+          const lines = sortedM.slice(0, 8).map((m) =>
+            `- (${m.importance ?? "?"}): ${String(m.content ?? "").slice(0, 400)}`
+          );
+          partsWs.push(`Coaching memory (injury):\n${lines.join("\n")}`);
+        }
+        injuryContextForSteps = partsWs.length > 0
+          ? `ATHLETE_INJURY_CONTEXT (personalize exercises and avoid aggravating patterns; coaching only — not medical diagnosis):\n${partsWs.join("\n\n")}`
+          : "No structured injury context on file — still choose conservative, runner-specific exercises and include pain/swap guidance for each main movement.";
+      }
 
       const anthropicKeysWS = [Deno.env.get("ANTHROPIC_API_KEY"), Deno.env.get("ANTHROPIC_API_KEY_2"), Deno.env.get("ANTHROPIC_API_KEY_3")].filter((k): k is string => !!k);
       const groqKeysWS = [Deno.env.get("GROQ_API_KEY"), Deno.env.get("GROQ_API_KEY_2"), Deno.env.get("GROQ_API_KEY_3")].filter((k): k is string => !!k);
@@ -2130,7 +2171,41 @@ Return ONLY a valid JSON array of step objects. Each object must have:
 
 No markdown, no explanation — ONLY the JSON array.`;
 
-      const stepsPrompt = isEasyRun ? easyStepsPrompt : structuredStepsPrompt;
+      const strengthMobilityStepsPrompt = `You are Coach Cade — an elite AI running coach built into Cade.
+
+This is a ${wType.toUpperCase()} session for a runner (not a running workout).
+
+Session type: ${String(w.type ?? "?")}
+Name: ${String(w.name ?? w.description ?? "?")}
+Description: ${String(w.description ?? "?")}
+Key focus: ${String(w.key_focus ?? "?")}
+Session library template id: ${w.session_library_id != null ? String(w.session_library_id) : "none"}
+Planned duration: ${w.duration_minutes != null ? `${w.duration_minutes} min` : "unspecified — infer sensible total"}
+Phase: ${String(w.phase ?? "base")} | Week: ${String(w.week_number ?? "?")}
+
+${injuryContextForSteps}
+
+DISCLAIMER: Include one short "note" step at the start if needed: if pain is sharp, worsening, or unclear, stop and seek a qualified clinician — you are not providing medical diagnosis.
+
+Return ONLY a valid JSON array of step objects. Each object must have:
+- "phase": one of "warmup", "main", "cooldown", "note"
+- "label": short title (exercise or section name)
+- "duration_min": number or null (block duration if relevant)
+- "distance_km": null (not used)
+- "target_pace": null
+- "target_hr_zone": null
+- "notes": string — for every "main" and "note" exercise step: sets × reps OR time, tempo of movement, 1–2 coaching cues, equipment (bodyweight, band, dumbbell, etc.), and explicit "If pain or pinch: swap for …"
+- Optional: "reps", "rep_distance_km", "rest_label", "sets" (number — e.g. 3 for 3×8)
+
+Use one "main" step per distinct exercise (or group). Prefer runner-relevant patterns: hips, calves/soleus, hamstrings, core, single-leg stability. Avoid programming that obviously conflicts with ATHLETE_INJURY_CONTEXT.
+
+No markdown, no explanation — ONLY the JSON array.`;
+
+      const stepsPrompt = isStrengthMobility
+        ? strengthMobilityStepsPrompt
+        : isEasyRun
+        ? easyStepsPrompt
+        : structuredStepsPrompt;
 
       // Robust JSON array extractor: uses bracket counting to find the balanced
       // array regardless of any [...] notation inside string values.

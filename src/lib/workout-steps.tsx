@@ -8,6 +8,8 @@ export type WorkoutStep = {
   target_pace?: string | null;
   target_hr_zone?: number | null;
   notes?: string | null;
+  /** Strength / circuit blocks */
+  sets?: number | null;
   reps?: number | null;
   rep_distance_km?: number | null;
   rest_label?: string | null;
@@ -98,6 +100,9 @@ export function WorkoutStepsDisplay({
               <span className="text-sm font-medium text-foreground leading-snug">{step.label}</span>
             </div>
             <div className="flex flex-wrap gap-x-3 gap-y-0.5 mt-1.5 text-xs text-muted-foreground">
+              {isMain && step.sets != null && step.sets > 0 && (
+                <span className="font-medium text-foreground/80">{step.sets} sets</span>
+              )}
               {isMain && step.reps != null && step.rep_distance_km != null && (
                 <span className="font-medium text-foreground/80">{step.reps} × {step.rep_distance_km} km</span>
               )}

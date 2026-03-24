@@ -17,6 +17,12 @@ export function sessionTypeBadgeClass(sessionType: string | null | undefined): s
   if (t.includes("recovery")) {
     return "bg-emerald-500/12 text-emerald-800 dark:bg-emerald-500/15 dark:text-emerald-200";
   }
+  if (t === "strength" || t.includes("strength")) {
+    return "bg-violet-500/15 text-violet-900 dark:bg-violet-500/20 dark:text-violet-200";
+  }
+  if (t === "mobility" || t.includes("mobility")) {
+    return "bg-teal-500/15 text-teal-900 dark:bg-teal-500/20 dark:text-teal-200";
+  }
   return "bg-emerald-500/15 text-emerald-800 dark:bg-emerald-500/20 dark:text-emerald-200";
 }
 

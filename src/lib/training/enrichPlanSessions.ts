@@ -166,6 +166,9 @@ export async function enrichTrainingPlanWorkoutsFromLibrary(planId: string): Pro
 
     const phase = (w.phase as TrainingPhase) ?? "base";
     const slotType = resolveWorkoutSlotType(w);
+    if (slotType === "strength" || slotType === "mobility") {
+      continue;
+    }
     const dayType = workoutTypeToSelectorDayType(slotType);
     const dow = mondayIndexFromDateStr(w.date);
     const legacyTypeForRow =

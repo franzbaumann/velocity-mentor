@@ -53,6 +53,8 @@ const WORKOUT_COLORS: Record<string, { bg: string; text: string }> = {
   recovery: { bg: "#9CA3AF", text: "#fff" },
   strides: { bg: "#22C55E", text: "#fff" },
   race: { bg: "#0A84FF", text: "#fff" },
+  strength: { bg: "#8B5CF6", text: "#fff" },
+  mobility: { bg: "#14B8A6", text: "#fff" },
 };
 
 const COMPLETED_BLUE = "#0A84FF";

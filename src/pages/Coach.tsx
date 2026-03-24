@@ -451,6 +451,8 @@ async function savePlanFromChat(plan: Record<string, unknown>, isAdjustment: boo
         target_pace: (w.target_pace as string | null) ?? null,
         target_hr_zone: (w.target_hr_zone as number | null) ?? null,
         tss_estimate: (w.tss_estimate as number | null) ?? null,
+        session_library_id: (w.session_library_id as string | null) ?? null,
+        workout_steps: Array.isArray(w.workout_steps) ? w.workout_steps : null,
         completed: (w.completed as boolean) ?? false,
       });
     }
@@ -534,6 +536,8 @@ async function applyAdjustmentToExistingPlan(
       target_pace: (w.target_pace as string | null) ?? null,
       target_hr_zone: (w.target_hr_zone as number | null) ?? null,
       tss_estimate: (w.tss_estimate as number | null) ?? null,
+      session_library_id: (w.session_library_id as string | null) ?? null,
+      workout_steps: Array.isArray(w.workout_steps) ? w.workout_steps : null,
       completed: false,
       notes: adjustmentReason ? `[Adjustment] ${adjustmentReason}` : null,
     });
