@@ -581,8 +581,148 @@ async function fetchProviderCapability(
   };
 }
 
+// ─── Vital daily-summary webhook helpers ──────────────────────────────────────
+
+async function verifySvixSignature(
+  svixId: string,
+  svixTimestamp: string,
+  rawBody: string,
+  svixSignature: string,
+  webhookSecret: string,
+): Promise<boolean> {
+  try {
+    const secretBytes = webhookSecret.startsWith("whsec_")
+      ? Uint8Array.from(atob(webhookSecret.slice(6)), (c) => c.charCodeAt(0))
+      : new TextEncoder().encode(webhookSecret);
+    const signingContent = `${svixId}.${svixTimestamp}.${rawBody}`;
+    const key = await crypto.subtle.importKey(
+      "raw", secretBytes, { name: "HMAC", hash: "SHA-256" }, false, ["sign"],
+    );
+    const sig = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(signingContent));
+    const expected = btoa(String.fromCharCode(...new Uint8Array(sig)));
+    // svix-signature header: space-separated "v1,<b64sig>" pairs
+    const signatures = svixSignature.split(" ")
+      .map((s) => s.split(",").at(-1))
+      .filter(Boolean) as string[];
+    return signatures.some((s) => s === expected);
+  } catch {
+    return false;
+  }
+}
+
+async function handleDailySummaryWebhook(
+  body: Dict,
+  supabaseAdmin: ReturnType<typeof createClient>,
+): Promise<Response> {
+  const vitalUserId = firstString(body.user_id, body.client_user_id);
+  if (!vitalUserId) return json({ error: "Missing user_id in webhook payload" }, 400);
+
+  const raw = asDict(body.data) ?? {};
+  const date = String(raw.calendar_date ?? raw.date ?? "").slice(0, 10);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    return json({ error: "Missing or invalid date in payload" }, 400);
+  }
+
+  // Resolve Supabase user from Vital user ID
+  const { data: integration } = await supabaseAdmin
+    .from("integrations")
+    .select("user_id")
+    .eq("provider", "vital")
+    .eq("athlete_id", vitalUserId)
+    .maybeSingle();
+  if (!integration?.user_id) {
+    return json({ error: "Vital user not found", vital_user_id: vitalUserId }, 404);
+  }
+
+  // Extract wellness fields — field names vary by provider, try multiple paths
+  const hrv = toNum(
+    raw.hrv_rmssd ?? raw.hrv ?? raw.average_hrv ?? raw.hrv_sdnn ??
+    asDict(raw.hrv_data)?.rmssd ?? asDict(raw.hrv_data)?.value,
+  );
+  const sleepSecs = toNum(
+    raw.sleep_duration_seconds ?? raw.total_sleep_duration ?? raw.sleep_duration ??
+    raw.total_sleep ?? raw.duration_asleep ?? asDict(raw.sleep_data)?.duration,
+  );
+  const sleepHours = sleepSecs != null && sleepSecs > 0
+    ? Math.round((sleepSecs / 3600) * 10) / 10
+    : null;
+  const restingHr = toNum(
+    raw.resting_heartrate ?? raw.resting_hr ?? raw.resting_heart_rate ??
+    raw.min_heartrate ?? asDict(raw.heart_rate)?.resting,
+  );
+  const vo2maxRaw = toNum(
+    raw.vo2_max ?? raw.vo2max ?? raw.vo2max_ml_per_min_per_kg ??
+    asDict(raw.cardiovascular_data)?.vo2_max,
+  );
+
+  const upsert: Record<string, unknown> = { user_id: integration.user_id, date };
+  if (hrv != null) upsert.hrv = Math.round(hrv * 10) / 10;
+  if (sleepHours != null) upsert.sleep_hours = sleepHours;
+  if (restingHr != null) upsert.resting_hr = Math.round(restingHr);
+  if (vo2maxRaw != null) upsert.vo2max = Math.round(vo2maxRaw * 10) / 10;
+
+  const fieldsUpdated = Object.keys(upsert).filter((k) => k !== "user_id" && k !== "date");
+  if (fieldsUpdated.length === 0) {
+    return json({
+      ok: true,
+      detail: "No wellness fields found in payload",
+      date,
+      vital_user_id: vitalUserId,
+    });
+  }
+
+  const { error } = await supabaseAdmin
+    .from("daily_readiness")
+    .upsert(upsert, { onConflict: "user_id,date" });
+  if (error) {
+    console.error("[vital-sync] daily_readiness webhook upsert failed", error.message);
+    return json({ error: error.message }, 500);
+  }
+
+  console.log("[vital-sync] webhook upserted daily_readiness", { date, fieldsUpdated });
+  return json({ ok: true, date, vital_user_id: vitalUserId, fields_updated: fieldsUpdated });
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: corsHeaders });
+
+  // ─── Inbound Vital webhook (Svix-signed, no user auth) ──────────────────────
+  const isSvixWebhook = req.headers.has("svix-id") && req.headers.has("svix-signature");
+  if (isSvixWebhook || req.headers.get("x-vital-event-type") != null) {
+    const webhookSecret = Deno.env.get("VITAL_WEBHOOK_SECRET") ?? "";
+    const rawBody = await req.text();
+    if (webhookSecret && isSvixWebhook) {
+      const valid = await verifySvixSignature(
+        req.headers.get("svix-id")!,
+        req.headers.get("svix-timestamp") ?? "",
+        rawBody,
+        req.headers.get("svix-signature")!,
+        webhookSecret,
+      );
+      if (!valid) return json({ error: "Invalid webhook signature" }, 400);
+    }
+    let webhookBody: Dict;
+    try {
+      webhookBody = JSON.parse(rawBody) as Dict;
+    } catch {
+      return json({ error: "Invalid JSON body" }, 400);
+    }
+    const eventType = firstString(webhookBody.event_type, webhookBody.type);
+    if (
+      eventType === "daily.data.summary.created" ||
+      eventType === "daily.data.summary.updated"
+    ) {
+      const supabaseAdmin = createClient(
+        Deno.env.get("SUPABASE_URL")!,
+        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+      );
+      return handleDailySummaryWebhook(webhookBody, supabaseAdmin);
+    }
+    return json({ ok: true, detail: `Event '${eventType ?? "unknown"}' acknowledged but not handled` });
+  }
+  // ────────────────────────────────────────────────────────────────────────────
 
   try {
     const requestId = req.headers.get("x-request-id") ?? crypto.randomUUID();
@@ -1076,6 +1216,81 @@ Deno.serve(async (req) => {
         );
         if (!error) readinessUpserted++;
       }
+    }
+
+    // ─── Resting HR (Vital timeseries) ────────────────────────────────────────
+    const restingHrEndpoints = [
+      `${baseUrl}/v2/timeseries/${vitalUserId}/resting_heart_rate/grouped?start_date=${startDate}&end_date=${endDate}`,
+      `${baseUrl}/v2/timeseries/${vitalUserId}/heartrate/grouped?start_date=${startDate}&end_date=${endDate}`,
+    ];
+    for (const endpoint of restingHrEndpoints) {
+      try {
+        const rhrRes = await fetch(endpoint, { headers });
+        if (!rhrRes.ok) continue;
+        const rhrData = (await rhrRes.json()) as {
+          groups?: Record<string, Array<{ data?: Array<{ timestamp?: string; value?: number; type?: string }> }>>;
+        };
+        const byDate = new Map<string, number[]>();
+        for (const providerGroups of Object.values(rhrData.groups ?? {})) {
+          for (const group of providerGroups) {
+            for (const point of group.data ?? []) {
+              // Skip non-resting points when type info is present
+              if (point.type && !String(point.type).toLowerCase().includes("rest")) continue;
+              const ts = point.timestamp;
+              if (!ts) continue;
+              const d = ts.slice(0, 10);
+              const val = point.value;
+              if (val == null) continue;
+              if (!byDate.has(d)) byDate.set(d, []);
+              byDate.get(d)!.push(val);
+            }
+          }
+        }
+        if (byDate.size === 0) continue;
+        for (const [d, vals] of byDate) {
+          const minHr = Math.min(...vals);
+          if (minHr < 30 || minHr > 120) continue; // sanity guard
+          const { error } = await supabaseAdmin.from("daily_readiness").upsert(
+            { user_id: user.id, date: d, resting_hr: Math.round(minHr) },
+            { onConflict: "user_id,date" },
+          );
+          if (!error) readinessUpserted++;
+        }
+        break; // success — skip fallback endpoint
+      } catch (e) {
+        console.warn("[vital-sync] resting HR fetch error", e);
+      }
+    }
+
+    // ─── VO2max (Vital timeseries) ─────────────────────────────────────────────
+    try {
+      const vo2Res = await fetch(
+        `${baseUrl}/v2/timeseries/${vitalUserId}/vo2_max/grouped?start_date=${startDate}&end_date=${endDate}`,
+        { headers },
+      );
+      if (vo2Res.ok) {
+        const vo2Data = (await vo2Res.json()) as {
+          groups?: Record<string, Array<{ data?: Array<{ timestamp?: string; value?: number }> }>>;
+        };
+        for (const providerGroups of Object.values(vo2Data.groups ?? {})) {
+          for (const group of providerGroups) {
+            for (const point of group.data ?? []) {
+              const ts = point.timestamp;
+              if (!ts) continue;
+              const d = ts.slice(0, 10);
+              const val = toNum(point.value);
+              if (val == null || val < 10 || val > 90) continue; // sanity guard (ml/kg/min)
+              const { error } = await supabaseAdmin.from("daily_readiness").upsert(
+                { user_id: user.id, date: d, vo2max: Math.round(val * 10) / 10 },
+                { onConflict: "user_id,date" },
+              );
+              if (!error) readinessUpserted++;
+            }
+          }
+        }
+      }
+    } catch (e) {
+      console.warn("[vital-sync] VO2max fetch error", e);
     }
 
     const missingDistanceRatio = mappingQuality.total_candidates > 0
