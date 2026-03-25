@@ -183,7 +183,12 @@ Deno.serve(async (req: Request) => {
     const action = String(body.action ?? "").trim();
 
     // Actions that don't require Intervals.icu (use Supabase only)
-    const noIntervalsActions = ["workout_coach_note", "workout_steps", "activity_coach_note"];
+    const noIntervalsActions = [
+      "workout_coach_note",
+      "workout_steps",
+      "activity_coach_note",
+      "post_workout_analysis",
+    ];
     let athleteId = "0";
     let headers: Record<string, string> = {};
     if (!noIntervalsActions.includes(action)) {
@@ -857,16 +862,14 @@ ${trkpts}
         tsb: latestReadiness?.tsb ?? null,
       });
 
-      // Trigger post-workout analysis asynchronously (best-effort)
+      // Trigger post-workout analysis asynchronously (best-effort); must use user JWT (getUser rejects service role)
       if (activitiesUpserted > 0) {
-        const SUPABASE_URL = Deno.env.get("SUPABASE_URL") ?? "";
-        const SUPABASE_SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
         fetch(`${SUPABASE_URL}/functions/v1/intervals-proxy`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
-            Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
-            apikey: SUPABASE_SERVICE_ROLE_KEY,
+            Authorization: authHeader || `Bearer ${token}`,
+            apikey: SUPABASE_ANON_KEY,
           },
           body: JSON.stringify({ action: "post_workout_analysis" }),
         }).catch(() => {});
