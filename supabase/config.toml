@@ -42,6 +42,9 @@ verify_jwt = false
 [functions.vital-sync]
 verify_jwt = false
 
+[functions.vital-backfill]
+verify_jwt = false
+
 [functions.garmin-import-zip]
 verify_jwt = true
 
