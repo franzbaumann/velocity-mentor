@@ -133,6 +133,7 @@ interface AthleteContext {
   onboarding_answers: Record<string, unknown> | null;
   readiness_history_text: string;
   memories: CoachingMemory[];
+  compliance_context?: string;
   season?: SeasonContextForPrompt;
   tls?: TLSContextForPrompt;
 }
@@ -1087,7 +1088,7 @@ ${memoriesBlock}` : ""}
 
 ${buildSeasonBlockDeno(ctx)}
 
-${buildTLSBlockDeno(ctx)}`;
+${buildTLSBlockDeno(ctx)}${ctx.compliance_context ? "\n\nSESSION COMPLIANCE\n" + ctx.compliance_context : ""}`;
 }
 
 function buildKipcoacheeSystemPrompt(ctx: AthleteContext): string {

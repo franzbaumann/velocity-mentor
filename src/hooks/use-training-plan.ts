@@ -113,6 +113,8 @@ export function useTrainingPlan() {
               key_focus: s.notes ?? null,
               target_hr_zone: (s as { target_hr_zone?: number }).target_hr_zone ?? null,
               completed_at: (s as { completed_at?: string }).completed_at ?? null,
+              status: (s as { status?: string }).status ?? null,
+              effort_rating: (s as { effort_rating?: string }).effort_rating ?? null,
               supportsCoachNote: false, // from training_session, no coach_note support
             }));
             const total_km = sess.reduce((s, x) => s + (x.distance_km ?? 0), 0);
@@ -171,7 +173,9 @@ export function useTrainingPlan() {
           key_focus: w.key_focus ?? null,
           target_hr_zone: w.target_hr_zone ?? null,
           tss_estimate: w.tss_estimate ?? null,
-          completed_at: w.completed ? (w.date ? `${w.date}T12:00:00Z` : new Date().toISOString()) : null,
+          completed_at: (w as { completed_at?: string }).completed_at ?? (w.completed ? (w.date ? `${w.date}T12:00:00Z` : new Date().toISOString()) : null),
+          status: (w as { status?: string }).status ?? (w.completed ? "completed" : "scheduled"),
+          effort_rating: (w as { effort_rating?: string }).effort_rating ?? null,
           coach_note: (w as { coach_note?: string | null }).coach_note ?? null,
           adjustment_notes: (w as { notes?: string | null }).notes ?? null,
           workout_steps: (w as { workout_steps?: unknown }).workout_steps ?? null,
@@ -226,15 +230,23 @@ export function useTrainingPlan() {
 
   const markDoneMutation = useMutation({
     mutationFn: async ({ sessionId, done }: { sessionId: string; done: boolean }) => {
+      const now = new Date().toISOString();
       const { data: updatedSessions, error: sessionErr } = await supabase
         .from("training_session")
-        .update({ completed_at: done ? new Date().toISOString() : null })
+        .update({
+          completed_at: done ? now : null,
+          status: done ? "completed" : "scheduled",
+        } as never)
         .eq("id", sessionId)
         .select("id");
       if (!sessionErr && updatedSessions && updatedSessions.length > 0) return { sessionId, done };
       const { error: workoutErr } = await supabase
         .from("training_plan_workout")
-        .update({ completed: done })
+        .update({
+          completed: done,
+          completed_at: done ? now : null,
+          status: done ? "completed" : "scheduled",
+        } as never)
         .eq("id", sessionId);
       if (workoutErr) throw workoutErr;
       return { sessionId, done };
@@ -242,13 +254,56 @@ export function useTrainingPlan() {
     onSuccess: async (_, { sessionId, done }) => {
       queryClient.invalidateQueries({ queryKey: ["training-plan"] });
       toast({ title: done ? "Session marked done" : "Session unchecked", description: "Training plan updated." });
-
       if (done) {
         triggerNutritionMessage(sessionId).catch(() => {});
       }
     },
     onError: (e) => {
       toast({ title: "Failed to update", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const skipMutation = useMutation({
+    mutationFn: async ({ sessionId }: { sessionId: string }) => {
+      const { data, error } = await supabase
+        .from("training_session")
+        .update({ status: "skipped" } as never)
+        .eq("id", sessionId)
+        .select("id");
+      if (!error && data && data.length > 0) return;
+      const { error: workoutErr } = await supabase
+        .from("training_plan_workout")
+        .update({ status: "skipped" } as never)
+        .eq("id", sessionId);
+      if (workoutErr) throw workoutErr;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+    },
+    onError: (e) => {
+      toast({ title: "Failed to skip", description: e.message, variant: "destructive" });
+    },
+  });
+
+  const effortMutation = useMutation({
+    mutationFn: async ({ sessionId, effort }: { sessionId: string; effort: "easy" | "normal" | "hard" }) => {
+      const { data, error } = await supabase
+        .from("training_session")
+        .update({ effort_rating: effort } as never)
+        .eq("id", sessionId)
+        .select("id");
+      if (!error && data && data.length > 0) return;
+      const { error: workoutErr } = await supabase
+        .from("training_plan_workout")
+        .update({ effort_rating: effort } as never)
+        .eq("id", sessionId);
+      if (workoutErr) throw workoutErr;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+    },
+    onError: (e) => {
+      toast({ title: "Failed to save effort", description: e.message, variant: "destructive" });
     },
   });
 
@@ -259,5 +314,7 @@ export function useTrainingPlan() {
     isRescheduling: rescheduleMutation.isPending,
     markSessionDone: markDoneMutation.mutate,
     isMarkingDone: markDoneMutation.isPending,
+    skipSession: skipMutation.mutate,
+    updateEffort: effortMutation.mutate,
   };
 }

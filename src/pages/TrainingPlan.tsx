@@ -45,6 +45,8 @@ type SessionLike = {
   duration_min: number | null;
   pace_target: string | null;
   completed_at: string | null;
+  status?: string | null;
+  effort_rating?: string | null;
   key_focus?: string | null;
   target_hr_zone?: number | null;
   coach_note?: string | null;
@@ -67,6 +69,8 @@ function TrainingPlanSessionRow({
   onNewDate,
   onSaveMove,
   onMarkDone,
+  onSkip,
+  onEffort,
   onAskCoachCade,
   onSessionClick,
   isNextSession,
@@ -81,49 +85,60 @@ function TrainingPlanSessionRow({
   onNewDate: (d: string) => void;
   onSaveMove: () => void;
   onMarkDone: (args: { sessionId: string; done: boolean }) => void;
+  onSkip: (args: { sessionId: string }) => void;
+  onEffort: (args: { sessionId: string; effort: "easy" | "normal" | "hard" }) => void;
   onAskCoachCade?: (session: SessionLike) => void;
   onSessionClick?: (session: SessionLike) => void;
   isNextSession?: boolean;
 }) {
-  const isDone = !!session.completed_at;
+  const isCompleted = session.status === "completed" || (session.status == null && !!session.completed_at);
+  const isSkipped = session.status === "skipped";
+  const todayStr = new Date().toISOString().slice(0, 10);
+  const isPastOrToday = !session.scheduled_date || session.scheduled_date <= todayStr;
 
   return (
     <div
-      className={`flex items-start gap-3 p-2 ${session.completed_at ? "opacity-75" : ""}`}
+      className={cn(
+        "flex items-start gap-3 p-2 rounded-lg transition-colors",
+        isCompleted && "border-l-2 border-green-500",
+        isSkipped && "opacity-50",
+      )}
     >
       <button
         type="button"
         onClick={(e) => {
           e.stopPropagation();
-          onMarkDone({ sessionId: session.id, done: !isDone });
+          onMarkDone({ sessionId: session.id, done: !isCompleted });
         }}
-        className={`shrink-0 mt-3 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors ${isDone ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40 hover:border-primary/50"}`}
-        title={isDone ? "Mark not done" : "Mark done"}
+        className={`shrink-0 mt-3 w-6 h-6 rounded-md border-2 flex items-center justify-center transition-colors ${isCompleted ? "bg-primary border-primary text-primary-foreground" : "border-muted-foreground/40 hover:border-primary/50"}`}
+        title={isCompleted ? "Mark not done" : "Mark done"}
       >
-        {isDone && <Check className="w-3.5 h-3.5" />}
+        {isCompleted && <Check className="w-3.5 h-3.5" />}
       </button>
       <div className="flex-1 min-w-0 space-y-2">
-        <SessionCard
-          workout={{
-            id: session.id,
-            scheduled_date: session.scheduled_date,
-            session_type: session.session_type,
-            name: session.name,
-            description: session.description,
-            distance_km: session.distance_km,
-            duration_min: session.duration_min,
-            pace_target: session.pace_target,
-            target_hr_zone: session.target_hr_zone,
-            key_focus: session.key_focus,
-            coach_note: session.coach_note,
-            session_structure: session.session_structure ?? null,
-          }}
-          isExpanded={expanded}
-          onToggle={onToggleExpand}
-          onMove={onStartMove}
-          onAskCoach={() => onAskCoachCade?.(session)}
-          rationaleDefaultOpen={isNextSession}
-        />
+        <div className={isSkipped ? "opacity-60 line-through" : undefined}>
+          <SessionCard
+            workout={{
+              id: session.id,
+              scheduled_date: session.scheduled_date,
+              session_type: session.session_type,
+              name: session.name,
+              description: session.description,
+              distance_km: session.distance_km,
+              duration_min: session.duration_min,
+              pace_target: session.pace_target,
+              target_hr_zone: session.target_hr_zone,
+              key_focus: session.key_focus,
+              coach_note: session.coach_note,
+              session_structure: session.session_structure ?? null,
+            }}
+            isExpanded={expanded}
+            onToggle={onToggleExpand}
+            onMove={onStartMove}
+            onAskCoach={() => onAskCoachCade?.(session)}
+            rationaleDefaultOpen={isNextSession}
+          />
+        </div>
         {onSessionClick ? (
           <button
             type="button"
@@ -133,6 +148,54 @@ function TrainingPlanSessionRow({
             Session details &amp; coaching note →
           </button>
         ) : null}
+        {isPastOrToday && (
+          <div className="flex gap-2 mt-1 pt-2 border-t border-border">
+            <button
+              onClick={(e) => { e.stopPropagation(); onMarkDone({ sessionId: session.id, done: !isCompleted }); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+                isCompleted
+                  ? "bg-green-500/20 text-green-400 border border-green-500/30"
+                  : "bg-muted text-muted-foreground hover:bg-green-500/10 hover:text-green-400",
+              )}
+            >
+              <Check className="w-3.5 h-3.5" /> Done
+            </button>
+            <button
+              onClick={(e) => { e.stopPropagation(); onSkip({ sessionId: session.id }); }}
+              className={cn(
+                "flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors",
+                isSkipped
+                  ? "bg-muted text-muted-foreground border border-border"
+                  : "bg-muted text-muted-foreground hover:bg-muted/70",
+              )}
+            >
+              Skip
+            </button>
+            {isCompleted && (
+              <div className="flex gap-1 ml-auto">
+                {(["easy", "normal", "hard"] as const).map((effort) => (
+                  <button
+                    key={effort}
+                    onClick={(e) => { e.stopPropagation(); onEffort({ sessionId: session.id, effort }); }}
+                    className={cn(
+                      "px-2.5 py-1 rounded-md text-xs font-medium transition-colors capitalize",
+                      session.effort_rating === effort
+                        ? effort === "easy"
+                          ? "bg-blue-500/20 text-blue-400"
+                          : effort === "normal"
+                          ? "bg-yellow-500/20 text-yellow-400"
+                          : "bg-red-500/20 text-red-400"
+                        : "bg-muted text-muted-foreground hover:bg-muted/70",
+                    )}
+                  >
+                    {effort}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {moving ? (
           <div className="flex gap-2 flex-wrap items-center pl-1">
             <Popover>
@@ -172,6 +235,8 @@ function SessionDetailModal({
   session: SessionLike;
   onClose: () => void;
   onMarkDone: (args: { sessionId: string; done: boolean }) => void;
+  onSkip: (args: { sessionId: string }) => void;
+  onEffort: (args: { sessionId: string; effort: "easy" | "normal" | "hard" }) => void;
   onAskCoachCade?: (session: SessionLike) => void;
   onCoachNoteFetched?: () => void;
 }) {
@@ -434,7 +499,7 @@ function RaceDayCard({ race }: { race: { name: string; distance: string; priorit
 }
 
 export default function TrainingPlan() {
-  const { plan, isLoading, rescheduleSession, markSessionDone } = useTrainingPlan();
+  const { plan, isLoading, rescheduleSession, markSessionDone, skipSession, updateEffort } = useTrainingPlan();
   const weeks = plan?.weeks ?? [];
   const planRow = plan?.plan as { season_id?: string | null } | undefined;
   const seasonId = planRow?.season_id;
@@ -790,6 +855,8 @@ export default function TrainingPlan() {
                             setMovingSessionId(null);
                           }}
                           onMarkDone={markSessionDone}
+                          onSkip={skipSession}
+                          onEffort={updateEffort}
                           onAskCoachCade={handleAskCoachCade}
                           onSessionClick={setSelectedSession}
                         />
