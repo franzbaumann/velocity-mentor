@@ -3,7 +3,7 @@ import { useTrainingPlan } from "@/hooks/use-training-plan";
 import { supabase } from "@/integrations/supabase/client";
 import { useQuery } from "@tanstack/react-query";
 import { FunctionsHttpError } from "@supabase/supabase-js";
-import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, GripVertical, Check, MessageCircle, Sparkles, RefreshCw, Trophy } from "lucide-react";
+import { Calendar, CalendarDays, List, ChevronDown, ChevronRight, Activity, GripVertical, Check, MessageCircle, Sparkles, RefreshCw, Trophy, Loader2 } from "lucide-react";
 import { UnifiedCalendar } from "@/components/UnifiedCalendar";
 import { useState, useMemo, useEffect, useRef, Fragment } from "react";
 import { format, parseISO, isWithinInterval } from "date-fns";
@@ -24,6 +24,16 @@ import { parseSteps, WorkoutStepsDisplay, type WorkoutStep } from "@/lib/workout
 import { SessionCard } from "@/components/training/SessionCard";
 import type { SessionStructureStored } from "@/lib/training/sessionStructureUi";
 import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { toast } from "sonner";
+import { enrichTrainingPlanWorkoutsFromLibrary } from "@/lib/training/enrichPlanSessions";
 
 type SessionLike = {
   id: string;
@@ -463,8 +473,46 @@ export default function TrainingPlan() {
   const [expandedPlanSessions, setExpandedPlanSessions] = useState<Set<string>>(new Set());
   const [movingSessionId, setMovingSessionId] = useState<string | null>(null);
   const [moveDateDraft, setMoveDateDraft] = useState("");
+  const [showRegenerateDialog, setShowRegenerateDialog] = useState(false);
+  const [isRegenerating, setIsRegenerating] = useState(false);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+
+  const handleRegenerate = async () => {
+    if (!seasonId || !seasonWithRaces?.end_goal_race_id) {
+      toast.error("No season or goal race found");
+      return;
+    }
+    setIsRegenerating(true);
+    try {
+      const philosophy = (plan?.plan as { philosophy?: string })?.philosophy;
+      const { data, error } = await supabase.functions.invoke("season-generate-plan", {
+        body: {
+          season_id: seasonId,
+          end_goal_race_id: seasonWithRaces.end_goal_race_id,
+          ...(philosophy ? { philosophy } : {}),
+        },
+      });
+      if (error) throw error;
+      if ((data as { error?: string })?.error) throw new Error((data as { error?: string }).error);
+      const planId = (data as { plan_id?: string })?.plan_id;
+      if (planId) {
+        try {
+          await enrichTrainingPlanWorkoutsFromLibrary(planId);
+        } catch (enrichErr) {
+          console.warn("[TrainingPlan] enrichPlanSessions:", enrichErr);
+        }
+      }
+      queryClient.invalidateQueries({ queryKey: ["training-plan"] });
+      setShowRegenerateDialog(false);
+      toast.success("Training plan regenerated!");
+    } catch (err) {
+      console.error("Failed to regenerate plan:", err);
+      toast.error("Failed to regenerate plan. Please try again.");
+    } finally {
+      setIsRegenerating(false);
+    }
+  };
 
   const handleAskCoachCade = (session: SessionLike) => {
     const weeks = plan?.weeks ?? [];
@@ -617,6 +665,14 @@ export default function TrainingPlan() {
           </div>
           <div className="flex items-center gap-2">
             <button
+              onClick={() => setShowRegenerateDialog(true)}
+              className="flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+            >
+              <RefreshCw className="w-3.5 h-3.5" />
+              Regenerate plan
+            </button>
+            <div className="w-px h-4 bg-border mx-1" />
+            <button
               onClick={() => setView("list")}
               className={`p-2 rounded-lg transition-colors ${view === "list" ? "bg-primary/10 text-primary" : "text-muted-foreground hover:text-foreground"}`}
               title="List view"
@@ -757,6 +813,29 @@ export default function TrainingPlan() {
             onCoachNoteFetched={() => queryClient.invalidateQueries({ queryKey: ["training-plan"] })}
           />
         )}
+        <Dialog open={showRegenerateDialog} onOpenChange={setShowRegenerateDialog}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Regenerate training plan?</DialogTitle>
+              <DialogDescription>
+                This will create a new plan based on your current race target and fitness. Your existing plan will be replaced.
+              </DialogDescription>
+            </DialogHeader>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setShowRegenerateDialog(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleRegenerate} disabled={isRegenerating}>
+                {isRegenerating ? (
+                  <>
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    Generating...
+                  </>
+                ) : "Yes, regenerate"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </div>
     </AppLayout>
   );
