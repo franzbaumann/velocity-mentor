@@ -1,13 +1,13 @@
 {
   "expo": {
-    "name": "Velocity Coach",
+    "name": "Cade Running",
     "slug": "app",
     "version": "1.0.0",
     "newArchEnabled": true,
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "scheme": "velocitycoach",
+    "scheme": "caderunning",
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
@@ -15,7 +15,7 @@
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.velocitycoach.app",
+      "bundleIdentifier": "com.caderunning.app",
       "buildNumber": "1"
     },
     "android": {
@@ -25,7 +25,7 @@
           "autoVerify": true,
           "data": [
             {
-              "scheme": "velocitycoach",
+              "scheme": "caderunning",
               "host": "auth",
               "pathPrefix": "/callback"
             }
@@ -36,7 +36,7 @@
           ]
         }
       ],
-      "package": "com.velocitycoach.app",
+      "package": "com.caderunning.app",
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -54,8 +54,8 @@
       [
         "@kingstinct/react-native-healthkit",
         {
-          "NSHealthShareUsageDescription": "Velocity Coach reads workouts, heart rate, sleep, and activity to personalize training and recovery.",
-          "NSHealthUpdateUsageDescription": "Velocity Coach may write workout or health data you choose to save.",
+          "NSHealthShareUsageDescription": "Cade Running reads workouts, heart rate, sleep, and activity to personalize training and recovery.",
+          "NSHealthUpdateUsageDescription": "Cade Running may write workout or health data you choose to save.",
           "background": true
         }
       ]

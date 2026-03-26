@@ -143,9 +143,10 @@ export function useDashboardData(selectedDate?: string) {
     queryKey: ["activities-dashboard"],
     queryFn: async () => {
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return [] as ActivityRow[];
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) return [] as ActivityRow[];
+      const user = session.user;
       const oldestDate = subDays(new Date(), 365 * 2);
       const oldestStr = getLocalDateString(oldestDate);
       const { data, error } = await supabase
@@ -162,6 +163,7 @@ export function useDashboardData(selectedDate?: string) {
     },
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
+    refetchOnMount: "always",
   });
 
   const {
@@ -173,9 +175,10 @@ export function useDashboardData(selectedDate?: string) {
     queryKey: ["daily_readiness-dashboard"],
     queryFn: async () => {
       const {
-        data: { user },
-      } = await supabase.auth.getUser();
-      if (!user) return [] as ReadinessRow[];
+        data: { session },
+      } = await supabase.auth.getSession();
+      if (!session?.user) return [] as ReadinessRow[];
+      const user = session.user;
       const oldestDate = subDays(new Date(), 365 * 2);
       const oldestStr = getLocalDateString(oldestDate);
       const { data, error } = await supabase

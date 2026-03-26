@@ -3,7 +3,7 @@ import { AppState, Linking } from "react-native";
 import type { SupabaseClient, User } from "@supabase/supabase-js";
 import { supabase } from "./shared/supabase";
 
-const AUTH_CALLBACK_URL = "velocitycoach://auth/callback";
+const AUTH_CALLBACK_URL = "caderunning://auth/callback";
 
 function parseSessionFromUrl(url: string): { access_token: string; refresh_token: string } | null {
   if (!url.startsWith(AUTH_CALLBACK_URL)) return null;

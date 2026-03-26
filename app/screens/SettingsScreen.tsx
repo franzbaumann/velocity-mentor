@@ -34,7 +34,9 @@ import { useQueryClient } from "@tanstack/react-query";
 import Toast from "react-native-toast-message";
 import { useOnboardingStatus } from "../hooks/useOnboardingStatus";
 import { useDailyStreak } from "../hooks/useDailyStreak";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useAppleHealth } from "../hooks/useAppleHealth";
+import { useAppleHealthSync, APPLE_HEALTH_SYNC_STORAGE_KEY } from "../hooks/useAppleHealthSync";
 import { getLocalDateString } from "../lib/date";
 
 const APPEARANCE_OPTIONS: { name: "light" | "darkPro"; label: string; emoji: string; previewTheme: typeof lightTheme }[] = [
@@ -61,6 +63,7 @@ export const SettingsScreen: FC = () => {
   const { resetForTesting: resetTutorial } = useOnboardingStatus();
   const streak = useDailyStreak();
   const appleHealth = useAppleHealth();
+  const { syncNow: syncAppleHealthNow, syncing: appleHealthSyncing } = useAppleHealthSync();
 
   const [athleteId, setAthleteId] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -687,6 +690,21 @@ export const SettingsScreen: FC = () => {
         },
         secondaryBtnText: { fontSize: 13, fontWeight: "500", color: colors.mutedForeground },
         secondaryBtnDisabled: { opacity: 0.5 },
+        syncNowBtn: {
+          flexDirection: "row",
+          alignItems: "center",
+          gap: 6,
+          alignSelf: "flex-start",
+          marginLeft: 46,
+          marginTop: 6,
+          marginBottom: 2,
+          paddingHorizontal: 12,
+          paddingVertical: 6,
+          borderRadius: 999,
+          borderWidth: 1,
+          borderColor: theme.accentBlue,
+        },
+        syncNowText: { fontSize: 13, fontWeight: "500", color: theme.accentBlue },
         errorText: { marginTop: 4, fontSize: 12, color: theme.negative },
         syncStatus: { marginTop: 6, fontSize: 12 },
         syncStatusRunning: { color: colors.mutedForeground },
@@ -1082,7 +1100,7 @@ export const SettingsScreen: FC = () => {
                     : !appleHealth.kitAvailable
                     ? "Not available on this device"
                     : appleHealth.hasBeenPrompted
-                    ? "Permission sheet completed — adjust in Health app"
+                    ? "Connected — syncs automatically"
                     : appleHealth.shouldShowSystemPrompt
                     ? "Not connected"
                     : "Tap to connect"}
@@ -1097,9 +1115,11 @@ export const SettingsScreen: FC = () => {
                 disabled={!appleHealth.kitAvailable || appleHealth.connecting || appleHealth.loading}
                 onPress={() => {
                   if (appleHealth.hasBeenPrompted) {
-                    Linking.openSettings();
+                    Linking.openURL("x-apple-health://").catch(() => Linking.openSettings());
                   } else {
-                    appleHealth.connect();
+                    appleHealth.connect().then(() => {
+                      AsyncStorage.removeItem(APPLE_HEALTH_SYNC_STORAGE_KEY);
+                    });
                   }
                 }}
               >
@@ -1107,11 +1127,28 @@ export const SettingsScreen: FC = () => {
                   <ActivityIndicator size="small" color={colors.primaryForeground} />
                 ) : (
                   <Text style={styles.connectBtnText}>
-                    {appleHealth.hasBeenPrompted ? "App settings" : "Connect"}
+                    {appleHealth.hasBeenPrompted ? "Settings" : "Connect"}
                   </Text>
                 )}
               </TouchableOpacity>
             </View>
+            {appleHealth.hasBeenPrompted && appleHealth.kitAvailable && (
+              <TouchableOpacity
+                style={[styles.syncNowBtn, appleHealthSyncing && styles.secondaryBtnDisabled]}
+                activeOpacity={0.8}
+                disabled={appleHealthSyncing}
+                onPress={syncAppleHealthNow}
+              >
+                {appleHealthSyncing ? (
+                  <ActivityIndicator size="small" color={theme.accentBlue} />
+                ) : (
+                  <Ionicons name="sync" size={14} color={theme.accentBlue} />
+                )}
+                <Text style={styles.syncNowText}>
+                  {appleHealthSyncing ? "Syncing…" : "Sync Now"}
+                </Text>
+              </TouchableOpacity>
+            )}
           </>
         )}
         <View style={styles.divider} />

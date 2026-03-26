@@ -1015,7 +1015,7 @@ export type Database = {
       [_ in never]: never
     }
     Enums: {
-      activity_source: "garmin" | "strava" | "manual" | "intervals_icu"
+      activity_source: "garmin" | "strava" | "manual" | "intervals_icu" | "apple_health"
       coach_role: "user" | "coach" | "assistant"
       coach_trigger: "user" | "proactive" | "activity_sync" | "readiness"
       oauth_provider: "garmin" | "strava"
@@ -1147,7 +1147,7 @@ export type CompositeTypes<
 export const Constants = {
   public: {
     Enums: {
-      activity_source: ["garmin", "strava", "manual", "intervals_icu"],
+      activity_source: ["garmin", "strava", "manual", "intervals_icu", "apple_health"],
       coach_role: ["user", "coach", "assistant"],
       coach_trigger: ["user", "proactive", "activity_sync", "readiness"],
       oauth_provider: ["garmin", "strava"],

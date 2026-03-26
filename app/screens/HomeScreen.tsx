@@ -27,6 +27,7 @@ import { SkeletonCard, SkeletonLine } from "../components/Skeleton";
 import { useTheme } from "../context/ThemeContext";
 import { useDashboardData } from "../hooks/useDashboardData";
 import { useIntervalsAutoSync } from "../hooks/useIntervalsAutoSync";
+import { useAppleHealthSync } from "../hooks/useAppleHealthSync";
 import { useRacePredictions } from "../hooks/useRacePredictions";
 import { useDailyStreak } from "../hooks/useDailyStreak";
 import { getLocalDateString } from "../lib/date";
@@ -98,8 +99,9 @@ export const HomeScreen: FC = () => {
   const navigation = useNavigation();
   const dashboard = useDashboardData(activeDateStr);
 
-  // Silent quick sync on app open when intervals.icu connected (once per 24h)
+  // Silent quick sync on app open when intervals.icu or Apple Health connected (once per 24h)
   useIntervalsAutoSync();
+  useAppleHealthSync();
   const {
     trainingPlan,
     athleteProfile,
@@ -114,6 +116,7 @@ export const HomeScreen: FC = () => {
     isRefetching,
     refetchAll,
     lastFetchedAt,
+    isSampleData,
   } = dashboard;
 
   // No refetch on focus — reduces unnecessary API load. Use pull-to-refresh to refresh.
@@ -1580,6 +1583,30 @@ export const HomeScreen: FC = () => {
         contentContainerStyle={[styles.content, { paddingBottom: SCROLL_PADDING_BELOW_BUBBLE }]}
         onRefresh={refetchAll}
       >
+        {/* SAMPLE DATA BANNER */}
+        {isSampleData && (
+          <TouchableOpacity
+            onPress={() => navigation.navigate("Settings" as never)}
+            activeOpacity={0.8}
+            style={{
+              backgroundColor: "#fef3c7",
+              borderRadius: 10,
+              paddingVertical: 8,
+              paddingHorizontal: 14,
+              marginBottom: 8,
+              flexDirection: "row",
+              alignItems: "center",
+              gap: 6,
+            }}
+          >
+            <Ionicons name="information-circle-outline" size={16} color="#92400e" />
+            <Text style={{ fontSize: 13, color: "#92400e", flex: 1 }}>
+              Showing sample data — connect Apple Health or intervals.icu in Settings
+            </Text>
+            <Ionicons name="chevron-forward" size={14} color="#92400e" />
+          </TouchableOpacity>
+        )}
+
         {/* HEADER */}
         <Reanimated.View style={headerAnimatedStyle}>
           <View style={styles.headerRow}>

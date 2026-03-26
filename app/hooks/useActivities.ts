@@ -3,7 +3,7 @@ import { useQuery } from "@tanstack/react-query";
 import { getLocalDateString } from "../lib/date";
 import { supabase } from "../shared/supabase";
 
-type ActivitySource = "garmin" | "strava" | "intervals_icu";
+type ActivitySource = "garmin" | "strava" | "intervals_icu" | "apple_health";
 
 export type ActivityListItem = {
   id: string;
