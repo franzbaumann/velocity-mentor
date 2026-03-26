@@ -1000,6 +1000,41 @@ export const ActivityDetailScreen: FC = () => {
                       value={`${Math.round(activity.calories)} kcal`}
                     />
                   )}
+                  {activity.tss != null && (
+                    <SummaryItem
+                      label="TSS"
+                      value={`${Math.round(activity.tss)}`}
+                      badge="icu"
+                    />
+                  )}
+                  {activity.intensityFactor != null && (
+                    <SummaryItem
+                      label="Intensity Factor"
+                      value={activity.intensityFactor.toFixed(2)}
+                      badge="icu"
+                    />
+                  )}
+                  {activity.icuVo2maxEstimate != null && (
+                    <SummaryItem
+                      label="Est. VO₂max"
+                      value={`${activity.icuVo2maxEstimate.toFixed(1)} ml/kg/min`}
+                      badge="icu"
+                    />
+                  )}
+                  {activity.icuLactateThresholdHr != null && (
+                    <SummaryItem
+                      label="LT Heart Rate"
+                      value={`${Math.round(activity.icuLactateThresholdHr)} bpm`}
+                      badge="icu"
+                    />
+                  )}
+                  {activity.icuLactateThresholdPace != null && (
+                    <SummaryItem
+                      label="LT Pace"
+                      value={activity.icuLactateThresholdPace}
+                      badge="icu"
+                    />
+                  )}
                 </View>
               </View>
 
@@ -1465,10 +1500,17 @@ function renderZoneRows(
   });
 }
 
-const SummaryItem: FC<{ label: string; value: string }> = ({ label, value }) => (
+const SummaryItem: FC<{ label: string; value: string; badge?: "icu" }> = ({ label, value, badge }) => (
   <View style={styles.summaryItem}>
     <Text style={styles.summaryLabel}>{label}</Text>
-    <Text style={styles.summaryValue}>{value}</Text>
+    <View style={{ flexDirection: "row", alignItems: "center", gap: 4 }}>
+      <Text style={styles.summaryValue}>{value}</Text>
+      {badge === "icu" && (
+        <View style={{ backgroundColor: "#0ea5e9", borderRadius: 3, paddingHorizontal: 4, paddingVertical: 1 }}>
+          <Text style={{ color: "#fff", fontSize: 9, fontWeight: "700", letterSpacing: 0.3 }}>ICU</Text>
+        </View>
+      )}
+    </View>
   </View>
 );
 

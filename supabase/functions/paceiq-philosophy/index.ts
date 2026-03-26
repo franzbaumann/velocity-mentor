@@ -237,6 +237,102 @@ function recommend(args: {
   return { primary, alternatives };
 }
 
+const PHILOSOPHY_SYSTEM_PROMPT = `You are Kipcoachee, an elite AI running coach.
+Recommend the best training philosophy for this athlete.
+Available philosophies: 80_20_polarized, jack_daniels, lydiard, hansons, pfitzinger, kenyan_model
+Return ONLY valid JSON, no other text:
+{
+  "primary": { "philosophy": string, "reason": string, "confidence": number },
+  "alternatives": [
+    { "philosophy": string, "reason": string },
+    { "philosophy": string, "reason": string }
+  ]
+}`;
+
+async function callGroqPhilosophy(answers: Record<string, unknown>): Promise<PhilosophyRecommendation | null> {
+  const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY");
+  if (!GROQ_API_KEY) return null;
+  console.log("paceiq-philosophy: trying Groq...");
+  try {
+    const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${GROQ_API_KEY}`, "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: "llama-3.3-70b-versatile",
+        messages: [
+          { role: "system", content: PHILOSOPHY_SYSTEM_PROMPT },
+          { role: "user", content: `Athlete onboarding answers: ${JSON.stringify(answers)}` },
+        ],
+        temperature: 0.7,
+        max_tokens: 2000,
+        response_format: { type: "json_object" },
+      }),
+    });
+    if (!res.ok) { console.error("Groq error:", res.status, await res.text()); return null; }
+    const json = await res.json();
+    const content = json.choices?.[0]?.message?.content ?? "";
+    return parsePhilosophyJson(content);
+  } catch (e) {
+    console.error("Groq exception:", e);
+    return null;
+  }
+}
+
+async function callGeminiPhilosophy(answers: Record<string, unknown>): Promise<PhilosophyRecommendation | null> {
+  const GEMINI_API_KEY = Deno.env.get("GEMINI_API_KEY");
+  if (!GEMINI_API_KEY) return null;
+  console.log("paceiq-philosophy: trying Gemini...");
+  try {
+    const prompt = `${PHILOSOPHY_SYSTEM_PROMPT}\n\nAthlete onboarding answers: ${JSON.stringify(answers)}`;
+    const res = await fetch(
+      `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash-lite:generateContent?key=${GEMINI_API_KEY}`,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          contents: [{ parts: [{ text: prompt }] }],
+          generationConfig: { temperature: 0.7, maxOutputTokens: 2000 },
+        }),
+      }
+    );
+    if (!res.ok) { console.error("Gemini error:", res.status, await res.text()); return null; }
+    const json = await res.json();
+    const content = json.candidates?.[0]?.content?.parts?.[0]?.text ?? "";
+    return parsePhilosophyJson(content);
+  } catch (e) {
+    console.error("Gemini exception:", e);
+    return null;
+  }
+}
+
+function parsePhilosophyJson(content: string): PhilosophyRecommendation | null {
+  const cleaned = content.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
+  const start = cleaned.indexOf("{");
+  const end = cleaned.lastIndexOf("}");
+  if (start === -1 || end <= start) return null;
+  try {
+    const parsed = JSON.parse(cleaned.slice(start, end + 1)) as {
+      primary?: { philosophy?: string; reason?: string; confidence?: number };
+      alternatives?: Array<{ philosophy?: string; reason?: string }>;
+    };
+    const validPhilosophies = ["80_20_polarized", "jack_daniels", "lydiard", "hansons", "pfitzinger", "kenyan_model"];
+    if (!parsed?.primary?.philosophy || !validPhilosophies.includes(parsed.primary.philosophy)) return null;
+    return {
+      primary: {
+        philosophy: parsed.primary.philosophy,
+        reason: parsed.primary.reason ?? "",
+        confidence: typeof parsed.primary.confidence === "number" ? parsed.primary.confidence : 0.85,
+      },
+      alternatives: (parsed.alternatives ?? [])
+        .filter((a) => a.philosophy && validPhilosophies.includes(a.philosophy))
+        .slice(0, 2)
+        .map((a) => ({ philosophy: a.philosophy!, reason: a.reason ?? "" })),
+    };
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -283,6 +379,15 @@ serve(async (req) => {
     const hasIntervalsData =
       typeof rawHasData === "boolean" ? rawHasData : (String(rawHasData || "").toLowerCase() === "true");
 
+    // Try AI first (Groq → Gemini), fall back to rule engine
+    const aiRec = (await callGroqPhilosophy(answers)) ?? (await callGeminiPhilosophy(answers));
+    if (aiRec) {
+      return new Response(JSON.stringify(aiRec), {
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+
+    console.log("paceiq-philosophy: AI unavailable, using rule engine");
     const rec = recommend({
       weeklyKm: Number.isFinite(weeklyKm) ? weeklyKm : 0,
       daysPerWeek: Number.isFinite(daysPerWeek) ? daysPerWeek : 0,

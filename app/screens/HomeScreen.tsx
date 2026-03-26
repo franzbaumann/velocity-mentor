@@ -14,6 +14,7 @@ import Reanimated, {
   withTiming,
 } from "react-native-reanimated";
 import { LinearGradient } from "expo-linear-gradient";
+import Svg, { Path } from "react-native-svg";
 import * as Haptics from "expo-haptics";
 import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
@@ -37,6 +38,7 @@ import type { AppTabsParamList } from "../navigation/RootNavigator";
 import { addDays as addDaysFns, isWithinInterval, parseISO, startOfWeek as startOfWeekFns } from "date-fns";
 
 const SCROLL_PADDING_BELOW_BUBBLE = 96;
+
 
 const cleanColors = {
   background: "#ffffff",
@@ -131,6 +133,7 @@ export const HomeScreen: FC = () => {
   const readinessScale = useRef(new Animated.Value(0.96)).current;
   const [isFlipped, setIsFlipped] = useState(false);
   const [showStreakCelebration, setShowStreakCelebration] = useState(false);
+  const [cardSize, setCardSize] = useState({ width: 0, height: 0 });
   const streak = useDailyStreak();
   const raceDaysAnim = useRef(new Animated.Value(0)).current;
   const [raceDaysDisplay, setRaceDaysDisplay] = useState<number | null>(null);
@@ -1083,10 +1086,14 @@ export const HomeScreen: FC = () => {
   const displayHrvValue =
     readiness.hrv != null && readiness.hrv !== 0 ? `${readiness.hrv}` : "—";
   const displaySleepHours = readiness.sleepHours;
+  const vividOrange = "#FF6B00";
+  const vividGreen = "#00C853";
+  const vividBlue = "#2979FF";
 
   // Keep mobile card accent colors aligned with web readiness ring thresholds.
   const readinessColor = readinessColorForScore(displayReadinessScore);
   const readinessAccentColor = readinessColor;
+  const vividGold = "#FFB300";
   const readinessTintBg =
     displayReadinessScore >= 75 ? "#f0fdf4" : displayReadinessScore >= 50 ? "#fffdf7" : "#fff1f2";
 
@@ -1376,12 +1383,14 @@ export const HomeScreen: FC = () => {
               >
                 <ReadinessBorder readiness={displayReadinessScore} radius={theme.cardRadius}>
                   <GlassCard
+                    onLayout={(e) => {
+                      const { width, height } = e.nativeEvent.layout;
+                      setCardSize({ width, height });
+                    }}
                     style={[
                       styles.readinessCard,
                       {
-                        borderWidth: 2,
-                        borderColor: readinessAccentColor,
-                        borderRadius: 20,
+                        borderRadius: 16,
                         backgroundColor: readinessTintBg,
                         shadowColor: readinessAccentColor,
                         shadowOffset: { width: 0, height: 6 },
@@ -1391,6 +1400,41 @@ export const HomeScreen: FC = () => {
                       },
                     ]}
                   >
+                    {cardSize.width > 0 &&
+                      (() => {
+                        const W = cardSize.width;
+                        const H = cardSize.height;
+                        const R = 16;
+                        const SW = 2;
+                        const color = readinessColor;
+                        const P = 2 * (W + H);
+                        const pathD = `
+    M ${R} ${SW}
+    L ${W - R} ${SW} Q ${W - SW} ${SW} ${W - SW} ${R}
+    L ${W - SW} ${H - R} Q ${W - SW} ${H - SW} ${W - R} ${H - SW}
+    L ${R} ${H - SW} Q ${SW} ${H - SW} ${SW} ${H - R}
+    L ${SW} ${R} Q ${SW} ${SW} ${R} ${SW}
+    Z
+  `;
+                        return (
+                          <Svg
+                            width={W}
+                            height={H}
+                            style={{ position: "absolute", top: 0, left: 0 }}
+                            pointerEvents="none"
+                          >
+                            <Path
+                              d={pathD}
+                              fill="none"
+                              stroke={color}
+                              strokeWidth={SW}
+                              strokeDasharray={`${P * 0.78} ${P}`}
+                              strokeDashoffset={0}
+                              strokeLinecap="round"
+                            />
+                          </Svg>
+                        );
+                      })()}
                     <View
                       style={{
                         height: 3,
@@ -1406,7 +1450,6 @@ export const HomeScreen: FC = () => {
                         score={displayReadinessScore}
                         size={80}
                         strokeWidth={10}
-                        trackColor="#f1f5f9"
                         statusLabel={
                           readiness.tsb != null
                             ? Number(readiness.tsb) > 5
@@ -1416,7 +1459,7 @@ export const HomeScreen: FC = () => {
                                 : "NEUTRAL"
                             : undefined
                         }
-                        statusColor={readinessAccentColor}
+                        statusColor={vividOrange}
                         centerTextStyle={{ fontSize: 32, fontWeight: "800" }}
                         labelTextStyle={{
                           fontSize: 10,
@@ -1454,32 +1497,16 @@ export const HomeScreen: FC = () => {
                                   score={displayHrvScore}
                                   size={128}
                                   strokeWidth={10}
-                                  trackColor="#f1f5f9"
                                   centerText={
                                     displayHrvValue
                                   }
                                   statusLabel={hrvTrendLabel}
-                                  statusColor={
-                                    recoveryMetrics.hrv == null || recoveryMetrics.hrv === 0
-                                      ? "#94a3b8"
-                                      : hrvDelta < 0
-                                        ? "#ef4444"
-                                        : hrvDelta > 0
-                                          ? "#22c55e"
-                                          : "#94a3b8"
-                                  }
+                                  statusColor={vividGreen}
                                   centerTextStyle={{ fontSize: 16, fontWeight: "700" }}
                                   labelTextStyle={{
                                     fontSize: 9,
                                     textTransform: "uppercase",
-                                    color:
-                                      recoveryMetrics.hrv == null || recoveryMetrics.hrv === 0
-                                        ? "#94a3b8"
-                                        : hrvDelta < 0
-                                          ? "#ef4444"
-                                          : hrvDelta > 0
-                                            ? "#22c55e"
-                                            : "#94a3b8",
+                                    color: vividGreen,
                                   }}
                                 />
                                 <Text style={styles.recoveryStatLabel}>HRV</Text>
@@ -1489,16 +1516,15 @@ export const HomeScreen: FC = () => {
                                   score={displaySleepScore}
                                   size={128}
                                   strokeWidth={10}
-                                  trackColor="#f1f5f9"
                                   centerText={formatSleepHours(displaySleepHours)}
                                   centerScale={0.1}
                                   statusLabel={sleepTrendLabel}
-                                  statusColor={sleepStatus.color}
+                                  statusColor={vividBlue}
                                   centerTextStyle={{ fontSize: 11, fontWeight: "700" }}
                                   labelTextStyle={{
                                     fontSize: 9,
                                     textTransform: "uppercase",
-                                    color: sleepStatus.color,
+                                    color: vividBlue,
                                   }}
                                 />
                                 <Text style={styles.recoveryStatLabel}>Sleep</Text>
@@ -1508,19 +1534,18 @@ export const HomeScreen: FC = () => {
                                   score={tsbScore}
                                   size={128}
                                   strokeWidth={10}
-                                  trackColor="#f1f5f9"
                                   centerText={
                                     readiness.tsb != null
                                       ? Number(readiness.tsb).toFixed(0)
                                       : "—"
                                   }
                                   statusLabel={tsbTrendLabel}
-                                  statusColor={tsbStatus.color}
+                                  statusColor={vividGold}
                                   centerTextStyle={{ fontSize: 16, fontWeight: "700" }}
                                   labelTextStyle={{
                                     fontSize: 9,
                                     textTransform: "uppercase",
-                                    color: tsbStatus.color,
+                                    color: vividGold,
                                   }}
                                 />
                                 <Text style={styles.recoveryStatLabel}>TSB</Text>
@@ -1693,15 +1718,7 @@ export const HomeScreen: FC = () => {
                                   : "NEUTRAL"
                               : undefined
                           }
-                          statusColor={
-                            readiness.tsb != null
-                              ? Number(readiness.tsb) > 5
-                                ? cleanColors.accentGreen
-                                : Number(readiness.tsb) <= -10
-                                  ? cleanColors.accentRed
-                                  : cleanColors.accentOrange
-                              : undefined
-                          }
+                          statusColor={vividOrange}
                         />
                         <View style={styles.readinessBody}>
                           <View style={styles.readinessTitleRow}>
@@ -1781,14 +1798,14 @@ export const HomeScreen: FC = () => {
                                 score: displayHrvScore,
                                 value: displayHrvValue,
                                 status: hrvTrendLabel,
-                                color: cleanColors.accentGreen,
+                                color: vividGreen,
                               },
                               {
                                 label: "Sleep",
                                 score: displaySleepScore,
                                 value: formatSleepHours(displaySleepHours),
                                 status: sleepTrendLabel,
-                                color: cleanColors.accentBlue,
+                                color: vividBlue,
                               },
                               {
                                 label: "TSB",
@@ -1798,7 +1815,7 @@ export const HomeScreen: FC = () => {
                                     ? Number(readiness.tsb).toFixed(0)
                                     : "—",
                                 status: tsbTrendLabel,
-                                color: tsbStatus.color,
+                                color: vividGold,
                               },
                             ].map((m, idx) => (
                               <TouchableOpacity

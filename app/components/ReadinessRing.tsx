@@ -63,16 +63,30 @@ export const ReadinessRing = memo(function ReadinessRing({
   const clampedScore = Math.max(0, Math.min(100, score));
   const ringColor = statusColor ?? readinessColorForScore(clampedScore);
   const labelText = statusLabel ?? readinessStatusForScore(clampedScore);
-  const gradientId = useMemo(
-    () => `readiness-ring-${ringColor.replace(/[^a-zA-Z0-9]/g, "")}-${size}`,
-    [ringColor, size],
-  );
+  const arcFadeId = useMemo(() => {
+    const labelSlug = String(labelText ?? "ring")
+      .toLowerCase()
+      .replace(/[^a-z0-9]/g, "");
+    return `arcFade_${labelSlug}_${ringColor.replace(/[^a-zA-Z0-9]/g, "")}_${size}`;
+  }, [labelText, ringColor, size]);
+  const center = size / 2;
+  const progressRatio = clampedScore / 100;
 
   const progress = useSharedValue(clampedScore / 100);
 
   const animatedProps = useAnimatedProps(() => ({
     strokeDashoffset: circumference * (1 - progress.value),
   }));
+  const arcFadeGeometry = useMemo(() => {
+    const startAngle = 0;
+    const endAngle = 2 * Math.PI * progressRatio;
+    return {
+      x1: center + radius * Math.cos(startAngle),
+      y1: center + radius * Math.sin(startAngle),
+      x2: center + radius * Math.cos(endAngle),
+      y2: center + radius * Math.sin(endAngle),
+    };
+  }, [center, progressRatio, radius]);
 
   // animate whenever score changes
   useEffect(() => {
@@ -86,9 +100,17 @@ export const ReadinessRing = memo(function ReadinessRing({
     <View style={[styles.wrapper, { width: size, height: size }]}>
       <Svg width={size} height={size} style={styles.rotate}>
         <Defs>
-          <LinearGradient id={gradientId} x1="0%" y1="0%" x2="100%" y2="100%">
-            <Stop offset="0%" stopColor={ringColor} stopOpacity={0.7} />
-            <Stop offset="100%" stopColor={ringColor} stopOpacity={1} />
+          <LinearGradient
+            id={arcFadeId}
+            gradientUnits="userSpaceOnUse"
+            x1={arcFadeGeometry.x1}
+            y1={arcFadeGeometry.y1}
+            x2={arcFadeGeometry.x2}
+            y2={arcFadeGeometry.y2}
+          >
+            <Stop offset="0%" stopColor={ringColor} stopOpacity={1} />
+            <Stop offset="30%" stopColor={ringColor} stopOpacity={1} />
+            <Stop offset="100%" stopColor={ringColor} stopOpacity={0} />
           </LinearGradient>
         </Defs>
         {/* Track */}
@@ -97,7 +119,8 @@ export const ReadinessRing = memo(function ReadinessRing({
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke={trackColor ?? (theme as any).surfaceOverlay ?? theme.cardBorder}
+          stroke={trackColor ?? ringColor}
+          strokeOpacity={trackColor ? 1 : 0.1}
           strokeWidth={strokeWidth}
           strokeLinecap="butt"
         />
@@ -114,11 +137,11 @@ export const ReadinessRing = memo(function ReadinessRing({
         ) : null}
         {/* Animated progress arc with rounded caps */}
         <AnimatedCircle
-          cx={size / 2}
-          cy={size / 2}
+          cx={center}
+          cy={center}
           r={radius}
           fill="none"
-          stroke={`url(#${gradientId})`}
+          stroke={`url(#${arcFadeId})`}
           strokeWidth={strokeWidth}
           strokeDasharray={`${circumference} ${circumference}`}
           strokeLinecap="round"

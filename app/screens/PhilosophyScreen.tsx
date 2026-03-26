@@ -4,6 +4,7 @@ import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
 import { useTheme } from "../context/ThemeContext";
 import { typography } from "../theme/theme";
+import type { AppTheme } from "../theme/themes";
 
 const PHILOSOPHIES = [
   {
@@ -74,6 +75,20 @@ const PHILOSOPHIES = [
     weekly:
       "Mon: Rest/Easy, Tue: LT 14km w/ 8km @ LT, Wed: MLR 18km, Thu: Easy 10km, Fri: VO2max 5x1200m, Sat: Long 28km, Sun: Recovery 10km",
   },
+  {
+    name: "Kenyan/Ethiopian Model",
+    founder: "East African tradition",
+    principle:
+      "Twice-daily easy running with extreme patience on aerobic base. Maximal aerobic volume at conversational pace — minimal intensity until sharpening phase.",
+    easy: 90,
+    moderate: 5,
+    hard: 5,
+    bestFor:
+      "High-mileage athletes who want to maximize aerobic base with minimal injury risk.",
+    athletes: "Eliud Kipchoge, Kenenisa Bekele, Tigst Assefa.",
+    weekly:
+      "Mon: AM Easy 45min + PM Easy 30min, Tue: AM Easy 60min + PM Easy 30min, Wed: AM Fartlek 60min + PM Easy 20min, Thu: AM Easy 60min + PM Easy 30min, Fri: AM Easy 50min + PM Easy 25min, Sat: Long 90–120min easy, Sun: Rest/Easy 30min",
+  },
 ] as const;
 
 type Philosophy = (typeof PHILOSOPHIES)[number];
@@ -107,7 +122,7 @@ const DistributionBar: FC<{ easy: number; moderate: number; hard: number }> = ({
   );
 };
 
-const WeeklyStructure: FC<{ philosophy: Philosophy }> = ({ philosophy }) => {
+const WeeklyStructure: FC<{ philosophy: Philosophy; theme: AppTheme }> = ({ philosophy, theme }) => {
   const [open, setOpen] = useState(false);
   const days = philosophy.weekly.split(", ").map((entry) => {
     const [day, ...rest] = entry.split(": ");
@@ -121,15 +136,15 @@ const WeeklyStructure: FC<{ philosophy: Philosophy }> = ({ philosophy }) => {
         onPress={() => setOpen((v) => !v)}
         style={styles.weeklyHeaderRow}
       >
-        <Text style={styles.weeklyHeaderLabel}>Weekly structure</Text>
-        <Text style={styles.weeklyHeaderToggle}>{open ? "Hide" : "Show"}</Text>
+        <Text style={[styles.weeklyHeaderLabel, { color: theme.textMuted }]}>Weekly structure</Text>
+        <Text style={[styles.weeklyHeaderToggle, { color: theme.accentBlue }]}>{open ? "Hide" : "Show"}</Text>
       </TouchableOpacity>
       {open && (
         <View style={styles.weeklyList}>
           {days.map(({ day, workout }) => (
             <View key={day} style={styles.weeklyRow}>
-              <Text style={styles.weeklyDay}>{day}</Text>
-              <Text style={styles.weeklyWorkout}>{workout}</Text>
+              <Text style={[styles.weeklyDay, { color: theme.textMuted }]}>{day}</Text>
+              <Text style={[styles.weeklyWorkout, { color: theme.textPrimary }]}>{workout}</Text>
             </View>
           ))}
         </View>

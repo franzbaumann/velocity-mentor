@@ -60,6 +60,16 @@ export interface ActivityDetailData {
   /** Pace zone distribution in seconds, if available */
   paceZoneTimes?: number[] | null;
   coachNote: string | null;
+  /** TSS from intervals.icu (null if not synced) */
+  tss?: number | null;
+  /** Intensity Factor from intervals.icu */
+  intensityFactor?: number | null;
+  /** Estimated VO2max for this effort */
+  icuVo2maxEstimate?: number | null;
+  /** Lactate threshold heart rate */
+  icuLactateThresholdHr?: number | null;
+  /** Lactate threshold pace (e.g. "4:30/km") */
+  icuLactateThresholdPace?: string | null;
 }
 
 function formatDur(sec: number): string {
@@ -224,7 +234,7 @@ export function useActivityDetailMobile(
           supabase
             .from("activity")
             .select(
-              "id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, source, splits, lap_splits, external_id, hr_zone_times, pace_zone_times, cadence, icu_training_load, trimp, perceived_exertion",
+              "id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, source, splits, lap_splits, external_id, hr_zone_times, pace_zone_times, cadence, icu_training_load, trimp, perceived_exertion, tss, intensity_factor, icu_vo2max_estimate, icu_lactate_threshold_hr, icu_lactate_threshold_pace, name, user_notes",
             )
             .eq("user_id", user.id)
             .eq("external_id", extId)
@@ -541,13 +551,18 @@ export function useActivityDetailMobile(
           })(),
           coachNote: (dbAct?.coach_note as string | null) ?? null,
           photos: parsePhotos(dbAct?.photos),
+          tss: dbAct?.tss != null ? Number(dbAct.tss) : (a?.tss != null ? Number(a.tss) : null),
+          intensityFactor: dbAct?.intensity_factor != null ? Number(dbAct.intensity_factor) : (a?.intensity_factor != null ? Number(a.intensity_factor) : null),
+          icuVo2maxEstimate: dbAct?.icu_vo2max_estimate != null ? Number(dbAct.icu_vo2max_estimate) : null,
+          icuLactateThresholdHr: dbAct?.icu_lactate_threshold_hr != null ? Number(dbAct.icu_lactate_threshold_hr) : null,
+          icuLactateThresholdPace: (dbAct?.icu_lactate_threshold_pace as string | null) ?? null,
         };
       }
 
       // --- Non-ICU branch: pure DB lookup (existing logic) ---
       const rawId = hints?.rawId ?? activityId;
       const baseSelect =
-        "id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, source, splits, lap_splits, external_id, hr_zone_times, pace_zone_times, cadence, icu_training_load, trimp, perceived_exertion";
+        "id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, source, splits, lap_splits, external_id, hr_zone_times, pace_zone_times, cadence, icu_training_load, trimp, perceived_exertion, tss, intensity_factor, icu_vo2max_estimate, icu_lactate_threshold_hr, icu_lactate_threshold_pace, name, user_notes";
 
       let row: Record<string, unknown> | null = null;
 
@@ -683,6 +698,11 @@ export function useActivityDetailMobile(
         paceZoneTimes: (r.pace_zone_times as number[] | null) ?? null,
         coachNote: (r.coach_note as string | null) ?? null,
         photos: parsePhotos((r as { photos?: unknown }).photos),
+        tss: (r as { tss?: number | null }).tss != null ? Number((r as { tss?: number | null }).tss) : null,
+        intensityFactor: (r as { intensity_factor?: number | null }).intensity_factor != null ? Number((r as { intensity_factor?: number | null }).intensity_factor) : null,
+        icuVo2maxEstimate: (r as { icu_vo2max_estimate?: number | null }).icu_vo2max_estimate != null ? Number((r as { icu_vo2max_estimate?: number | null }).icu_vo2max_estimate) : null,
+        icuLactateThresholdHr: (r as { icu_lactate_threshold_hr?: number | null }).icu_lactate_threshold_hr != null ? Number((r as { icu_lactate_threshold_hr?: number | null }).icu_lactate_threshold_hr) : null,
+        icuLactateThresholdPace: (r as { icu_lactate_threshold_pace?: string | null }).icu_lactate_threshold_pace ?? null,
       };
     },
     enabled: !!activityId,

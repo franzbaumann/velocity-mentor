@@ -122,11 +122,12 @@ export function ReadinessBorder({
             </LinearGradient>
           </Defs>
 
-          {/* Track */}
+          {/* Track - tinted, transparent version of readiness color */}
           <Path
             d={d}
-            stroke={theme.cardBorder}
+            stroke={resolvedColor}
             strokeWidth={strokeWidth}
+            strokeOpacity={0.2}
             fill="none"
           />
 

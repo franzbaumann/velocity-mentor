@@ -2,7 +2,9 @@ import { FC, useEffect, useMemo, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Modal,
+  Platform,
   Pressable,
   StyleSheet,
   Text,
@@ -32,6 +34,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import Toast from "react-native-toast-message";
 import { useOnboardingStatus } from "../hooks/useOnboardingStatus";
 import { useDailyStreak } from "../hooks/useDailyStreak";
+import { useAppleHealth } from "../hooks/useAppleHealth";
 import { getLocalDateString } from "../lib/date";
 
 const APPEARANCE_OPTIONS: { name: "light" | "darkPro"; label: string; emoji: string; previewTheme: typeof lightTheme }[] = [
@@ -57,6 +60,7 @@ export const SettingsScreen: FC = () => {
   const { runSync, runQuickSync, syncing: isSyncing, progress: syncProgress } = useIntervalsSync();
   const { resetForTesting: resetTutorial } = useOnboardingStatus();
   const streak = useDailyStreak();
+  const appleHealth = useAppleHealth();
 
   const [athleteId, setAthleteId] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -72,6 +76,9 @@ export const SettingsScreen: FC = () => {
     max_hr_measured?: number | null;
     lab_test_date?: string | null;
     lab_name?: string | null;
+    lt1_hr?: number | null;
+    lt1_pace?: string | null;
+    zone_source?: string | null;
   } | null>(null);
   const [isClearingMemories, setIsClearingMemories] = useState(false);
   const [clearAllVisible, setClearAllVisible] = useState(false);
@@ -88,6 +95,8 @@ export const SettingsScreen: FC = () => {
     vo2max?: string;
     ltHr?: string;
     ltPace?: string;
+    lt1Hr?: string;
+    lt1Pace?: string;
     vlamax?: string;
     maxHrMeasured?: string;
   }>({});
@@ -128,7 +137,7 @@ export const SettingsScreen: FC = () => {
       const { data, error } = await supabase
         .from("athlete_profile")
         .select(
-          "max_hr, resting_hr, vo2max, lactate_threshold_hr, lactate_threshold_pace, vlamax, max_hr_measured, lab_test_date, lab_name",
+          "max_hr, resting_hr, vo2max, lactate_threshold_hr, lactate_threshold_pace, vlamax, max_hr_measured, lab_test_date, lab_name, lt1_hr, lt1_pace, zone_source",
         )
         .eq("user_id", user.id)
         .maybeSingle();
@@ -147,6 +156,9 @@ export const SettingsScreen: FC = () => {
           max_hr_measured: (data as any).max_hr_measured,
           lab_test_date: (data as any).lab_test_date,
           lab_name: (data as any).lab_name,
+          lt1_hr: (data as any).lt1_hr,
+          lt1_pace: (data as any).lt1_pace,
+          zone_source: (data as any).zone_source,
         });
       }
       setHrLoaded(true);
@@ -162,6 +174,8 @@ export const SettingsScreen: FC = () => {
       vo2max: labSummary.vo2max != null ? String(labSummary.vo2max) : "",
       ltHr: labSummary.lactate_threshold_hr != null ? String(labSummary.lactate_threshold_hr) : "",
       ltPace: labSummary.lactate_threshold_pace ?? "",
+      lt1Hr: labSummary.lt1_hr != null ? String(labSummary.lt1_hr) : "",
+      lt1Pace: labSummary.lt1_pace ?? "",
       vlamax: labSummary.vlamax != null ? String(labSummary.vlamax) : "",
       maxHrMeasured: labSummary.max_hr_measured != null ? String(labSummary.max_hr_measured) : "",
     });
@@ -530,6 +544,9 @@ export const SettingsScreen: FC = () => {
           ? Number.parseInt(labForm.maxHrMeasured.trim(), 10)
           : null;
       const ltPace = labForm.ltPace && labForm.ltPace.trim() ? labForm.ltPace.trim() : null;
+      const lt1Hr =
+        labForm.lt1Hr && labForm.lt1Hr.trim() ? Number.parseInt(labForm.lt1Hr.trim(), 10) : null;
+      const lt1Pace = labForm.lt1Pace && labForm.lt1Pace.trim() ? labForm.lt1Pace.trim() : null;
 
       const updates: Record<string, unknown> = {
         user_id: user.id,
@@ -538,6 +555,9 @@ export const SettingsScreen: FC = () => {
       updates.vo2max = vo2;
       updates.lactate_threshold_hr = ltHr;
       updates.lactate_threshold_pace = ltPace;
+      updates.lt1_hr = lt1Hr;
+      updates.lt1_pace = lt1Pace;
+      updates.zone_source = (lt1Hr || lt1Pace || ltHr || ltPace) ? "lab_test" : "hr_formula";
       updates.vlamax = vlamax;
       updates.max_hr_measured = maxHr;
 
@@ -551,6 +571,9 @@ export const SettingsScreen: FC = () => {
         vo2max: vo2,
         lactate_threshold_hr: ltHr,
         lactate_threshold_pace: ltPace,
+        lt1_hr: lt1Hr,
+        lt1_pace: lt1Pace,
+        zone_source: updates.zone_source as string,
         vlamax,
         max_hr_measured: maxHr,
       }));
@@ -1044,6 +1067,53 @@ export const SettingsScreen: FC = () => {
             <Text style={styles.connectBtnText}>Connect Strava</Text>
           </TouchableOpacity>
         </View>
+        {Platform.OS === "ios" && (
+          <>
+            <View style={styles.divider} />
+            <View style={styles.row}>
+              <View style={styles.iconWrap}>
+                <Ionicons name="heart" size={18} color={theme.accentBlue} />
+              </View>
+              <View style={styles.rowText}>
+                <Text style={styles.rowTitle}>Apple Health</Text>
+                <Text style={styles.rowSubtitle}>
+                  {appleHealth.loading
+                    ? "Checking…"
+                    : !appleHealth.kitAvailable
+                    ? "Not available on this device"
+                    : appleHealth.hasBeenPrompted
+                    ? "Permission sheet completed — adjust in Health app"
+                    : appleHealth.shouldShowSystemPrompt
+                    ? "Not connected"
+                    : "Tap to connect"}
+                </Text>
+              </View>
+              <TouchableOpacity
+                style={[
+                  styles.connectBtn,
+                  (!appleHealth.kitAvailable || appleHealth.connecting) && styles.secondaryBtnDisabled,
+                ]}
+                activeOpacity={0.8}
+                disabled={!appleHealth.kitAvailable || appleHealth.connecting || appleHealth.loading}
+                onPress={() => {
+                  if (appleHealth.hasBeenPrompted) {
+                    Linking.openSettings();
+                  } else {
+                    appleHealth.connect();
+                  }
+                }}
+              >
+                {appleHealth.connecting ? (
+                  <ActivityIndicator size="small" color={colors.primaryForeground} />
+                ) : (
+                  <Text style={styles.connectBtnText}>
+                    {appleHealth.hasBeenPrompted ? "App settings" : "Connect"}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
         <View style={styles.divider} />
         <View style={styles.row}>
           <View style={styles.iconWrap}>
@@ -1326,7 +1396,28 @@ export const SettingsScreen: FC = () => {
             />
           </View>
           <View style={styles.labRow}>
-            <Text style={styles.labRowLabel}>LT Heart Rate (bpm)</Text>
+            <Text style={styles.labRowLabel}>LT1 Heart Rate (bpm)</Text>
+            <TextInput
+              style={styles.labRowInput}
+              keyboardType="number-pad"
+              value={labForm.lt1Hr ?? ""}
+              onChangeText={(v) => setLabForm((prev) => ({ ...prev, lt1Hr: v }))}
+              placeholder="e.g. 150"
+              placeholderTextColor={colors.mutedForeground}
+            />
+          </View>
+          <View style={styles.labRow}>
+            <Text style={styles.labRowLabel}>LT1 Pace (aerobic threshold)</Text>
+            <TextInput
+              style={styles.labRowInput}
+              value={labForm.lt1Pace ?? ""}
+              onChangeText={(v) => setLabForm((prev) => ({ ...prev, lt1Pace: v }))}
+              placeholder="e.g. 5:00/km"
+              placeholderTextColor={colors.mutedForeground}
+            />
+          </View>
+          <View style={styles.labRow}>
+            <Text style={styles.labRowLabel}>LT2 Heart Rate (threshold, bpm)</Text>
             <TextInput
               style={styles.labRowInput}
               keyboardType="number-pad"
@@ -1337,7 +1428,7 @@ export const SettingsScreen: FC = () => {
             />
           </View>
           <View style={styles.labRow}>
-            <Text style={styles.labRowLabel}>LT Pace</Text>
+            <Text style={styles.labRowLabel}>LT2 Pace (threshold)</Text>
             <TextInput
               style={styles.labRowInput}
               value={labForm.ltPace ?? ""}
@@ -1379,6 +1470,12 @@ export const SettingsScreen: FC = () => {
                 .join(" — ")}
             </Text>
           )}
+          <Text style={[styles.hint, { marginTop: 4 }]}>
+            Zones based on:{" "}
+            {labSummary?.zone_source === "lab_test"
+              ? `Lab test${labSummary?.lab_name ? ` (${labSummary.lab_name})` : ""}`
+              : "HR formula"}
+          </Text>
           <TouchableOpacity
             style={styles.labSaveBtn}
             activeOpacity={0.85}

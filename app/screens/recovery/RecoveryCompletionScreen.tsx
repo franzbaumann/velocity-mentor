@@ -25,7 +25,7 @@ export function RecoveryCompletionScreen({ route, navigation }: Props) {
     if (!program || !user || isSaving || isSaved) return;
     setSaveError(null);
     setIsSaving(true);
-    const { error } = await (supabase as any).from("recovery_sessions").insert({
+    const { error } = await supabase.from("recovery_sessions").insert({
       user_id: user.id,
       program_id: program.id,
       program_title: program.title,

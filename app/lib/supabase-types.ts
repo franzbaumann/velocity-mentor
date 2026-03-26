@@ -42,6 +42,14 @@ export type Database = {
           user_id: string
           name?: string | null
           user_notes?: string | null
+          tss?: number | null
+          intensity_factor?: number | null
+          icu_vo2max_estimate?: number | null
+          icu_lactate_threshold_hr?: number | null
+          icu_lactate_threshold_pace?: string | null
+          photo_url?: string | null
+          caption?: string | null
+          photos?: Json | null
         }
         Insert: {
           ai_analysis?: string | null
@@ -72,6 +80,14 @@ export type Database = {
           user_id: string
           name?: string | null
           user_notes?: string | null
+          tss?: number | null
+          intensity_factor?: number | null
+          icu_vo2max_estimate?: number | null
+          icu_lactate_threshold_hr?: number | null
+          icu_lactate_threshold_pace?: string | null
+          photo_url?: string | null
+          caption?: string | null
+          photos?: Json | null
         }
         Update: {
           ai_analysis?: string | null
@@ -102,6 +118,14 @@ export type Database = {
           user_id?: string
           name?: string | null
           user_notes?: string | null
+          tss?: number | null
+          intensity_factor?: number | null
+          icu_vo2max_estimate?: number | null
+          icu_lactate_threshold_hr?: number | null
+          icu_lactate_threshold_pace?: string | null
+          photo_url?: string | null
+          caption?: string | null
+          photos?: Json | null
         }
         Relationships: []
       }
@@ -180,6 +204,9 @@ export type Database = {
           goal_distance: string | null
           days_per_week: number | null
           injury_history_text: string | null
+          lt1_hr?: number | null
+          lt1_pace?: string | null
+          zone_source?: string | null
         }
         Insert: {
           created_at?: string
@@ -213,6 +240,9 @@ export type Database = {
           goal_distance?: string | null
           days_per_week?: number | null
           injury_history_text?: string | null
+          lt1_hr?: number | null
+          lt1_pace?: string | null
+          zone_source?: string | null
         }
         Update: {
           created_at?: string
@@ -246,6 +276,9 @@ export type Database = {
           goal_distance?: string | null
           days_per_week?: number | null
           injury_history_text?: string | null
+          lt1_hr?: number | null
+          lt1_pace?: string | null
+          zone_source?: string | null
         }
         Relationships: []
       }
@@ -261,6 +294,7 @@ export type Database = {
           user_id: string
           ui_component: string | null
           ui_data: Json | null
+          activity_id: string | null
         }
         Insert: {
           content: string
@@ -273,6 +307,7 @@ export type Database = {
           user_id: string
           ui_component?: string | null
           ui_data?: Json | null
+          activity_id?: string | null
         }
         Update: {
           content?: string
@@ -285,6 +320,7 @@ export type Database = {
           user_id?: string
           ui_component?: string | null
           ui_data?: Json | null
+          activity_id?: string | null
         }
         Relationships: []
       }
@@ -801,6 +837,96 @@ export type Database = {
           created_at?: string | null
           importance?: number | null
           expires_at?: string | null
+        }
+        Relationships: []
+      }
+      recovery_sessions: {
+        Row: {
+          id: string
+          user_id: string | null
+          program_id: string
+          program_title: string
+          completed_at: string | null
+          duration_minutes: number | null
+          exercises_completed: number | null
+        }
+        Insert: {
+          id?: string
+          user_id?: string | null
+          program_id: string
+          program_title: string
+          completed_at?: string | null
+          duration_minutes?: number | null
+          exercises_completed?: number | null
+        }
+        Update: {
+          id?: string
+          user_id?: string | null
+          program_id?: string
+          program_title?: string
+          completed_at?: string | null
+          duration_minutes?: number | null
+          exercises_completed?: number | null
+        }
+        Relationships: []
+      }
+      sync_progress: {
+        Row: {
+          user_id: string
+          stage: string | null
+          detail: string | null
+          done: boolean
+          error: string | null
+          updated_at: string
+          activities_total: number | null
+          activities_upserted: number | null
+          streams_done: number | null
+          streams_total: number | null
+          intervals_count: number | null
+          wellness_days: number | null
+          pbs_count: number | null
+          years_completed: Json | null
+          ctl: number | null
+          atl: number | null
+          tsb: number | null
+        }
+        Insert: {
+          user_id: string
+          stage?: string | null
+          detail?: string | null
+          done?: boolean
+          error?: string | null
+          updated_at?: string
+          activities_total?: number | null
+          activities_upserted?: number | null
+          streams_done?: number | null
+          streams_total?: number | null
+          intervals_count?: number | null
+          wellness_days?: number | null
+          pbs_count?: number | null
+          years_completed?: Json | null
+          ctl?: number | null
+          atl?: number | null
+          tsb?: number | null
+        }
+        Update: {
+          user_id?: string
+          stage?: string | null
+          detail?: string | null
+          done?: boolean
+          error?: string | null
+          updated_at?: string
+          activities_total?: number | null
+          activities_upserted?: number | null
+          streams_done?: number | null
+          streams_total?: number | null
+          intervals_count?: number | null
+          wellness_days?: number | null
+          pbs_count?: number | null
+          years_completed?: Json | null
+          ctl?: number | null
+          atl?: number | null
+          tsb?: number | null
         }
         Relationships: []
       }
