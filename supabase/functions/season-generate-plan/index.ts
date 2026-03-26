@@ -1,6 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { AI_LIMITS } from "../_shared/ai-models.ts";
+import {
+  ensureStrengthMobilitySessions,
+  parseDaysPerWeekFromAnswers,
+  parseStrengthMobilityCapsFromAnswers,
+} from "../_shared/strength-mobility-ensure.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -112,10 +117,10 @@ LYDIARD BASE PHASE — ZERO QUALITY (HARD RULE — ONLY for Lydiard philosophy):
 - Quality sessions (threshold/interval) are only permitted in Lydiard BUILD phase week 3 onward.
 - DO NOT apply Lydiard base restrictions to any other philosophy.
 
-STRENGTH & MOBILITY — REQUIRED FOR ALL PLANS:
-13. Add 1-2 strength sessions per week (type: "strength") using str-01 in base/build, str-02 in peak/taper. Prefer Tuesday (day 2) and/or Thursday (day 4). These are ADDITIONAL entries in the workouts array — they do NOT replace running sessions. Set distance_km: 0, duration_minutes: 35 for str-01 or 25 for str-02, target_pace: null.
-14. Add 1 mobility session per week (type: "mobility") using mob-02 in base/build or mob-01 in peak/taper. Place on rest days when available, otherwise on easy-run days. Set distance_km: 0, duration_minutes: 40 for mob-02 or 12 for mob-01, target_pace: null.
-15. NEVER place strength or mobility sessions on the same day as quality running sessions (tempo/interval). Strength and mobility sessions are supplemental — they do not count toward weekly running km.`;
+STRENGTH & MOBILITY:
+13. Running sessions are never removed to make room for strength/mobility unless injury/illness context requires less running. When STRENGTH_AND_MOBILITY_CAPS applies: if max strength is 0, skip strength; if max mobility is 0, skip mobility. Otherwise add strength (str-01 base/build, str-02 peak/taper) as EXTRA workouts — never swap a run for strength. If HIGH_FREQUENCY_RUN_WEEK (6–7 days in user message), place strength on the SAME day_of_week as an easy or long run (second workout, after the run). Otherwise prefer separate days. NEVER same day as tempo, interval, strides, or race.
+14. Mobility: prefer mob-01 ~15–20 min AFTER easy or long runs (same day_of_week), not a standalone rest day. Only use longer mob-02 if the athlete has spare days and cap warrants it.
+15. Strength and mobility do not count toward weekly running km.`;
 
 // VDOT table — Daniels training paces in sec/km (duplicated from client-side vdot.ts for Deno)
 const VDOT_PACE_TABLE: [number, number, number, number, number, number][] = [
@@ -231,6 +236,25 @@ function buildSeasonPlanUserPrompt(
     prompt += `\n${vdotToPaceGuidance(vdot)}\n`;
   }
   if (retryReason) prompt += `\nRETRY: ${retryReason}\n`;
+
+  const caps = parseStrengthMobilityCapsFromAnswers(answers);
+  const taperStrength = caps.strength === 0 ? 0 : Math.min(1, caps.strength);
+  const taperMobility = caps.mobility === 0 ? 0 : Math.min(1, caps.mobility);
+  prompt +=
+    `\nSTRENGTH_AND_MOBILITY_CAPS (mandatory — do not exceed in any week):\n` +
+    `- Max strength sessions per week in base, build, and peak: ${caps.strength}. In taper weeks use at most ${taperStrength}.\n` +
+    `- Max mobility sessions per week in base, build, and peak: ${caps.mobility}. In taper weeks use at most ${taperMobility}.\n` +
+    `- If max strength is 0: omit all type "strength" workouts. If max mobility is 0: omit all type "mobility" workouts.\n`;
+
+  const dpw = parseDaysPerWeekFromAnswers(answers);
+  if (dpw >= 6) {
+    prompt +=
+      `\nHIGH_FREQUENCY_RUN_WEEK: ${dpw} training days/week. Keep all runs; stack strength after easy/long same day. NO strength on tempo/interval/strides/race days.\n` +
+      `MOBILITY_STACKING: mob-01 ~15–20 min after runs; avoid standalone mobility-only days when possible.\n`;
+  } else if (dpw > 0) {
+    prompt += `\nRUNNING_FIRST: ${dpw} days/week — do not drop runs for accessories; prefer short mob-01 after easy/long over eating rest days.\n`;
+  }
+
   return prompt;
 }
 
@@ -551,106 +575,6 @@ function ensureHansonsMarathonPace(
   }
 }
 
-// Adds strength and mobility sessions to each week if the AI did not include them.
-// Strength: 1 session/week (str-01 in base/build, str-02 in peak) on easy days (Tue/Thu preferred).
-// Mobility: 1 session/week (mob-02 in base/build, mob-01 in peak/taper) on rest or easy days.
-// These are ADDITIONAL entries — never replacing running sessions, never on quality days.
-function ensureStrengthMobilitySessions(
-  weeks: Array<{
-    phase: string;
-    workouts: Array<{
-      type: string;
-      session_library_id?: string | null;
-      day_of_week?: number;
-      name?: string;
-      description?: string;
-      distance_km?: number;
-      duration_minutes?: number;
-      is_double_run?: boolean;
-    }>;
-  }>
-): void {
-  const QUALITY_TYPES = new Set(["tempo", "interval", "race"]);
-
-  for (const week of weeks) {
-    const workouts = week.workouts;
-    const phase = week.phase ?? "base";
-
-    const qualityDays = new Set(
-      workouts
-        .filter((w) => QUALITY_TYPES.has(w.type))
-        .map((w) => w.day_of_week)
-        .filter((d): d is number => d != null)
-    );
-
-    // ── Strength ────────────────────────────────────────────────
-    // Target: 0 in taper, 1 otherwise. Use str-02 for peak/taper, str-01 elsewhere.
-    const existingStrength = workouts.filter((w) => w.type === "strength").length;
-    const targetStrength = phase === "taper" ? 0 : 1;
-
-    if (existingStrength < targetStrength) {
-      // Prefer Tuesday(2), then Thursday(4), then Wednesday(3), then Friday(5)
-      // — only on days with an easy run, never on quality days
-      const strengthDay = [2, 4, 3, 5].find(
-        (d) =>
-          !qualityDays.has(d) &&
-          workouts.some((w) => w.day_of_week === d && w.type === "easy")
-      );
-      if (strengthDay != null) {
-        const isPeak = phase === "peak";
-        workouts.push({
-          type: "strength",
-          session_library_id: isPeak ? "str-02" : "str-01",
-          day_of_week: strengthDay,
-          name: isPeak ? "Runner Strength Maintenance" : "Runner Strength Foundation",
-          description: isPeak
-            ? "20-30 min maintenance strength: lateral band walks, single-leg calf raise, glute bridge, dead bug, hip flexor stretch"
-            : "30-40 min runner-specific strength: single-leg deadlift 3×8, Bulgarian split squat 3×8, hip thrust 3×12, Copenhagen plank 3×20s, soleus raise 3×15",
-          distance_km: 0,
-          duration_minutes: isPeak ? 25 : 35,
-          is_double_run: false,
-        });
-      }
-    }
-
-    // ── Mobility ────────────────────────────────────────────────
-    // Target: 1 per week in all phases. Use mob-01 for peak/taper, mob-02 elsewhere.
-    const existingMobility = workouts.filter((w) => w.type === "mobility").length;
-
-    if (existingMobility < 1) {
-      const isLate = phase === "peak" || phase === "taper";
-
-      // Prefer a rest day, then Thursday(4), Wednesday(3), Friday(5) — not on quality days
-      const restDay = workouts.find(
-        (w) => w.type === "rest" && !qualityDays.has(w.day_of_week)
-      )?.day_of_week;
-
-      const mobilityDay =
-        restDay ??
-        [4, 3, 5, 6].find(
-          (d) =>
-            !qualityDays.has(d) &&
-            workouts.some((w) => w.day_of_week === d && w.type === "easy")
-        );
-
-      if (mobilityDay != null) {
-        workouts.push({
-          type: "mobility",
-          session_library_id: isLate ? "mob-01" : "mob-02",
-          day_of_week: mobilityDay,
-          name: isLate ? "Post-Run Mobility" : "Mobility Session",
-          description: isLate
-            ? "10-15 min post-run stretching: hip flexors, hamstrings, pigeon pose, quad stretch, calf stretch — 45-60 sec each"
-            : "30-45 min yoga-inspired mobility: runner-specific focus on hips, hamstrings, and calves",
-          distance_km: 0,
-          duration_minutes: isLate ? 12 : 40,
-          is_double_run: false,
-        });
-      }
-    }
-  }
-}
-
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -866,9 +790,10 @@ serve(async (req) => {
         philosophy
       );
 
-      // Ensure every week has strength and mobility sessions (add if AI omitted them)
+      // Strength/mobility up to athlete caps (add if AI omitted them)
       ensureStrengthMobilitySessions(
-        weeks as Array<{ phase: string; workouts: Array<{ type: string; session_library_id?: string | null; day_of_week?: number; name?: string; description?: string; distance_km?: number; duration_minutes?: number; is_double_run?: boolean }> }>
+        weeks as Array<{ phase: string; workouts: Array<{ type: string; session_library_id?: string | null; day_of_week?: number; name?: string; description?: string; distance_km?: number; duration_minutes?: number; is_double_run?: boolean }> }>,
+        answers
       );
     }
 

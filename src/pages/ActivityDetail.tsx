@@ -509,6 +509,24 @@ export default function ActivityDetail() {
     return downsample(raw, 350);
   }, [activity]);
 
+  /** Stored avg_hr is often 0/null when Vital/streams have HR; derive from splits or stream mean */
+  const derivedAvgHr = useMemo(() => {
+    if (!activity) return null;
+    const stored = activity.avg_hr;
+    if (stored != null && stored > 0) return Math.round(stored);
+    const splitHrs = (activity.splits ?? [])
+      .map((s) => s.hr)
+      .filter((h): h is number => typeof h === "number" && Number.isFinite(h) && h > 0);
+    if (splitHrs.length > 0) {
+      return Math.round(splitHrs.reduce((a, b) => a + b, 0) / splitHrs.length);
+    }
+    if (chartData.length > 0) {
+      const hrs = chartData.map((d) => d.hr).filter((h) => Number.isFinite(h) && h > 0);
+      if (hrs.length > 0) return Math.round(hrs.reduce((a, b) => a + b, 0) / hrs.length);
+    }
+    return null;
+  }, [activity, chartData]);
+
   /** HR zone times for table: from stream with athlete zones when available, else normalized source data */
   const { hrZoneTimesForTable, hrZonesFromStream } = useMemo(() => {
     const effectiveMaxHr = athleteProfile?.max_hr ?? activity?.max_hr ?? null;
@@ -586,7 +604,7 @@ export default function ActivityDetail() {
 
   /** Efficiency Factor = avg pace (m/s) / avg HR — higher is more efficient */
   const ef = useMemo(() => {
-    const avgHr = activity?.avg_hr;
+    const avgHr = derivedAvgHr;
     const paceStr = activity?.avg_pace;
     if (!avgHr || avgHr <= 0 || !paceStr) return null;
     const m = paceStr.match(/(\d+):(\d+)/);
@@ -594,7 +612,7 @@ export default function ActivityDetail() {
     const paceSec = parseInt(m[1]) * 60 + parseInt(m[2]);
     if (paceSec <= 0) return null;
     return ((1000 / paceSec) / avgHr).toFixed(3);
-  }, [activity]);
+  }, [activity, derivedAvgHr]);
 
   /**
    * Aerobic Decoupling % = ((EF_first_half - EF_second_half) / EF_first_half) × 100
@@ -686,7 +704,7 @@ export default function ActivityDetail() {
               {!nonDist && (
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">Distance</p>
-                  <p className="text-3xl font-bold tabular-nums text-foreground">{formatDistance(activity.distance_km)}<span className="text-base font-normal text-muted-foreground ml-1">km</span></p>
+                  <p className="text-3xl font-bold tabular-nums text-foreground">{formatDistance(activity.distance_km)}</p>
                 </div>
               )}
               <div>
@@ -702,10 +720,10 @@ export default function ActivityDetail() {
                   </p>
                 </div>
               )}
-              {activity.avg_hr != null && (
+              {derivedAvgHr != null && (
                 <div>
                   <p className="text-xs text-muted-foreground mb-0.5">Avg HR</p>
-                  <p className="text-3xl font-bold tabular-nums text-foreground">{activity.avg_hr}<span className="text-base font-normal text-muted-foreground ml-1">bpm</span></p>
+                  <p className="text-3xl font-bold tabular-nums text-foreground">{derivedAvgHr}<span className="text-base font-normal text-muted-foreground ml-1">bpm</span></p>
                 </div>
               )}
             </div>
@@ -1090,7 +1108,7 @@ export default function ActivityDetail() {
               </div>
               <div className="p-4">
                 <div className="grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm">
-                  {!nonDist && <SummaryItem label="Distance" value={`${formatDistance(activity.distance_km)} km`} />}
+                  {!nonDist && <SummaryItem label="Distance" value={formatDistance(activity.distance_km)} />}
                   <SummaryItem label="Duration" value={formatDuration(activity.duration_seconds)} />
                   {!nonDist && activity.avg_pace && (
                     <SummaryItem
@@ -1098,15 +1116,19 @@ export default function ActivityDetail() {
                       value={`${(normalizePaceDisplay(activity.avg_pace) || activity.avg_pace).replace(/\/km$/i, "")}/km`}
                     />
                   )}
-                  {activity.avg_hr != null && <SummaryItem label="Avg HR" value={`${activity.avg_hr} bpm`} />}
+                  {derivedAvgHr != null && <SummaryItem label="Avg HR" value={`${derivedAvgHr} bpm`} />}
                   {activity.max_hr != null && <SummaryItem label="Max HR" value={`${activity.max_hr} bpm`} />}
-                  {activity.avg_hr != null && activity.max_hr != null && <SummaryItem label="HR %" value={`${Math.round((activity.avg_hr / activity.max_hr) * 100)}%`} />}
+                  {derivedAvgHr != null && activity.max_hr != null && activity.max_hr > 0 && (
+                    <SummaryItem label="HR %" value={`${Math.round((derivedAvgHr / activity.max_hr) * 100)}%`} />
+                  )}
                   {activity.load != null && <SummaryItem label="Training Load" value={`${Math.round(activity.load)}`} />}
                   {activity.trimp != null && <SummaryItem label="TRIMP" value={`${Math.round(activity.trimp)}`} />}
                   {activity.intensity != null && <SummaryItem label="Intensity" value={`${Math.round(activity.intensity)}%`} />}
                   {activity.perceived_exertion != null && <SummaryItem label="RPE" value={`${activity.perceived_exertion}/10`} />}
                   {activity.cadence != null && activity.cadence > 0 && <SummaryItem label="Avg Cadence" value={formatCadence(cadenceToDisplaySpm(activity.cadence) ?? activity.cadence)} />}
-                  {activity.elevation_gain != null && activity.elevation_gain > 0 && <SummaryItem label="Elev Gain" value={`${formatElevation(activity.elevation_gain)} m`} />}
+                  {activity.elevation_gain != null && activity.elevation_gain > 0 && (
+                    <SummaryItem label="Elev Gain" value={formatElevation(activity.elevation_gain)} />
+                  )}
                   {elevationLoss != null && <SummaryItem label="Elev Loss" value={`${elevationLoss} m`} />}
                   {bestPace != null && <SummaryItem label="Best Pace" value={`${formatPace(bestPace)}/km`} />}
                   {tss != null && <SummaryItem label="TSS" value={`${tss}`} />}

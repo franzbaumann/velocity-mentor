@@ -1061,6 +1061,10 @@ export default function Coach() {
 
   const hasWeekPlan = weekDays.some((d) => d.type !== "rest");
 
+  /** Analyses-only + zero analyses used to hide the welcome card entirely → blank panel after onboarding */
+  const showWelcomeWhenNoMessages =
+    messages.length === 0 && (chatFilter !== "analyses" || analyses.length === 0);
+
   const contextSnapshot = useMemo(() => {
     const readiness = Array.isArray(wellnessData) ? wellnessData : [];
     const latest = readiness[readiness.length - 1];
@@ -1366,10 +1370,11 @@ export default function Coach() {
   }, [intakeAnswers, messages, navigate]);
 
   const hasPlan = !!planData?.plan;
-  const fromPlan = searchParams.get("from") === "plan";
-  /** V2 finished in DB — do not re-show wizard even if athlete_profile.onboarding_complete lagged */
+  /** Never force wizard via ?from=plan — that trapped users who already finished onboarding but had no plan yet (blank step 9). Incomplete users still enter via !onboardingComplete / v2OnboardingResume. */
+  /** V2 finished in DB or profile — avoid trapping users on wizard if onboarding_progress.completed_at lagged */
   const v2OnboardingCompleted =
-    USE_NEW_ONBOARDING && Boolean(v2OnboardingProgress?.completed_at);
+    USE_NEW_ONBOARDING &&
+    (Boolean(v2OnboardingProgress?.completed_at) || onboardingComplete);
   const v2OnboardingResume =
     USE_NEW_ONBOARDING &&
     !v2OnboardingProgressLoading &&
@@ -1379,7 +1384,7 @@ export default function Coach() {
     !planLoading &&
     !hasPlan &&
     !v2OnboardingCompleted &&
-    ((!onboardingComplete && onboardingPhase !== "done") || fromPlan || v2OnboardingResume);
+    ((!onboardingComplete && onboardingPhase !== "done") || v2OnboardingResume);
 
   if (showOnboarding) {
     if (USE_NEW_ONBOARDING) {
@@ -1502,7 +1507,7 @@ export default function Coach() {
           <div ref={scrollRef} className="flex-1 p-6 overflow-y-auto space-y-4">
             {messages.length === 0 && (
               <>
-                {chatFilter !== "analyses" && (
+                {showWelcomeWhenNoMessages && (
                   <div className="flex gap-3 max-w-lg">
                     <CadeAvatar size="md" className="flex-shrink-0" />
                     <div className="bg-gray-50 dark:bg-card/80 border border-gray-100 dark:border-border rounded-2xl rounded-tl-sm p-4 text-sm text-foreground leading-relaxed">
@@ -1512,7 +1517,22 @@ export default function Coach() {
                           <span>Coach Cade is reading your data…</span>
                         </div>
                       ) : (
-                        <ReactMarkdown components={markdownComponents}>{formatCoachText(displayOpener)}</ReactMarkdown>
+                        <>
+                          <ReactMarkdown components={markdownComponents}>{formatCoachText(displayOpener)}</ReactMarkdown>
+                          {chatFilter === "analyses" && analyses.length === 0 && (
+                            <p className="mt-3 text-xs text-muted-foreground border-t border-border pt-3">
+                              Auto analyses from your runs will show here. Use{" "}
+                              <button
+                                type="button"
+                                onClick={() => setChatFilter("all")}
+                                className="font-medium text-primary underline underline-offset-2"
+                              >
+                                All
+                              </button>{" "}
+                              to chat with Coach Cade.
+                            </p>
+                          )}
+                        </>
                       )}
                     </div>
                   </div>
@@ -1619,7 +1639,9 @@ export default function Coach() {
               );
             })}
 
-            {isLoading && messages[messages.length - 1]?.role !== "assistant" && (
+            {isLoading &&
+              messages.length > 0 &&
+              messages[messages.length - 1]?.role !== "assistant" && (
               <div className="flex gap-3 max-w-lg">
                 <CadeAvatar size="md" className="flex-shrink-0" />
                 <div className="bg-gray-50 dark:bg-card/80 border border-gray-100 dark:border-border rounded-2xl rounded-tl-sm p-4 flex items-center gap-1.5">

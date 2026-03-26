@@ -1,4 +1,6 @@
 import { supabase } from "@/integrations/supabase/client";
+import { addDays, format, startOfWeek } from "date-fns";
+import { isRunningActivity } from "@/lib/analytics";
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL;
 const SUPABASE_ANON_KEY = import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY;
@@ -45,18 +47,23 @@ export async function getRecentActivities(limit = 10) {
   return data ?? [];
 }
 
+/** Calendar week Mon–Sun in local TZ, aligned with dashboard week volume */
 export async function getWeekStats() {
   const { data: { session } } = await supabase.auth.getSession();
   if (!session) return null;
-  const monday = new Date();
-  monday.setDate(monday.getDate() - monday.getDay() + 1);
-  monday.setHours(0, 0, 0, 0);
+  const today = new Date();
+  const mon = startOfWeek(today, { weekStartsOn: 1 });
+  const sun = addDays(mon, 6);
+  const monStr = format(mon, "yyyy-MM-dd");
+  const sunStr = format(sun, "yyyy-MM-dd");
   const { data } = await supabase
     .from("activity")
-    .select("distance_km, duration_seconds")
+    .select("distance_km, duration_seconds, type")
     .eq("user_id", session.user.id)
-    .gte("date", monday.toISOString().slice(0, 10));
+    .gte("date", monStr)
+    .lte("date", sunStr);
   if (!data) return null;
-  const totalKm = data.reduce((sum, a) => sum + (a.distance_km ?? 0), 0);
-  return { actualKm: Math.round(totalKm * 10) / 10, runs: data.length };
+  const runs = data.filter((a) => isRunningActivity(a.type));
+  const totalKm = runs.reduce((sum, a) => sum + (a.distance_km ?? 0), 0);
+  return { actualKm: Math.round(totalKm * 10) / 10, runs: runs.length };
 }

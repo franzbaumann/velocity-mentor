@@ -30,6 +30,10 @@ export interface OnboardingV2Answers {
   preferredLongRunDay: string;
   /** monday..sunday — primary quality session (tempo/intervals; not the long run if volume allows) */
   preferredQualityDay: string;
+  /** Max dedicated strength sessions per week (0 = none). Sent to plan generation as a hard cap. */
+  strengthSessionsPerWeekCap: number;
+  /** Max mobility / prehab sessions per week (0 = no standalone mobility blocks). */
+  mobilitySessionsPerWeekCap: number;
 }
 
 export interface IntervalsData {
@@ -104,6 +108,8 @@ export const DEFAULT_ANSWERS: OnboardingV2Answers = {
   planFirstDayOffset: 0,
   preferredLongRunDay: "sunday",
   preferredQualityDay: "thursday",
+  strengthSessionsPerWeekCap: 2,
+  mobilitySessionsPerWeekCap: 2,
 };
 
 export const DEFAULT_STATE: OnboardingV2State = {

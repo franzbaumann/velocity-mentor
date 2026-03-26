@@ -283,6 +283,44 @@ export function useVitalIntegration() {
     },
   });
 
+  const backfillMutation = useMutation({
+    mutationFn: async (startDate?: string): Promise<{ activities_upserted: number; activities_skipped: number; workouts_received: number }> => {
+      const accessToken = session?.access_token ?? await getSafeAccessToken();
+      const baseUrl = getSupabaseUrl();
+      const requestId = createRequestId("vital_backfill");
+      const res = await fetch(`${baseUrl}/functions/v1/vital-backfill`, {
+        method: "POST",
+        headers: getFunctionRequestHeaders(accessToken, requestId),
+        body: JSON.stringify(startDate ? { start_date: startDate } : {}),
+      });
+
+      const data = await parseJson<{ ok?: boolean; activities_upserted?: number; activities_skipped?: number; workouts_received?: number } & VitalFunctionError>(res);
+      if (!res.ok) throw new Error(buildErrorMessage(data, "Backfill failed", res.status));
+      return {
+        activities_upserted: data.activities_upserted ?? 0,
+        activities_skipped: data.activities_skipped ?? 0,
+        workouts_received: data.workouts_received ?? 0,
+      };
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["activities"] });
+      queryClient.invalidateQueries({ queryKey: ["weekStats"] });
+      queryClient.invalidateQueries({ queryKey: ["activityCount"] });
+      queryClient.invalidateQueries({ queryKey: ["personal_records"] });
+      queryClient.invalidateQueries({ queryKey: ["intervals-activities-chunked"] });
+      const imported = data.activities_upserted;
+      const skipped = data.activities_skipped;
+      if (imported > 0) {
+        toast.success(`Imported ${imported} activities from your full history${skipped > 0 ? ` (${skipped} skipped)` : ""}.`);
+      } else {
+        toast.success(`History scan complete — all ${data.workouts_received} activities already up to date.`);
+      }
+    },
+    onError: (e) => {
+      toast.error(e instanceof Error ? e.message : "History import failed");
+    },
+  });
+
   return {
     integration,
     isLoading,
@@ -292,6 +330,8 @@ export function useVitalIntegration() {
     confirmConnection: confirmConnectionMutation.mutate,
     sync: syncMutation.mutate,
     isSyncing: syncMutation.isPending,
+    backfill: backfillMutation.mutate,
+    isBackfilling: backfillMutation.isPending,
     disconnect: disconnectMutation.mutate,
     disconnectAsync: disconnectMutation.mutateAsync,
     isDisconnecting: disconnectMutation.isPending,

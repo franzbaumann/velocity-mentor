@@ -1,6 +1,11 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.49.1";
 import { AI_LIMITS } from "../_shared/ai-models.ts";
+import {
+  ensureStrengthMobilitySessions,
+  parseDaysPerWeekFromAnswers,
+  parseStrengthMobilityCapsFromAnswers,
+} from "../_shared/strength-mobility-ensure.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -192,9 +197,11 @@ Strength (runner-specific): str-01 Runner Strength Foundation, str-02 Runner Str
 Mobility: mob-01 Post-Run Mobility, mob-02 Mobility Session
 
 STRENGTH AND MOBILITY RULES:
-- Include personalized strength and mobility across the plan: adapt exercise choice to ATHLETE_CONSTRAINTS and onboarding injuries — avoid loads or movements that clearly aggravate reported areas; prefer isometric, gradual, and unilateral stability work when returning from injury.
-- NEVER schedule strength on the same calendar day as tempo, interval, threshold, strides, or race-pace quality. Prefer strength after an easy day or as its own short slot; mobility can follow easy runs or long runs (mob-01) or on rest days (mob-02).
-- Base/Build: typically 2 strength sessions/week (can be str-01 or customized via workout_steps) when healthy; 1 maintenance (str-02) when constrained. Peak: often 1–2 shorter maintenance sessions. Taper: reduce or omit heavy strength; keep light mobility.
+- Running is primary: NEVER remove, skip, or replace a prescribed run with strength/mobility to save space — except when ATHLETE_CONSTRAINTS (injury, illness) justify reducing running load.
+- NEVER schedule strength on the same calendar day as tempo, interval, threshold, strides, or race-pace quality. If the user message includes HIGH_FREQUENCY_RUN_WEEK (6–7 training days), you SHOULD schedule strength on the SAME day_of_week as an easy or long run (add a second workout that day, typically after the run). With fewer weekly run days, prefer strength on a separate day or after a true easy day when possible.
+- Short mobility (~15–20 min, mob-01) should piggyback AFTER easy or long runs — it must not consume a full rest day unless caps or scheduling make that unavoidable. Prefer mob-02 only when the athlete has time and mobility cap needs a longer session.
+- Include personalized strength and mobility: adapt to ATHLETE_CONSTRAINTS — avoid movements that aggravate reported areas.
+- When the user message includes STRENGTH_AND_MOBILITY_CAPS, those numbers are HARD maximums per week — never exceed them. If max strength is 0, use NO workouts with type "strength". If max mobility is 0, use NO workouts with type "mobility" (brief mobility notes inside an easy session description are OK only when essential for injury context).
 - Every strength and mobility workout MUST include session_library_id when using a template (str-01, str-02, mob-01, mob-02) OR set name/description from scratch and still provide full workout_steps.
 - total_km in each week refers to running volume only; strength/mobility do not add distance.
 
@@ -250,6 +257,25 @@ function buildPlanUserPrompt(
       `SCHEDULING (mandatory): Place the weekly LONG RUN on ${lr} (day_of_week=${lrD}). ` +
       `Place the primary QUALITY session (tempo, threshold, intervals — not an easy run) on ${qd} (day_of_week=${qD}). ` +
       `If philosophy-specific templates conflict, still honour these days whenever physiologically reasonable.\n\n`;
+  }
+
+  const caps = parseStrengthMobilityCapsFromAnswers(answers);
+  const taperStrength = caps.strength === 0 ? 0 : Math.min(1, caps.strength);
+  const taperMobility = caps.mobility === 0 ? 0 : Math.min(1, caps.mobility);
+  prompt +=
+    `STRENGTH_AND_MOBILITY_CAPS (mandatory — do not exceed in any week):\n` +
+    `- Max strength sessions per week in base, build, and peak: ${caps.strength}. In taper weeks use at most ${taperStrength} (0 if athlete chose none).\n` +
+    `- Max mobility sessions per week in base, build, and peak: ${caps.mobility}. In taper weeks use at most ${taperMobility}.\n` +
+    `- If max strength is 0: omit all type "strength" workouts. If max mobility is 0: omit all type "mobility" workouts.\n\n`;
+
+  const dpw = parseDaysPerWeekFromAnswers(answers);
+  if (dpw >= 6) {
+    prompt +=
+      `HIGH_FREQUENCY_RUN_WEEK: Athlete trains ${dpw} days/week. Preserve every scheduled run — do not drop running for strength/mobility unless ATHLETE_CONSTRAINTS require it. Stack strength AFTER easy or long runs on the same day_of_week (second workout entry). Still NO strength on days that already have tempo, intervals, threshold, strides, or race work.\n` +
+      `MOBILITY_STACKING: Use mob-01 ~15–20 min on the same day as easy or long runs when possible — not a standalone calendar day unless unavoidable.\n\n`;
+  } else if (dpw > 0) {
+    prompt +=
+      `RUNNING_FIRST: Athlete trains ${dpw} days/week. Do not remove runs for accessory work. Prefer mobility (mob-01 ~15–20 min) after easy or long runs instead of eating a rest day.\n\n`;
   }
 
   if (raceDate && requiredWeeks != null && requiredWeeks > 0) {
@@ -552,6 +578,11 @@ serve(async (req) => {
         headers: { ...corsHeaders, "Content-Type": "application/json" },
       });
     }
+
+    ensureStrengthMobilitySessions(
+      weeks as Parameters<typeof ensureStrengthMobilitySessions>[0],
+      mergedAnswers as Record<string, unknown>,
+    );
 
     const supabase = supabaseAdminEarly;
 

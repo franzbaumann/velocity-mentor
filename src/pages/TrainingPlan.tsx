@@ -665,7 +665,7 @@ export default function TrainingPlan() {
               Complete the onboarding with Coach Cade to get a personalized training plan, or chat to build one from conversation.
             </p>
             <button
-              onClick={() => navigate("/coach?from=plan")}
+              onClick={() => navigate("/coach")}
               className="pill-button bg-primary text-primary-foreground"
             >
               Get started with Coach Cade

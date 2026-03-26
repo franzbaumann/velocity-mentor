@@ -20,6 +20,8 @@ export interface OnboardingAnswers {
   trainingHistory?: string;
   historyMore?: string;
   selectedPhilosophy?: string;
+  strengthSessionsPerWeekCap?: number;
+  mobilitySessionsPerWeekCap?: number;
 }
 
 export function useAthleteProfile() {

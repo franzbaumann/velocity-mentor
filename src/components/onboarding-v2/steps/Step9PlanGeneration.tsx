@@ -155,6 +155,22 @@ export function Step9PlanGeneration({
           </div>
         )}
 
+        {/* Stuck: finished loading, no error, no result — e.g. missing philosophy before plan call */}
+        {!loading && !error && !planResult && (
+          <div className="flex flex-col items-center justify-center py-16 px-4 space-y-4 max-w-md mx-auto">
+            <p className="text-sm text-muted-foreground text-center">
+              Plan generation didn&apos;t start. This can happen if setup was resumed mid-step. Go back to choose a training philosophy, then continue.
+            </p>
+            <button
+              type="button"
+              onClick={onBack}
+              className="text-sm font-semibold text-primary hover:underline"
+            >
+              Back to philosophy
+            </button>
+          </div>
+        )}
+
         {/* Success state */}
         {!loading && !error && planResult && (
           <div

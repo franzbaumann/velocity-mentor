@@ -1015,6 +1015,8 @@ export const SESSION_LIBRARY: Session[] = [
     intensityZone: "N/A",
     durationMinRange: 30,
     durationMaxRange: 40,
+    notes:
+      "With 6–7 run days/week may follow easy or long same day. Never same day as tempo, intervals, threshold, strides, or race work.",
   },
   {
     id: "str-02",
@@ -1039,13 +1041,13 @@ export const SESSION_LIBRARY: Session[] = [
     category: "mobility",
     targetDistances: ["1500m", "5k", "10k", "half_marathon", "marathon", "ultra"],
     phases: ["base", "build", "peak", "taper"],
-    description: "10-15 min post-run stretching",
+    description: "10-20 min post-run mobility (same day as a run — not a separate rest day)",
     structure:
       "Hip flexors, hamstrings, pigeon pose, quad stretch, calf stretch — 45-60 sec each",
     purpose: "Recovery, injury prevention",
     intensityZone: "N/A",
     durationMinRange: 10,
-    durationMaxRange: 15,
+    durationMaxRange: 20,
   },
   {
     id: "mob-02",
@@ -1059,7 +1061,7 @@ export const SESSION_LIBRARY: Session[] = [
     intensityZone: "N/A",
     durationMinRange: 30,
     durationMaxRange: 45,
-    notes: "Best placed on rest days",
+    notes: "Optional longer block when athlete has spare time; default is shorter mob-01 after runs",
   },
 ];
 

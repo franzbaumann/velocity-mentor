@@ -1,6 +1,7 @@
 import type { StepProps } from "../types";
 import { TwoColumnLayout } from "../OnboardingLayout";
 import { ExpandableText } from "../components/ExpandableText";
+import { formatStrengthMobilitySummaryLines } from "@/lib/onboarding/strengthMobilityCaps";
 
 const DAY_OPTIONS = [3, 4, 5, 6, 7];
 
@@ -31,12 +32,35 @@ const DOUBLE_DURATION_OPTIONS = [
   { id: 60, label: "60 min" },
 ];
 
+const STRENGTH_CAP_OPTIONS = [
+  { n: 0, label: "None" },
+  { n: 1, label: "1 / week" },
+  { n: 2, label: "2 / week" },
+  { n: 3, label: "3 / week" },
+] as const;
+
+const MOBILITY_CAP_OPTIONS = [
+  { n: 0, label: "None" },
+  { n: 1, label: "1 / week" },
+  { n: 2, label: "2 / week" },
+  { n: 3, label: "3 / week" },
+  { n: 4, label: "4 / week" },
+] as const;
+
 export function Step5Availability({ answers, onUpdate, onNext, onBack }: StepProps) {
   const canProceed =
     answers.daysPerWeek > 0 &&
     answers.sessionLength &&
     !!answers.preferredLongRunDay &&
     !!answers.preferredQualityDay;
+
+  const strengthCap = answers.strengthSessionsPerWeekCap ?? 2;
+  const mobilityCap = answers.mobilitySessionsPerWeekCap ?? 2;
+  const smSummary = formatStrengthMobilitySummaryLines(
+    strengthCap,
+    mobilityCap,
+    answers.daysPerWeek > 0 ? answers.daysPerWeek : undefined,
+  );
 
   const toggleDoubleDay = (day: string) => {
     const current = answers.doubleRunDays ?? [];
@@ -239,6 +263,66 @@ export function Step5Availability({ answers, onUpdate, onNext, onBack }: StepPro
               </div>
             </div>
           )}
+        </div>
+
+        {/* Strength & mobility caps */}
+        <div className="rounded-2xl border border-border/80 bg-card/40 p-6 space-y-8">
+          <div>
+            <h3 className="text-sm font-bold text-foreground tracking-tight">Strength training</h3>
+            <p className="text-xs text-muted-foreground mt-1 mb-4">
+              {answers.daysPerWeek >= 6
+                ? "How many strength sessions can you fit most weeks? At 6–7 run days, Cade usually places strength after an easy or long run on the same day — never on tempo, interval, threshold, strides, or race days. Your run volume stays first."
+                : "How many dedicated strength sessions can you fit most weeks? Cade will stay at or below this (never stacked with hard running days). Easy and long runs stay in the plan — strength adds on."}
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {STRENGTH_CAP_OPTIONS.map((opt) => (
+                <button
+                  key={opt.n}
+                  type="button"
+                  onClick={() => onUpdate({ strengthSessionsPerWeekCap: opt.n })}
+                  className={`px-5 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-150 ${
+                    strengthCap === opt.n
+                      ? "bg-primary text-primary-foreground shadow-[0_0_16px_hsl(var(--primary)/0.15)]"
+                      : "bg-card border border-border text-muted-foreground hover:border-foreground/15 hover:text-foreground/70"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <h3 className="text-sm font-bold text-foreground tracking-tight">Mobility &amp; prehab</h3>
+            <p className="text-xs text-muted-foreground mt-1 mb-4">
+              How often can you do mobility or prehab on top of running? These are short blocks — not mileage.
+            </p>
+            <div className="flex gap-2 flex-wrap">
+              {MOBILITY_CAP_OPTIONS.map((opt) => (
+                <button
+                  key={opt.n}
+                  type="button"
+                  onClick={() => onUpdate({ mobilitySessionsPerWeekCap: opt.n })}
+                  className={`px-5 py-2.5 rounded-xl text-[13px] font-semibold transition-all duration-150 ${
+                    mobilityCap === opt.n
+                      ? "bg-primary text-primary-foreground shadow-[0_0_16px_hsl(var(--primary)/0.15)]"
+                      : "bg-card border border-border text-muted-foreground hover:border-foreground/15 hover:text-foreground/70"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="rounded-xl bg-muted/30 border border-border/60 p-4 space-y-2">
+            <p className="text-[11px] font-bold text-muted-foreground uppercase tracking-wider">
+              What Cade will schedule
+            </p>
+            <p className="text-sm text-foreground/90 leading-relaxed">{smSummary.strengthLine}</p>
+            <p className="text-sm text-foreground/90 leading-relaxed">{smSummary.mobilityLine}</p>
+            <p className="text-xs text-muted-foreground pt-1">{smSummary.noteLine}</p>
+          </div>
         </div>
 
         {/* Scheduling constraints */}

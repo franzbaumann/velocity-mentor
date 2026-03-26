@@ -8,6 +8,7 @@ import {
   getPhilosophyPitch,
   normalizeRaceDistanceToConstraintKey,
 } from "@/lib/onboarding/philosophyConstraints";
+import { formatStrengthMobilityCapsShort, parseStrengthMobilityCaps } from "@/lib/onboarding/strengthMobilityCaps";
 
 interface Step8Props extends StepProps {
   recommendation: PhilosophyRecommendation | null;
@@ -89,10 +90,12 @@ export function Step8Philosophy({
     const phil = recommendation
       ? formatPhilosophyName(recommendation.primary.philosophy)
       : "—";
+    const { strength, mobility } = parseStrengthMobilityCaps(answers);
     const parts = [
       distLabel,
       weeksPart != null ? `${weeksPart} weeks` : null,
       `Starting ${startLabel}`,
+      formatStrengthMobilityCapsShort(strength, mobility),
       phil,
     ].filter(Boolean);
     return parts.join(" · ");
@@ -101,6 +104,8 @@ export function Step8Philosophy({
     answers.raceDistance,
     answers.planStartWhen,
     answers.planFirstDayOffset,
+    answers.strengthSessionsPerWeekCap,
+    answers.mobilitySessionsPerWeekCap,
     recommendation?.primary.philosophy,
   ]);
 

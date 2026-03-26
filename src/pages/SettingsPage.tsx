@@ -6,7 +6,7 @@ import { useVitalIntegration } from "@/hooks/useVitalIntegration";
 import { useStravaConnection } from "@/hooks/use-strava-connection";
 import { useAuth } from "@/hooks/use-auth";
 import { syncStravaActivities } from "@/integrations/strava";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -18,6 +18,11 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Check, Unlink, Loader2, RefreshCw, Upload, Heart, Trash2, User, Brain, X, Trophy, ChevronRight, Users, Watch } from "lucide-react";
+import {
+  formatStrengthMobilitySummaryLines,
+  parseDaysPerWeekFromAnswers,
+  parseStrengthMobilityCaps,
+} from "@/lib/onboarding/strengthMobilityCaps";
 import { Link, useNavigate } from "react-router-dom";
 import { useSeason } from "@/hooks/useSeason";
 import { supabase } from "@/integrations/supabase/client";
@@ -36,6 +41,21 @@ function StravaLogo({ className }: { className?: string }) {
 }
 
 const SYNC_COOLDOWN_MINUTES = 15; // Strava rate limit: 200 req/15min — avoid hammering API
+
+const SETTINGS_STRENGTH_OPTIONS = [
+  { n: 0, label: "None" },
+  { n: 1, label: "1 / week" },
+  { n: 2, label: "2 / week" },
+  { n: 3, label: "3 / week" },
+] as const;
+
+const SETTINGS_MOBILITY_OPTIONS = [
+  { n: 0, label: "None" },
+  { n: 1, label: "1 / week" },
+  { n: 2, label: "2 / week" },
+  { n: 3, label: "3 / week" },
+  { n: 4, label: "4 / week" },
+] as const;
 
 function StravaNotConnectedBlock({
   connectStrava,
@@ -638,6 +658,8 @@ export default function SettingsPage() {
     isConnecting: vitalConnecting,
     sync: vitalSync,
     isSyncing: vitalSyncing,
+    backfill: vitalBackfill,
+    isBackfilling: vitalBackfilling,
     disconnect: vitalDisconnect,
     isDisconnecting: vitalDisconnecting,
   } = useVitalIntegration();
@@ -658,7 +680,9 @@ export default function SettingsPage() {
       if (!user) return null;
       const { data } = await supabase
         .from("athlete_profile")
-        .select("max_hr, resting_hr, weight_kg, height_cm, training_philosophy, preferred_longrun_day, preferred_units, username")
+        .select(
+          "max_hr, resting_hr, weight_kg, height_cm, training_philosophy, preferred_longrun_day, preferred_units, username, onboarding_answers"
+        )
         .eq("user_id", user.id)
         .maybeSingle();
       return data;
@@ -722,7 +746,21 @@ export default function SettingsPage() {
   const [philosophy, setPhilosophy] = useState<string>("jack_daniels");
   const [longRunDay, setLongRunDay] = useState<string>("Saturday");
   const [units, setUnits] = useState<string>("km");
+  const [strengthCap, setStrengthCap] = useState(2);
+  const [mobilityCap, setMobilityCap] = useState(2);
   const [savingProfile, setSavingProfile] = useState(false);
+  const profileDaysPerWeek = useMemo(() => {
+    const oa = (athleteProfile as { onboarding_answers?: unknown } | null)?.onboarding_answers;
+    const d = parseDaysPerWeekFromAnswers(
+      oa && typeof oa === "object" && oa !== null ? (oa as Record<string, unknown>) : {},
+    );
+    return d > 0 ? d : undefined;
+  }, [athleteProfile]);
+
+  const strengthMobilitySummary = useMemo(
+    () => formatStrengthMobilitySummaryLines(strengthCap, mobilityCap, profileDaysPerWeek),
+    [strengthCap, mobilityCap, profileDaysPerWeek],
+  );
   const [streamsSyncing, setStreamsSyncing] = useState(false);
   const [pbsSyncing, setPbsSyncing] = useState(false);
   const [usernameEdit, setUsernameEdit] = useState("");
@@ -812,6 +850,12 @@ export default function SettingsPage() {
       setLongRunDay(athleteProfile.preferred_longrun_day ?? "Saturday");
       setUnits(athleteProfile.preferred_units ?? "km");
       setUsernameEdit((athleteProfile as { username?: string | null }).username ?? "");
+      const oa = (athleteProfile as { onboarding_answers?: unknown }).onboarding_answers;
+      const parsed = parseStrengthMobilityCaps(
+        oa && typeof oa === "object" && oa !== null ? (oa as Record<string, unknown>) : {},
+      );
+      setStrengthCap(parsed.strength);
+      setMobilityCap(parsed.mobility);
     }
   }, [athleteProfile]);
 
@@ -858,15 +902,30 @@ export default function SettingsPage() {
     }
     setSavingProfile(true);
     try {
-      const { data: existing } = await supabase.from("athlete_profile").select("id").eq("user_id", user.id).maybeSingle();
+      const { data: existingRow } = await supabase
+        .from("athlete_profile")
+        .select("id, onboarding_answers")
+        .eq("user_id", user.id)
+        .maybeSingle();
+      const prevAnswers =
+        existingRow?.onboarding_answers && typeof existingRow.onboarding_answers === "object" && existingRow.onboarding_answers !== null
+          ? { ...(existingRow.onboarding_answers as Record<string, unknown>) }
+          : {};
+      const onboarding_answers = {
+        ...prevAnswers,
+        strengthSessionsPerWeekCap: strengthCap,
+        mobilitySessionsPerWeekCap: mobilityCap,
+      };
       const payload = {
         weight_kg: w,
         height_cm: h,
         training_philosophy: philosophy as "jack_daniels" | "pfitzinger" | "hansons" | "ai" | "80_20" | "lydiard",
         preferred_longrun_day: longRunDay,
         preferred_units: units,
+        onboarding_answers,
+        updated_at: new Date().toISOString(),
       };
-      const { error } = existing
+      const { error } = existingRow
         ? await supabase.from("athlete_profile").update(payload).eq("user_id", user.id)
         : await supabase.from("athlete_profile").insert({ user_id: user.id, name: "Athlete", ...payload });
       if (error) throw error;
@@ -1165,15 +1224,26 @@ export default function SettingsPage() {
                     </div>
                   </div>
                   {vitalConnected ? (
-                    <div className="flex gap-2">
+                    <div className="flex gap-2 flex-wrap justify-end">
                       <Button
                         onClick={() => vitalSync()}
                         size="sm"
                         className="rounded-full px-5 pill-button bg-violet-500 hover:bg-violet-600 text-white text-xs"
-                        disabled={vitalSyncing}
+                        disabled={vitalSyncing || vitalBackfilling}
                       >
                         {vitalSyncing ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <RefreshCw className="w-4 h-4 mr-1" />}
                         {vitalSyncing ? "Syncing…" : "Sync now"}
+                      </Button>
+                      <Button
+                        onClick={() => vitalBackfill()}
+                        size="sm"
+                        variant="outline"
+                        className="rounded-full px-5 text-xs border-violet-400 text-violet-600 hover:bg-violet-50"
+                        disabled={vitalBackfilling || vitalSyncing}
+                        title="Fetch all activities from the past 2 years from Vital"
+                      >
+                        {vitalBackfilling ? <Loader2 className="w-4 h-4 animate-spin mr-1" /> : <Upload className="w-4 h-4 mr-1" />}
+                        {vitalBackfilling ? "Importing…" : "Import all history"}
                       </Button>
                       <Button
                         onClick={() => vitalDisconnect()}
@@ -1401,6 +1471,54 @@ export default function SettingsPage() {
                     ))}
                   </SelectContent>
                 </Select>
+              </div>
+              <div className="space-y-3 pt-2 border-t border-border/60">
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-2">Strength sessions per week (max)</label>
+                  <p className="text-xs text-muted-foreground/90 mb-3">
+                    Caps how many dedicated strength blocks Coach Cade schedules. Applies to new and regenerated plans.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    {SETTINGS_STRENGTH_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.n}
+                        type="button"
+                        onClick={() => setStrengthCap(opt.n)}
+                        className={`px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
+                          strengthCap === opt.n
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-secondary/80 text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div>
+                  <label className="text-xs text-muted-foreground block mb-2">Mobility / prehab per week (max)</label>
+                  <div className="flex flex-wrap gap-2">
+                    {SETTINGS_MOBILITY_OPTIONS.map((opt) => (
+                      <button
+                        key={opt.n}
+                        type="button"
+                        onClick={() => setMobilityCap(opt.n)}
+                        className={`px-4 py-2 rounded-xl text-xs font-semibold transition-colors ${
+                          mobilityCap === opt.n
+                            ? "bg-primary text-primary-foreground"
+                            : "bg-secondary/80 text-muted-foreground hover:text-foreground"
+                        }`}
+                      >
+                        {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <div className="rounded-xl bg-muted/30 border border-border/60 p-3 space-y-1.5">
+                  <p className="text-xs text-foreground/90 leading-relaxed">{strengthMobilitySummary.strengthLine}</p>
+                  <p className="text-xs text-foreground/90 leading-relaxed">{strengthMobilitySummary.mobilityLine}</p>
+                  <p className="text-[11px] text-muted-foreground">{strengthMobilitySummary.noteLine}</p>
+                </div>
               </div>
               <Button onClick={handleSaveProfile} size="sm" className="rounded-full" disabled={savingProfile}>
                 {savingProfile ? <Loader2 className="w-4 h-4 animate-spin" /> : <><Check className="w-4 h-4 mr-1" /> Save preferences</>}

@@ -138,7 +138,7 @@ export function useDashboardData() {
     const runningActivities = activities.filter((a) => isRunningActivity(a.type) && (a.distance_km ?? 0) > 0 && (a.distance_km ?? 0) <= 150);
     const mon = startOfWeek(new Date(), { weekStartsOn: 1 });
     const sun = addDays(mon, 6);
-    const monStr = mon.toISOString().slice(0, 10);
+    const monStr = format(mon, "yyyy-MM-dd");
     const sunStr = format(sun, "yyyy-MM-dd");
     const thisWeekKm = runningActivities
       .filter((a) => a.date >= monStr && a.date <= sunStr)

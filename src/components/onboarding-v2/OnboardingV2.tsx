@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { addDays, format } from "date-fns";
 import { FunctionsHttpError } from "@supabase/supabase-js";
@@ -30,6 +30,15 @@ import type {
 } from "./types";
 import { DEFAULT_ANSWERS, DEFAULT_STATE, getStepOrder } from "./types";
 import { filterPhilosophyRecommendation } from "@/lib/onboarding/philosophyConstraints";
+
+/** When goal changes or storage/DB resume desyncs, currentStep may not exist in the flow (e.g. step 3 without race goal) — avoid blank screen */
+function clampStepToOrder(current: number, order: readonly number[]): number {
+  if (order.length === 0) return 1;
+  if (order.includes(current)) return current;
+  const higher = order.find((s) => s > current);
+  if (higher != null) return higher;
+  return order[order.length - 1];
+}
 
 const STORAGE_KEY = "cade_onboarding_v2";
 
@@ -110,13 +119,26 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
       if (!prog || prog.completed_at) return;
       const serverStep = typeof prog.step_completed === "number" ? prog.step_completed : null;
       if (serverStep != null && serverStep >= 1) {
-        setState((prev) => (prev.currentStep < serverStep ? { ...prev, currentStep: serverStep } : prev));
+        setState((prev) => {
+          const order = getStepOrder(prev.answers.goal);
+          const merged = Math.max(prev.currentStep, serverStep);
+          const step = clampStepToOrder(merged, order);
+          return step !== prev.currentStep ? { ...prev, currentStep: step } : prev;
+        });
       }
     })();
     return () => {
       cancelled = true;
     };
   }, []);
+
+  /** Fix invalid currentStep vs goal (blank page: progress dots only). useLayoutEffect syncs before paint. */
+  useLayoutEffect(() => {
+    const order = getStepOrder(state.answers.goal);
+    if (order.includes(state.currentStep)) return;
+    const fixed = clampStepToOrder(state.currentStep, order);
+    setState((prev) => ({ ...prev, currentStep: fixed }));
+  }, [state.answers.goal, state.currentStep]);
 
   /** Persist current wizard step for resume */
   useEffect(() => {
@@ -155,12 +177,17 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
   }, [state.answers.raceDistance, state.answers.raceDate, state.answers.goalTime, state.answers.raceName]);
 
   // ---- Navigation ----
-  const stepOrder = getStepOrder(state.answers.goal);
-  const currentIndex = stepOrder.indexOf(state.currentStep);
+  const stepOrder = useMemo(() => getStepOrder(state.answers.goal), [state.answers.goal]);
+  const displayStep = useMemo(
+    () => clampStepToOrder(state.currentStep, stepOrder),
+    [state.currentStep, stepOrder],
+  );
+  const currentIndex = Math.max(0, stepOrder.indexOf(displayStep));
 
   const goNext = useCallback(() => {
     const order = getStepOrder(state.answers.goal);
-    const idx = order.indexOf(state.currentStep);
+    const at = clampStepToOrder(state.currentStep, order);
+    const idx = order.indexOf(at);
     if (idx < order.length - 1) {
       setDirection("forward");
       setState((prev) => ({ ...prev, currentStep: order[idx + 1] }));
@@ -169,19 +196,20 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
 
   const goBack = useCallback(() => {
     const order = getStepOrder(state.answers.goal);
-    const idx = order.indexOf(state.currentStep);
+    const at = clampStepToOrder(state.currentStep, order);
+    const idx = order.indexOf(at);
     if (idx <= 0) return;
 
     setDirection("backward");
 
-    if (state.currentStep === 8) {
+    if (at === 8) {
       setState((prev) => ({
         ...prev,
         currentStep: order[idx - 1],
         recommendedPhilosophy: null,
       }));
       setPhiloError(null);
-    } else if (state.currentStep === 9) {
+    } else if (at === 9) {
       setState((prev) => ({
         ...prev,
         currentStep: 8,
@@ -308,6 +336,7 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
 
   const handleSelectPhilosophy = useCallback((philosophy: string) => {
     setDirection("forward");
+    setPlanLoading(true);
     setState((prev) => ({
       ...prev,
       selectedPhilosophy: philosophy,
@@ -405,6 +434,20 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
       cancelled = true;
     };
   }, [state.currentStep, state.selectedPhilosophy, state.generatedPlan, planRetryCount]);
+
+  /** Step 9 with no philosophy (corrupt storage / bad resume) — plan effect never runs; UI was totally blank */
+  useEffect(() => {
+    if (state.currentStep !== 9 || state.answers.goal === "plan_season") return;
+    if (state.selectedPhilosophy) return;
+    setDirection("backward");
+    setPlanLoading(false);
+    setState((prev) => ({
+      ...prev,
+      currentStep: 8,
+      generatedPlan: null,
+    }));
+    setPlanError(null);
+  }, [state.currentStep, state.answers.goal, state.selectedPhilosophy]);
 
   const handleRetryPlan = useCallback(() => {
     setState((prev) => ({ ...prev, generatedPlan: null }));
@@ -539,7 +582,7 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
 
       <AnimatePresence mode="wait" initial={false} custom={direction}>
         <motion.div
-          key={state.currentStep}
+          key={displayStep}
           custom={direction}
           variants={variants}
           initial="enter"
@@ -548,14 +591,14 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
           transition={{ duration: 0.28, ease: [0.25, 0.1, 0.25, 1] }}
           className="pt-10 pb-16"
         >
-          {state.currentStep === 1 && <Step1Welcome {...stepWithData} />}
-          {state.currentStep === 2 && <Step2Goal {...stepProps} />}
-          {state.currentStep === 3 && <Step3RaceTarget {...stepWithData} />}
-          {state.currentStep === 4 && <Step4CurrentTraining {...stepWithData} />}
-          {state.currentStep === 5 && <Step5Availability {...stepProps} />}
-          {state.currentStep === 6 && <Step6Injuries {...stepProps} />}
-          {state.currentStep === 7 && <Step7Background {...stepProps} />}
-          {state.currentStep === 8 && (
+          {displayStep === 1 && <Step1Welcome {...stepWithData} />}
+          {displayStep === 2 && <Step2Goal {...stepProps} />}
+          {displayStep === 3 && <Step3RaceTarget {...stepWithData} />}
+          {displayStep === 4 && <Step4CurrentTraining {...stepWithData} />}
+          {displayStep === 5 && <Step5Availability {...stepProps} />}
+          {displayStep === 6 && <Step6Injuries {...stepProps} />}
+          {displayStep === 7 && <Step7Background {...stepProps} />}
+          {displayStep === 8 && (
             <Step8Philosophy
               {...stepProps}
               recommendation={state.recommendedPhilosophy}
@@ -565,10 +608,10 @@ export default function OnboardingV2({ onComplete }: OnboardingV2Props) {
               onRetry={handleRetryPhilosophy}
             />
           )}
-          {state.currentStep === 9 && state.answers.goal === "plan_season" && (
+          {displayStep === 9 && state.answers.goal === "plan_season" && (
             <Step9SeasonCreation onGoToSeason={handleGoToSeason} onBack={goBack} />
           )}
-          {state.currentStep === 9 && state.answers.goal !== "plan_season" && (
+          {displayStep === 9 && state.answers.goal !== "plan_season" && (
             <Step9PlanGeneration
               planResult={state.generatedPlan}
               loading={planLoading}
