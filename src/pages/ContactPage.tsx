@@ -12,6 +12,7 @@ const CONTACT_EMAIL = "info@caderunning.com";
 const navLinks = [
   { label: "Features", href: "/#features" },
   { label: "Philosophy", href: "/#philosophy" },
+  { label: "FAQ", href: "/#faq" },
   { label: "Contact", href: "/contact" },
 ];
 

@@ -212,10 +212,11 @@ PLAN GENERATION RULES:
 4. Apply distance rules: Ultra = no VO2max intervals; Marathon = VO2max max 1x/2 weeks peak only; 5K/10K = VO2max freely in Build/Peak.
 5. Volume starting point from CTL: <30 → 50%; 30-50 → 65%; 50-70 → 75%; 70+ → 85%.
 6. Double runs (is_double_run=true): only if athlete enabled AND CTL > 65. Second run is always easy. Max 3/week.
-7. Recovery weeks: every 3rd week reduce volume 25%. Max 7% weekly volume increase.
+7. Recovery weeks: every 3rd week reduce volume 25%. Max 7% weekly volume increase between non-recovery weeks.
 8. day_of_week: 1=Mon, 2=Tue, ..., 7=Sun
 9. Match athlete's days_per_week and session_length from intake.
 10. Use metric (km, /km pace). Include rest days. Progress: base → build → peak → taper.
+11. WEEK-OVER-WEEK PROGRESSION (mandatory): Do NOT copy the same "total_km" and identical workout templates across consecutive base/build weeks. Each non-recovery week should increase total running volume by roughly 5–7% vs the prior non-recovery week until a recovery week (≈25% lower). Weeks 1, 2, and 3 must not all have the same total_km unless week 3 is explicitly that recovery week. Vary key session distance or structure slightly as volume rises.
 
 CRITICAL — QUALITY SESSIONS (NEVER ALL EASY):
 - NEVER generate a plan where weeks are only easy runs. Every week (except taper) MUST include at least 1–2 quality sessions: tempo, intervals, or long run.
@@ -441,6 +442,31 @@ async function callGemini(
   return null;
 }
 
+/** If early weeks are flat (same total_km), ask the model once for a corrected plan. */
+function getProgressionRetryReason(
+  weeks: Array<{ week_number?: number; phase?: string; total_km?: number }>,
+): string | null {
+  const sorted = [...weeks]
+    .filter((w) => String(w.phase ?? "").toLowerCase() !== "taper")
+    .sort((a, b) => (a.week_number ?? 0) - (b.week_number ?? 0));
+  if (sorted.length < 3) return null;
+  const kms = sorted
+    .slice(0, 6)
+    .map((w) => Number(w.total_km ?? 0))
+    .filter((k) => k > 0);
+  if (kms.length < 3) return null;
+  const a = kms[0]!;
+  const b = kms[1]!;
+  const c = kms[2]!;
+  if (Math.abs(a - b) < 1 && Math.abs(b - c) < 1 && Math.abs(a - c) < 1) {
+    return (
+      "The first weeks have identical total_km — invalid. Regenerate the full plan: each base/build week must increase running total_km by ~5–7% vs the prior non-recovery week " +
+      "(every 3rd week −25% recovery). Use distinct total_km for early weeks and vary quality/long-run volume — do not duplicate the same week template."
+    );
+  }
+  return null;
+}
+
 function parsePlanJson(content: string): Record<string, unknown> | null {
   const cleaned = content.replace(/```json\n?/gi, "").replace(/```\n?/g, "").trim();
   const start = cleaned.indexOf("{");
@@ -526,11 +552,11 @@ serve(async (req) => {
 
     let planRaw = await tryGenerate();
     if (planRaw && requiredWeeks != null && requiredWeeks > 0) {
-      const weeks = (planRaw as { weeks?: unknown[] }).weeks ?? [];
-      if (weeks.length < requiredWeeks) {
-        console.log(`paceiq-generate-plan: got ${weeks.length} weeks, need ${requiredWeeks}, retrying...`);
+      let weeksCheck = (planRaw as { weeks?: unknown[] }).weeks ?? [];
+      if (weeksCheck.length < requiredWeeks) {
+        console.log(`paceiq-generate-plan: got ${weeksCheck.length} weeks, need ${requiredWeeks}, retrying...`);
         planRaw = await tryGenerate(
-          `You returned only ${weeks.length} weeks but the plan MUST have exactly ${requiredWeeks} weeks (race ${raceDate}). Generate the COMPLETE plan with all ${requiredWeeks} weeks.`
+          `You returned only ${weeksCheck.length} weeks but the plan MUST have exactly ${requiredWeeks} weeks (race ${raceDate}). Generate the COMPLETE plan with all ${requiredWeeks} weeks.`
         );
       }
     }
@@ -542,7 +568,7 @@ serve(async (req) => {
       );
     }
 
-    const plan = planRaw as {
+    type PlanShape = {
       plan_name?: string;
       philosophy?: string;
       total_weeks?: number;
@@ -571,7 +597,23 @@ serve(async (req) => {
       }>;
     };
 
-    const weeks = plan.weeks ?? [];
+    let plan = planRaw as PlanShape;
+    let weeks = plan.weeks ?? [];
+
+    const progReason = getProgressionRetryReason(weeks);
+    if (progReason) {
+      console.log("paceiq-generate-plan: flat progression detected, retrying once...");
+      const second = await tryGenerate(progReason);
+      if (second && typeof second === "object") {
+        const w2 = (second as PlanShape).weeks ?? [];
+        if (w2.length > 0) {
+          planRaw = second;
+          plan = planRaw as PlanShape;
+          weeks = plan.weeks ?? [];
+        }
+      }
+    }
+
     if (weeks.length === 0) {
       return new Response(JSON.stringify({ error: "Invalid plan: no weeks" }), {
         status: 400,
@@ -673,12 +715,13 @@ serve(async (req) => {
 
     // Sync coaching memory: canonical plan goal replaces all goal + race chat rows
     await supabase.from("coaching_memory").delete().eq("user_id", user.id).in("category", ["goal", "race"]);
-    const raceLabel = (goalDistance ?? "marathon").replace(/\b\w/g, (c) => c.toUpperCase());
-    const goalContent = goalTime
-      ? `Targeting a ${raceLabel.toLowerCase()} finish time of ${goalTime}`
-      : raceDate
-        ? `Aims to run the ${raceLabel} in ${totalWeeks} weeks`
-        : `Aims to run the ${raceLabel} in ${totalWeeks} weeks`;
+    const goalDistStr = goalDistance != null ? String(goalDistance).trim() : "";
+    const raceTitle = goalDistStr ? goalDistStr.replace(/\b\w/g, (c) => c.toUpperCase()) : "";
+    const goalContent = goalTime && raceTitle
+      ? `Targeting a ${raceTitle.toLowerCase()} finish time of ${goalTime}`
+      : raceTitle
+        ? `Aims to run the ${raceTitle} in ${totalWeeks} weeks`
+        : `Aims to run a goal race in ${totalWeeks} weeks`;
     await supabase.from("coaching_memory").insert({
       user_id: user.id,
       category: "goal",

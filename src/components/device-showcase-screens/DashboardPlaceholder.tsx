@@ -11,7 +11,7 @@ export function DashboardPlaceholder() {
       {/* Main */}
       <div className="flex-1 min-w-0 p-4 space-y-4">
         <div>
-          <h1 className="text-lg font-semibold text-foreground">Good morning</h1>
+          <p className="text-lg font-semibold text-foreground">Good morning</p>
           <p className="text-xs text-muted-foreground">Week 6 of 14 · Build Phase · Marathon in 14 weeks</p>
         </div>
         <div className="flex gap-4">

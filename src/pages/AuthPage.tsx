@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { Link, Navigate } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { Link, Navigate, useSearchParams } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import { Marquee } from "@/components/ui/marquee";
 import { CadeLogo } from "@/components/CadeLogo";
@@ -14,7 +14,8 @@ function normalizeUsername(raw: string): string {
 
 export default function AuthPage() {
   const { user, loading } = useAuth();
-  const [mode, setMode] = useState<Mode>("login");
+  const [searchParams] = useSearchParams();
+  const mode: Mode = searchParams.get("mode") === "signup" ? "signup" : "login";
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -22,6 +23,10 @@ export default function AuthPage() {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (mode === "login") setUsername("");
+  }, [mode]);
 
   if (loading) {
     return (
@@ -31,6 +36,25 @@ export default function AuthPage() {
     );
   }
   if (user) return <Navigate to="/" replace />;
+
+  async function handleForgotPassword() {
+    setError(null);
+    setSuccessMsg(null);
+    if (!email.trim()) {
+      setError("Enter your email above, then request a reset link.");
+      return;
+    }
+    setSubmitting(true);
+    const { error: resetError } = await supabase.auth.resetPasswordForEmail(email.trim(), {
+      redirectTo: `${window.location.origin}/auth`,
+    });
+    if (resetError) {
+      setError(resetError.message);
+    } else {
+      setSuccessMsg("Check your email for a password reset link.");
+    }
+    setSubmitting(false);
+  }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -52,7 +76,7 @@ export default function AuthPage() {
         headers: { "Content-Type": "application/json", apikey: anonKey },
         body: JSON.stringify({ __path: "username/check", username: normalized }),
       });
-      const checkData = await checkRes.json().catch(() => ({}));
+      const checkData = (await checkRes.json().catch(() => ({}))) as { available?: boolean; error?: string };
       if (!checkData.available) {
         setError(checkData.error ?? "Username is already taken.");
         setSubmitting(false);
@@ -168,6 +192,19 @@ export default function AuthPage() {
                 />
               </div>
 
+              {mode === "login" && (
+                <div className="flex justify-end -mt-1">
+                  <button
+                    type="button"
+                    onClick={handleForgotPassword}
+                    disabled={submitting}
+                    className="text-xs font-medium text-primary hover:underline disabled:opacity-50"
+                  >
+                    Forgot password?
+                  </button>
+                </div>
+              )}
+
               {error && (
                 <p className="text-xs text-destructive bg-destructive/10 rounded-lg px-3 py-2">
                   {error}
@@ -194,14 +231,14 @@ export default function AuthPage() {
             </form>
 
             <div className="text-center">
-              <button
-                onClick={() => { setMode(mode === "login" ? "signup" : "login"); setError(null); setSuccessMsg(null); setUsername(""); }}
+              <Link
+                to={mode === "login" ? "/auth?mode=signup" : "/auth"}
                 className="text-sm text-muted-foreground hover:text-foreground transition-colors"
               >
                 {mode === "login"
                   ? "Don't have an account? Sign up"
                   : "Already have an account? Sign in"}
-              </button>
+              </Link>
             </div>
           </div>
 

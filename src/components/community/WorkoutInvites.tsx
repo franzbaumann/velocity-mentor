@@ -30,7 +30,7 @@ import {
 } from "lucide-react";
 import { format, parseISO, addDays } from "date-fns";
 import { toast } from "sonner";
-import type { FriendProfile } from "@/hooks/useFriends";
+import { logSocialTableError, type FriendProfile } from "@/hooks/useFriends";
 import { useFriendWorkoutForDate, useFriendWorkoutsForDate } from "@/hooks/useFriends";
 import { parseSteps, WorkoutStepsDisplay, CombinedWorkoutDisplay, type CombinedWorkoutPreview } from "@/lib/workout-steps";
 import { getSupabaseUrl } from "@/lib/supabase-url";
@@ -44,24 +44,29 @@ function useWorkoutInvites() {
     queryFn: async () => {
       if (!user) return { received: [], sent: [] };
 
-      const { data: received } = await supabase
+      const { data: received, error: recErr } = await supabase
         .from("workout_invite")
         .select("*")
         .eq("to_user", user.id)
         .order("created_at", { ascending: false });
 
-      const { data: sent } = await supabase
+      if (recErr) logSocialTableError("workout_invite received list", recErr);
+
+      const { data: sent, error: sentErr } = await supabase
         .from("workout_invite")
         .select("*")
         .eq("from_user", user.id)
         .order("created_at", { ascending: false });
 
+      if (sentErr) logSocialTableError("workout_invite sent list", sentErr);
+
       return {
-        received: received ?? [],
-        sent: sent ?? [],
+        received: recErr ? [] : received ?? [],
+        sent: sentErr ? [] : sent ?? [],
       };
     },
     staleTime: 30_000,
+    retry: 1,
     refetchInterval: (query) => {
       const d = query.state.data;
       if (!d) return false;

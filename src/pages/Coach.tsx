@@ -367,14 +367,34 @@ const INTENSE_TYPES = new Set(["interval", "intervals", "tempo", "long", "race"]
 
 /** Update coaching_memory with the new plan's goal so Coach Cade knows the current target. */
 async function updateCoachMemoryFromPlan(userId: string, plan: Record<string, unknown>): Promise<void> {
-  const goalRace = (plan.goal_race as string) ?? "marathon";
   const goalTime = (plan.goal_time as string) ?? null;
   const totalWeeks = (plan.total_weeks as number) ?? (Array.isArray(plan.weeks) ? (plan.weeks as unknown[]).length : 12);
-  const raceLabel = String(goalRace).replace(/\b\w/g, (c) => c.toUpperCase());
+  let goalRace = (plan.goal_race as string) ?? "";
+  goalRace = String(goalRace).trim();
 
-  const goalContent = goalTime
-    ? `Targeting a ${raceLabel.toLowerCase()} finish time of ${goalTime}`
-    : `Aims to run the ${raceLabel} in ${totalWeeks} weeks`;
+  if (!goalRace) {
+    const { data: prof } = await supabase
+      .from("athlete_profile")
+      .select("goal_race_name, goal_distance")
+      .eq("user_id", userId)
+      .maybeSingle();
+    const fromProf =
+      (prof?.goal_race_name != null && String(prof.goal_race_name).trim()) ||
+      (prof?.goal_distance != null && String(prof.goal_distance).trim()) ||
+      "";
+    goalRace = fromProf;
+  }
+
+  const titled = goalRace
+    ? goalRace.replace(/\b\w/g, (c) => c.toUpperCase())
+    : "";
+
+  const goalContent =
+    goalTime && titled
+      ? `Targeting a ${titled.toLowerCase()} finish time of ${goalTime}`
+      : titled
+        ? `Aims to run the ${titled} in ${totalWeeks} weeks`
+        : `Aims to run a goal race in ${totalWeeks} weeks`;
 
   await supabase.from("coaching_memory").delete().eq("user_id", userId).in("category", ["goal", "race"]);
   await supabase.from("coaching_memory").insert({
@@ -1023,6 +1043,8 @@ export default function Coach() {
     const monStr = format(mon, "yyyy-MM-dd");
     const sunStr = format(addDays(mon, 6), "yyyy-MM-dd");
     const activities = Array.isArray(activitiesData) ? activitiesData : [];
+    const planStartYmd =
+      (planData?.plan as { start_date?: string } | undefined)?.start_date?.slice(0, 10) ?? null;
 
     const planByDate = new Map<string, { type: string; description: string; distance_km?: number; pace_target?: string }>();
     for (const week of (planData?.weeks ?? []) as { sessions?: { scheduled_date?: string; session_type?: string; description?: string; distance_km?: number; pace_target?: string }[] }[]) {
@@ -1046,16 +1068,19 @@ export default function Coach() {
       const planned = planByDate.get(dateStr);
       const today = isToday(d);
       const done = !!act;
+      const beforePlan = planStartYmd != null && dateStr < planStartYmd;
 
       const type = (act ? (act.type ?? "run").toLowerCase() : planned?.type ?? "rest") as "easy" | "tempo" | "interval" | "long" | "recovery" | "rest";
       const title = act
         ? `${act.type ?? "Run"} ${formatDistance(act.distance_km ?? 0)} km`
         : planned
           ? (planned.description?.trim() || (planned.distance_km ? `Run ${formatDistance(planned.distance_km)} km` : planned.type || "Run"))
-          : "Rest";
+          : beforePlan
+            ? "Pre-plan"
+            : "Rest";
       const distance = act ? Math.round((act.distance_km ?? 0) * 10) / 10 : (planned?.distance_km ?? 0);
 
-      return { day: format(d, "EEE"), date: format(d, "d"), type, title, distance, today, done, planned };
+      return { day: format(d, "EEE"), date: format(d, "d"), type, title, distance, today, done, planned, beforePlan };
     });
   }, [activitiesData, planData]);
 
@@ -1494,7 +1519,7 @@ export default function Coach() {
                       {d.title}
                     </button>
                   ) : (
-                    <p className="text-[10px] text-muted-foreground/50 mt-1">Rest</p>
+                    <p className="text-[10px] text-muted-foreground/50 mt-1">{d.beforePlan ? "Pre-plan" : "Rest"}</p>
                   )}
                 </div>
               );
@@ -1655,12 +1680,14 @@ export default function Coach() {
 
           {/* Quick chips */}
           {messages.length === 0 && (
-            <div className="px-6 pb-2 flex flex-wrap gap-2 max-h-[4.5rem] overflow-x-auto overflow-y-hidden">
+            <div className="px-6 pb-2 flex flex-wrap gap-2">
               {quickPrompts.map((prompt) => (
                 <button
                   key={prompt}
+                  type="button"
+                  title={prompt}
                   onClick={() => send(prompt)}
-                  className="shrink-0 text-sm rounded-full border border-gray-200 dark:border-border bg-background px-3 py-1.5 text-foreground hover:bg-gray-50 dark:hover:bg-muted transition-colors"
+                  className="max-w-[min(100%,22rem)] text-left text-sm leading-snug rounded-full border border-gray-200 dark:border-border bg-background px-3 py-1.5 text-foreground hover:bg-gray-50 dark:hover:bg-muted transition-colors"
                 >
                   {prompt}
                 </button>

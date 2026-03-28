@@ -762,7 +762,7 @@ export default function Dashboard() {
                   </div>
                   <div>
                     <p className="text-muted-foreground text-xs">Avg HR</p>
-                    <p className="mono-text font-medium text-foreground">{Math.round(lastActivity.avgHr)} bpm</p>
+                    <p className="mono-text font-medium text-foreground">{lastActivity.avgHr != null ? `${lastActivity.avgHr} bpm` : "—"}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground text-xs">Duration</p>
@@ -834,7 +834,7 @@ export default function Dashboard() {
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">Avg HR</p>
-                  <p className="mono-text font-medium text-foreground">{Math.round(lastActivity.avgHr)} bpm</p>
+                  <p className="mono-text font-medium text-foreground">{lastActivity.avgHr != null ? `${lastActivity.avgHr} bpm` : "—"}</p>
                 </div>
                 <div>
                   <p className="text-muted-foreground text-xs">Duration</p>

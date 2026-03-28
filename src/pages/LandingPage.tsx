@@ -102,6 +102,7 @@ export default function LandingPage() {
               </Button>
             </Link>
             <button
+              type="button"
               className="sm:hidden flex items-center justify-center w-9 h-9 rounded-lg text-foreground hover:bg-accent transition-colors"
               aria-label={mobileMenuOpen ? "Close menu" : "Open menu"}
               aria-expanded={mobileMenuOpen}
@@ -170,7 +171,8 @@ export default function LandingPage() {
             AI Running Coach
           </p>
           <h1 className="text-5xl md:text-7xl font-bold tracking-tight text-foreground leading-[1.1]">
-            Train like<br />an athlete.
+            Train like <br />
+            an athlete.
           </h1>
           <p className="text-lg md:text-xl text-muted-foreground max-w-[560px] leading-relaxed">
             Cade coaches you the way elite runners are coached — with your actual physiology,
@@ -213,7 +215,7 @@ export default function LandingPage() {
             <span className="flex items-center gap-1.5 relative group cursor-help">
               <Check className="w-4 h-4 text-green-600 shrink-0" />
               Works with intervals.icu
-              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 rounded-md bg-popover border border-border shadow-sm text-xs text-popover-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+              <span className="absolute bottom-full left-1/2 z-50 mb-2 max-w-[min(100vw-2rem,18rem)] -translate-x-1/2 whitespace-normal break-words rounded-md border border-border bg-popover px-2.5 py-1 text-center text-xs text-popover-foreground opacity-0 shadow-sm transition-opacity pointer-events-none group-hover:opacity-100">
                 intervals.icu — free training log used by serious runners
               </span>
             </span>
@@ -241,7 +243,7 @@ export default function LandingPage() {
             <span className="mx-8 text-muted-foreground">·</span>
             <span className="mx-8 relative group cursor-help">
               <span className="text-lg font-medium text-muted-foreground">intervals.icu</span>
-              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 rounded-md bg-popover border border-border shadow-sm text-xs text-popover-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+              <span className="absolute bottom-full left-1/2 z-50 mb-2 max-w-[min(100vw-2rem,18rem)] -translate-x-1/2 whitespace-normal break-words rounded-md border border-border bg-popover px-2.5 py-1 text-center text-xs text-popover-foreground opacity-0 shadow-sm transition-opacity pointer-events-none group-hover:opacity-100">
                 intervals.icu — free training log used by serious runners
               </span>
             </span>
@@ -526,14 +528,25 @@ export default function LandingPage() {
               </p>
             </div>
           ) : (
-            <form onSubmit={handleBetaSignup} className="flex flex-col sm:flex-row gap-3 max-w-[520px] mx-auto">
+            <form
+              action="#"
+              method="get"
+              onSubmit={handleBetaSignup}
+              className="mx-auto flex max-w-[520px] flex-col gap-3 sm:flex-row"
+            >
+              <label htmlFor="beta-email" className="sr-only">
+                Email for beta waitlist
+              </label>
               <input
+                id="beta-email"
+                name="email"
                 type="email"
+                autoComplete="email"
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
                 placeholder="your@email.com"
-                className="flex-1 h-11 px-4 rounded-full border border-border bg-background text-foreground placeholder:text-muted-foreground text-sm focus:outline-none focus:ring-2 focus:ring-primary/50"
+                className="h-11 flex-1 rounded-full border border-border bg-background px-4 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary/50"
               />
               <Button
                 type="submit"
@@ -559,7 +572,7 @@ export default function LandingPage() {
             <span className="flex items-center gap-1.5 relative group cursor-help">
               <Check className="w-4 h-4 text-green-600 shrink-0" />
               Works with intervals.icu
-              <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 px-2.5 py-1 rounded-md bg-popover border border-border shadow-sm text-xs text-popover-foreground whitespace-nowrap opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none z-50">
+              <span className="absolute bottom-full left-1/2 z-50 mb-2 max-w-[min(100vw-2rem,18rem)] -translate-x-1/2 whitespace-normal break-words rounded-md border border-border bg-popover px-2.5 py-1 text-center text-xs text-popover-foreground opacity-0 shadow-sm transition-opacity pointer-events-none group-hover:opacity-100">
                 intervals.icu — free training log used by serious runners
               </span>
             </span>

@@ -79,6 +79,7 @@ export function FAQAccordionBlock() {
               >
                 <Card className="overflow-hidden border-border/50 bg-card transition-all hover:border-primary/50 hover:shadow-md">
                   <motion.button
+                    type="button"
                     onClick={() => setOpenIndex(isOpen ? null : index)}
                     className="flex w-full items-center justify-between p-4 text-left md:p-6"
                     whileHover={{

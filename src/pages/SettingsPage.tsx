@@ -25,6 +25,7 @@ import {
 } from "@/lib/onboarding/strengthMobilityCaps";
 import { Link, useNavigate } from "react-router-dom";
 import { useSeason } from "@/hooks/useSeason";
+import { useTrainingPlan } from "@/hooks/use-training-plan";
 import { supabase } from "@/integrations/supabase/client";
 import { AuthTokenError, getSafeAccessToken } from "@/lib/supabase-auth-safe";
 import { FunctionsHttpError } from "@supabase/supabase-js";
@@ -41,6 +42,31 @@ function StravaLogo({ className }: { className?: string }) {
 }
 
 const SYNC_COOLDOWN_MINUTES = 15; // Strava rate limit: 200 req/15min — avoid hammering API
+
+const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"] as const;
+
+function normalizePhilosophyKey(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+/** First scheduled long run in plan → weekday name (matches Settings long run options). */
+function inferPlanLongRunDay(
+  weeks: Array<{ sessions?: Array<{ session_type?: string; scheduled_date?: string | null }> }> | undefined,
+): string | null {
+  if (!weeks?.length) return null;
+  for (const w of weeks) {
+    for (const s of w.sessions ?? []) {
+      const t = String(s.session_type ?? "").toLowerCase();
+      if (t !== "long") continue;
+      const d = s.scheduled_date;
+      if (!d || typeof d !== "string") continue;
+      const dt = new Date(`${d}T12:00:00`);
+      if (Number.isNaN(dt.getTime())) continue;
+      return WEEKDAY_NAMES[dt.getDay()] ?? null;
+    }
+  }
+  return null;
+}
 
 const SETTINGS_STRENGTH_OPTIONS = [
   { n: 0, label: "None" },
@@ -649,6 +675,7 @@ export default function SettingsPage() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const { activeSeason } = useSeason();
+  const { plan: trainingBundle } = useTrainingPlan();
   const { integration, isConnected, save, isSaving, disconnect } = useIntervalsIntegration();
   const {
     integration: vitalIntegration,
@@ -932,6 +959,23 @@ export default function SettingsPage() {
       queryClient.invalidateQueries({ queryKey: ["athlete_profile"] });
       queryClient.invalidateQueries({ queryKey: ["training-plan"] });
       toast.success("Profile saved.");
+
+      const planRow = trainingBundle?.plan as { philosophy?: string | null; is_active?: boolean | null } | undefined;
+      if (planRow?.is_active === true && planRow.philosophy) {
+        if (normalizePhilosophyKey(String(planRow.philosophy)) !== normalizePhilosophyKey(philosophy)) {
+          toast.message("Active plan uses a different philosophy", {
+            description: "Regenerate your plan from Season or Coach Cade so scheduled workouts match this setting.",
+            duration: 10_000,
+          });
+        }
+      }
+      const planLongDay = inferPlanLongRunDay(trainingBundle?.weeks);
+      if (planRow?.is_active === true && planLongDay && planLongDay !== longRunDay) {
+        toast.message("Long run day differs from your active plan", {
+          description: `The plan currently schedules long runs on ${planLongDay}. Regenerate the plan to use ${longRunDay}.`,
+          duration: 10_000,
+        });
+      }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Failed to save");
     } finally {
@@ -1068,6 +1112,11 @@ export default function SettingsPage() {
                       <p className="text-xs text-muted-foreground">
                         {isConnected ? "Connected" : "Not connected"}
                       </p>
+                      {!isConnected && vitalConnected && (
+                        <p className="text-xs text-muted-foreground mt-1 max-w-md">
+                          Activities and wellness may still come from Apple Health or Vital. Connect intervals.icu if you want that pipeline too.
+                        </p>
+                      )}
                     </div>
                   </div>
                   {isConnected ? (

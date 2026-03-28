@@ -41,6 +41,12 @@ async function callProxy(path: string, body: Record<string, unknown> = {}) {
 const getAnonKey = () =>
   import.meta.env.VITE_SUPABASE_ANON_KEY ?? import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ?? "";
 
+/** Dev-only log for social table failures (e.g. 503, missing migration). */
+export function logSocialTableError(context: string, err: { message?: string; code?: string } | null) {
+  if (!err || import.meta.env.PROD) return;
+  console.warn(`[social] ${context}:`, err.message ?? err.code ?? err);
+}
+
 function proxyFetch(path: string, body: Record<string, unknown> = {}) {
   return async () => {
     const { data: { session } } = await supabase.auth.getSession();
@@ -111,13 +117,17 @@ export function usePendingRequests() {
     queryFn: async () => {
       if (!user) return [];
 
-      const { data: requests } = await supabase
+      const { data: requests, error } = await supabase
         .from("friend_request")
         .select("id, from_user, created_at")
         .eq("to_user", user.id)
         .eq("status", "pending")
         .order("created_at", { ascending: false });
 
+      if (error) {
+        logSocialTableError("friend_request pending (inbox)", error);
+        return [] as PendingRequest[];
+      }
       if (!requests?.length) return [] as PendingRequest[];
 
       const fromIds = requests.map((r) => r.from_user);
@@ -136,6 +146,7 @@ export function usePendingRequests() {
       })) as PendingRequest[];
     },
     staleTime: 15_000,
+    retry: 1,
   });
 }
 
@@ -148,13 +159,17 @@ export function useSentRequests() {
     queryFn: async () => {
       if (!user) return [];
 
-      const { data: requests } = await supabase
+      const { data: requests, error } = await supabase
         .from("friend_request")
         .select("id, to_user, created_at")
         .eq("from_user", user.id)
         .eq("status", "pending")
         .order("created_at", { ascending: false });
 
+      if (error) {
+        logSocialTableError("friend_request pending (sent)", error);
+        return [];
+      }
       if (!requests?.length) return [];
 
       const toIds = requests.map((r) => r.to_user);
@@ -173,6 +188,7 @@ export function useSentRequests() {
       }));
     },
     staleTime: 15_000,
+    retry: 1,
   });
 }
 
@@ -296,21 +312,26 @@ export function usePendingInvitesCount() {
     queryFn: async () => {
       if (!user) return 0;
 
-      const { count } = await supabase
+      const { count, error: invErr } = await supabase
         .from("workout_invite")
         .select("id", { count: "exact", head: true })
         .eq("to_user", user.id)
         .eq("status", "pending");
 
-      const { count: reqCount } = await supabase
+      if (invErr) logSocialTableError("workout_invite pending count", invErr);
+
+      const { count: reqCount, error: reqErr } = await supabase
         .from("friend_request")
         .select("id", { count: "exact", head: true })
         .eq("to_user", user.id)
         .eq("status", "pending");
 
-      return (count ?? 0) + (reqCount ?? 0);
+      if (reqErr) logSocialTableError("friend_request pending count", reqErr);
+
+      return (invErr ? 0 : count ?? 0) + (reqErr ? 0 : reqCount ?? 0);
     },
     staleTime: 30_000,
     refetchInterval: 60_000,
+    retry: 1,
   });
 }

@@ -559,6 +559,19 @@ export default function ActivityDetail() {
   const hasResp = chartData.some((d) => d.respiration_rate > 0);
   const hasGraphs = hasPace || hasHr || hasAlt || hasTemp || hasResp;
 
+  const chartsEmptyMessage = useMemo(() => {
+    if (!activity) return "";
+    if (activity.streamFetchError) return "Could not load charts (check console).";
+    const src = String(activity.source ?? "").toLowerCase();
+    if (src === "vital") {
+      return "No GPS or heart-rate time series for this activity. Some device connections only send summary stats (distance, pace, max HR). Use the Data tab for those numbers.";
+    }
+    if (!activity.streams) {
+      return "No pace, HR, or elevation time series is stored for this activity. Summary stats are on the Data tab.";
+    }
+    return "No chart data available for this activity.";
+  }, [activity]);
+
   // ── New computed stats ──────────────────────────────────────────────────────
 
   /** Best (fastest) pace from the stream, ignoring stops and GPS glitches */
@@ -1056,11 +1069,7 @@ export default function ActivityDetail() {
 
             {!hasGraphs && (
               <div className="rounded-xl border border-border bg-card p-12 text-center">
-                <p className="text-sm text-muted-foreground">
-                  {activity.streamFetchError
-                    ? "Could not load charts (check console)."
-                    : "No chart data available for this activity."}
-                </p>
+                <p className="text-sm text-muted-foreground">{chartsEmptyMessage}</p>
               </div>
             )}
           </div>
@@ -1116,7 +1125,7 @@ export default function ActivityDetail() {
                       value={`${(normalizePaceDisplay(activity.avg_pace) || activity.avg_pace).replace(/\/km$/i, "")}/km`}
                     />
                   )}
-                  {derivedAvgHr != null && <SummaryItem label="Avg HR" value={`${derivedAvgHr} bpm`} />}
+                  <SummaryItem label="Avg HR" value={derivedAvgHr != null ? `${derivedAvgHr} bpm` : "—"} />
                   {activity.max_hr != null && <SummaryItem label="Max HR" value={`${activity.max_hr} bpm`} />}
                   {derivedAvgHr != null && activity.max_hr != null && activity.max_hr > 0 && (
                     <SummaryItem label="HR %" value={`${Math.round((derivedAvgHr / activity.max_hr) * 100)}%`} />

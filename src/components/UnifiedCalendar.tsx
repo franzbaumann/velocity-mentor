@@ -337,7 +337,7 @@ export function UnifiedCalendar({ defaultView = "plan", onAskCoachCade }: Unifie
 
       {/* Calendar grid */}
       <div className="p-4">
-        <div className="grid grid-cols-7 gap-1">
+        <div className="grid gap-1 [grid-template-columns:repeat(7,minmax(0,1fr))]">
           {viewMode === "week"
             ? calendarWeeks.map((week, wi) => (
                 <div key={wi} className="col-span-1">
@@ -563,7 +563,7 @@ function DayCell({
       type="button"
       onClick={onSelect}
       className={`
-        relative flex flex-col items-stretch rounded-lg text-left p-2 transition-colors
+        relative flex min-w-0 w-full flex-col items-stretch overflow-hidden rounded-lg text-left p-2 transition-colors
         ${isWeekView ? "min-h-[80px] sm:min-h-[96px]" : "min-h-[72px] sm:min-h-[88px]"}
         ${!inMonth ? "text-muted-foreground/50" : "text-foreground"}
         ${hasData ? "cursor-pointer hover:bg-primary/10" : "cursor-pointer"}
@@ -574,12 +574,12 @@ function DayCell({
         {format(day, "d")}
       </span>
 
-      <div className="flex flex-row flex-wrap gap-1 min-w-0">
+      <div className="flex min-w-0 w-full flex-col gap-0.5 overflow-hidden">
         {firstWorkout && (
           <Tooltip>
             <TooltipTrigger asChild>
               <span
-                className="text-[10px] px-2 py-0.5 rounded-full truncate font-medium inline-flex items-center gap-1 shrink-0 cursor-default"
+                className="text-[10px] px-2 py-0.5 rounded-full truncate font-medium inline-flex max-w-full items-center gap-1 self-start cursor-default"
                 style={{
                   backgroundColor: getWorkoutColor(firstWorkout.session_type).bg,
                   color: getWorkoutColor(firstWorkout.session_type).text,
@@ -596,15 +596,15 @@ function DayCell({
         )}
         {firstActivity && (
           <span
-            className="text-[10px] truncate font-medium shrink-0"
+            className="text-[10px] font-medium max-w-full truncate self-start min-w-0"
             style={{ color: COMPLETED_BLUE }}
           >
             ✓ {firstActivity.nonDist ? firstActivity.duration : `${formatDistance(firstActivity.km)} · ${(normalizePaceDisplay(firstActivity.pace) || firstActivity.pace) ?? "—"}`}
           </span>
         )}
         {(workouts.length > 1 || activities.length > 1) && (
-          <span className="text-[10px] text-[#6B7280] font-medium shrink-0">
-            +{workouts.length + activities.length - 1}
+          <span className="text-[10px] text-[#6B7280] font-medium shrink-0 self-start">
+            +{workouts.length + activities.length - 1} more
           </span>
         )}
       </div>

@@ -23,8 +23,8 @@ export default function PrivacyPage() {
             <p>
               Cade ("we", "us", "our") is an AI-powered running coaching service operated by Franz Baumann.
               If you have any questions about this policy, contact us at{" "}
-              <a href="mailto:franzbaumann07@gmail.com" className="text-primary underline underline-offset-2">
-                franzbaumann07@gmail.com
+              <a href="mailto:info@caderunning.com" className="text-primary underline underline-offset-2">
+                info@caderunning.com
               </a>.
             </p>
           </section>
@@ -151,8 +151,8 @@ export default function PrivacyPage() {
             </ul>
             <p className="mt-3">
               To exercise any of these rights, email us at{" "}
-              <a href="mailto:franzbaumann07@gmail.com" className="text-primary underline underline-offset-2">
-                franzbaumann07@gmail.com
+              <a href="mailto:info@caderunning.com" className="text-primary underline underline-offset-2">
+                info@caderunning.com
               </a>. We will respond within 30 days.
             </p>
           </section>
@@ -187,8 +187,8 @@ export default function PrivacyPage() {
             <h2 className="text-lg font-semibold text-foreground mb-3">11. Contact</h2>
             <p>
               For any privacy-related questions or requests, contact:{" "}
-              <a href="mailto:franzbaumann07@gmail.com" className="text-primary underline underline-offset-2">
-                franzbaumann07@gmail.com
+              <a href="mailto:info@caderunning.com" className="text-primary underline underline-offset-2">
+                info@caderunning.com
               </a>
             </p>
           </section>

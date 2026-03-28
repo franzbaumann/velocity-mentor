@@ -757,14 +757,14 @@ function SeasonView({ onCreateNewSeason }: { onCreateNewSeason: () => void }) {
     <div>
       {/* Header */}
       <div className="mb-6">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-      <div>
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+      <div className="min-w-0">
             <h1 className="text-2xl font-bold text-foreground">{activeSeason.name}</h1>
             <p className="text-sm text-muted-foreground mt-1">
               {formatDate(activeSeason.start_date)} — {formatDate(activeSeason.end_date)} · {wk} weeks remaining
             </p>
         </div>
-          <div className="flex gap-2 shrink-0">
+          <div className="flex flex-col gap-2 w-full min-w-0 sm:flex-row sm:flex-wrap sm:w-auto sm:justify-end">
             {(activeSeason as { training_plan_id?: string | null })?.training_plan_id && (
               <Button variant="outline" size="sm" className="rounded-full" asChild>
                 <Link to="/plan">

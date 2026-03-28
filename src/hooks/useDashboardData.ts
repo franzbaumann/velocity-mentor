@@ -92,7 +92,9 @@ export function useDashboardData() {
     const last = runs[runs.length - 1];
     if (!last) return { ...mockLastActivity, detailId: null as string | null, hrZonesEstimated: false, needsMaxHrForZones: false };
     const maxHr = athleteProfile?.max_hr ?? null;
-    const avgHr = last.avg_hr ?? null;
+    const rawAvgHr = last.avg_hr;
+    const avgHr =
+      rawAvgHr != null && Number(rawAvgHr) > 0 ? Math.round(Number(rawAvgHr)) : null;
     const canUseAthleteZones = maxHr != null && avgHr != null && maxHr > 0 && avgHr > 0;
     let z: { z1: number; z2: number; z3: number; z4: number; z5: number } | null;
     let hrZonesEstimated = false;
@@ -118,8 +120,9 @@ export function useDashboardData() {
       date: format(new Date(last.date), "MMM d"),
       distance: last.distance_km ?? 0,
       avgPace: last.avg_pace ?? "--",
-      avgHr: Math.round(last.avg_hr ?? 0),
-      maxHr: Math.round(last.max_hr ?? 0),
+      avgHr,
+      maxHr:
+        last.max_hr != null && Number(last.max_hr) > 0 ? Math.round(Number(last.max_hr)) : null,
       duration: formatDuration(last.duration_seconds),
       hrZones: {
         z1: z.z1 ?? 0,

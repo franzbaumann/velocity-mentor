@@ -719,7 +719,14 @@ function HREfficiencyChart({ activities }: { activities: { date: string; avg_hr:
     return { chartData: data, trend: trendDir };
   }, [activities]);
 
-  if (!chartData.length) return <EmptyState message="No aerobic HR runs yet" sub="Runs with avg HR 140–150 bpm" />;
+  if (!chartData.length) {
+    return (
+      <EmptyState
+        message="No aerobic HR runs yet"
+        sub="This chart needs runs with average HR between 140–150 bpm. Many imports (e.g. from some device sync paths) only store max HR — average HR has to be present on the activity."
+      />
+    );
+  }
 
   const validPaces = chartData.map((d) => d.pace).filter((p) => p >= 2 && p <= 25);
   const yMin = validPaces.length ? Math.max(2, Math.floor(Math.min(...validPaces) * 10) / 10 - 0.2) : 4;
