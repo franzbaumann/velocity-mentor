@@ -1,6 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
-import { smoothPace, rollingAvg, downsample } from "../lib/streamProcessing";
+import { Platform } from "react-native";
+import { smoothPace, rollingAvg, rollingAvgNonZero, downsample } from "../lib/streamProcessing";
+import { hrToZone, ZONE_COLORS } from "../lib/streamAnalytics";
 import { supabase, callEdgeFunctionWithRetry } from "../shared/supabase";
+import { fetchAndSaveWorkoutStreams } from "../lib/appleHealth";
+import { queryWorkoutSamples } from "@kingstinct/react-native-healthkit";
 
 export interface ActivityStreams {
   time: number[];
@@ -73,6 +77,7 @@ export interface ActivityDetailData {
 }
 
 function formatDur(sec: number): string {
+  if (!isFinite(sec) || isNaN(sec) || sec < 0) return "—";
   const m = Math.floor(sec / 60);
   const s = Math.round(sec % 60);
   return `${m}:${String(s).padStart(2, "0")}`;
@@ -155,15 +160,15 @@ export function buildChartData(
   }
 
   const smoothedPace = smoothPace(rawPace, 5);
-  const smoothedHr = rollingAvg(
+  const smoothedHr = rollingAvgNonZero(
     heartrate.map((v) => Number(v) || 0),
     5,
   );
-  const smoothedCad = rollingAvg(
+  const smoothedCad = rollingAvgNonZero(
     cadence.map((v) => Number(v) || 0),
     5,
   );
-  const smoothedAlt = rollingAvg(
+  const smoothedAlt = rollingAvgNonZero(
     altitude.map((v) => Number(v) || 0),
     3,
   );
@@ -219,7 +224,12 @@ export function useActivityDetailMobile(
       if (!activityId) return null;
       const {
         data: { user },
+        error: userErr,
       } = await supabase.auth.getUser();
+      if (userErr) {
+        // Make this visible to React Query so the UI can show a real failure state.
+        throw userErr;
+      }
       if (!user) return null;
 
       const isIcu = activityId.startsWith("icu_");
@@ -234,14 +244,14 @@ export function useActivityDetailMobile(
           supabase
             .from("activity")
             .select(
-              "id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, source, splits, lap_splits, external_id, hr_zone_times, pace_zone_times, cadence, icu_training_load, trimp, perceived_exertion, tss, intensity_factor, icu_vo2max_estimate, icu_lactate_threshold_hr, icu_lactate_threshold_pace, name, user_notes",
+              "id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, source, splits, lap_splits, external_id, hr_zone_times, pace_zone_times, cadence, icu_training_load, trimp, perceived_exertion, tss, intensity_factor, icu_vo2max_estimate, icu_lactate_threshold_hr, icu_lactate_threshold_pace, name, user_notes, nomio_drink, lactate_levels, photos, ai_analysis, calories",
             )
             .eq("user_id", user.id)
             .eq("external_id", extId)
             .maybeSingle(),
           supabase
             .from("activity_streams")
-            .select("time, heartrate, cadence, altitude, pace, distance, latlng, temperature, respiration_rate")
+            .select("time, heartrate, cadence, altitude, pace, distance, latlng")
             .eq("user_id", user.id)
             .eq("activity_id", extId)
             .maybeSingle(),
@@ -330,7 +340,7 @@ export function useActivityDetailMobile(
         const dbS = dbStreamsRes.data as {
           time?: number[]; heartrate?: number[]; cadence?: number[];
           altitude?: number[]; pace?: number[]; distance?: number[];
-          latlng?: number[][]; temperature?: number[]; respiration_rate?: number[];
+          latlng?: number[][];
         } | null;
         const dbTime = Array.isArray(dbS?.time) ? dbS.time : [];
         const dbHr = Array.isArray(dbS?.heartrate) ? dbS.heartrate : [];
@@ -381,8 +391,8 @@ export function useActivityDetailMobile(
         const cadArr = hasDbStreams ? dbCad : proxyCad;
         const altArr = hasDbStreams ? dbAlt : proxyAlt;
         const paceArr = hasDbStreams ? dbPace : proxyPace;
-        const tempArr = hasDbStreams ? (Array.isArray(dbS?.temperature) ? dbS.temperature : []) : proxyTemp;
-        const respArr = hasDbStreams ? (Array.isArray(dbS?.respiration_rate) ? dbS.respiration_rate : []) : proxyResp;
+        const tempArr = hasDbStreams ? [] : proxyTemp;
+        const respArr = hasDbStreams ? [] : proxyResp;
         const hasAnyStreams = timeArr.length > 20 && (hrArr.length > 0 || altArr.length > 0 || paceArr.length > 0);
 
         let streams: ActivityStreams | undefined;
@@ -403,26 +413,24 @@ export function useActivityDetailMobile(
         const hasLiveStreams = !hasDbStreams && proxyTime.length > 20 &&
           (proxyHr.length > 0 || proxyPace.length > 0 || proxyAlt.length > 0);
         if (hasLiveStreams) {
-          supabase
-            .from("activity_streams")
-            .upsert(
-              {
-                user_id: user.id,
-                activity_id: extId,
-                time: proxyTime.length ? proxyTime.map(Math.round) : null,
-                heartrate: proxyHr.length ? proxyHr : null,
-                cadence: proxyCad.length ? proxyCad : null,
-                altitude: proxyAlt.length ? proxyAlt : null,
-                pace: proxyPace.length ? proxyPace : null,
-                distance: proxyDist.length ? proxyDist : null,
-                latlng: proxyLatlng.length >= 2 ? proxyLatlng : null,
-                temperature: proxyTemp.length ? proxyTemp : null,
-                respiration_rate: proxyResp.length ? proxyResp : null,
-              },
-              { onConflict: "user_id,activity_id" },
-            )
-            .then(() => {})
-            .catch(() => {});
+          void (async () => {
+            await supabase
+              .from("activity_streams")
+              .upsert(
+                {
+                  user_id: user.id,
+                  activity_id: extId,
+                  time: proxyTime.length ? proxyTime.map(Math.round) : null,
+                  heartrate: proxyHr.length ? proxyHr : null,
+                  cadence: proxyCad.length ? proxyCad : null,
+                  altitude: proxyAlt.length ? proxyAlt : null,
+                  pace: proxyPace.length ? proxyPace : null,
+                  distance: proxyDist.length ? proxyDist : null,
+                  latlng: (proxyLatlng.length >= 2 ? proxyLatlng : null) as unknown as number[] | null,
+                },
+                { onConflict: "user_id,activity_id" },
+              );
+          })();
         }
 
         // latlng: prefer proxy/DB streams, then activity row
@@ -549,7 +557,7 @@ export function useActivityDetailMobile(
             if (Array.isArray(raw)) return (raw as unknown[]).map((x) => Number(x));
             return null;
           })(),
-          coachNote: (dbAct?.coach_note as string | null) ?? null,
+          coachNote: (dbAct?.ai_analysis as string | null) ?? null,
           photos: parsePhotos(dbAct?.photos),
           tss: dbAct?.tss != null ? Number(dbAct.tss) : (a?.tss != null ? Number(a.tss) : null),
           intensityFactor: dbAct?.intensity_factor != null ? Number(dbAct.intensity_factor) : (a?.intensity_factor != null ? Number(a.intensity_factor) : null),
@@ -562,40 +570,43 @@ export function useActivityDetailMobile(
       // --- Non-ICU branch: pure DB lookup (existing logic) ---
       const rawId = hints?.rawId ?? activityId;
       const baseSelect =
-        "id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, source, splits, lap_splits, external_id, hr_zone_times, pace_zone_times, cadence, icu_training_load, trimp, perceived_exertion, tss, intensity_factor, icu_vo2max_estimate, icu_lactate_threshold_hr, icu_lactate_threshold_pace, name, user_notes";
+        "id, date, type, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, source, splits, lap_splits, external_id, hr_zone_times, pace_zone_times, cadence, icu_training_load, trimp, perceived_exertion, tss, intensity_factor, icu_vo2max_estimate, icu_lactate_threshold_hr, icu_lactate_threshold_pace, name, user_notes, nomio_drink, lactate_levels, photos, ai_analysis, calories";
 
       let row: Record<string, unknown> | null = null;
 
       // 1) Try by raw primary id (UUID from activity table) if we have it
       if (rawId) {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from("activity")
           .select(baseSelect)
           .eq("user_id", user.id)
           .eq("id", rawId)
           .maybeSingle();
+        if (error) throw error;
         if (data) row = data as Record<string, unknown>;
       }
 
       // 2) Try by external_id (intervals.icu id) if present
       if (!row && extId) {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from("activity")
           .select(baseSelect)
           .eq("user_id", user.id)
           .eq("external_id", extId)
           .maybeSingle();
+        if (error) throw error;
         if (data) row = data as Record<string, unknown>;
       }
 
       // 3) Fallback: try by activityId itself (covers legacy ids)
       if (!row) {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from("activity")
           .select(baseSelect)
           .eq("user_id", user.id)
           .eq("id", activityId)
           .maybeSingle();
+        if (error) throw error;
         if (data) row = data as Record<string, unknown>;
       }
 
@@ -605,7 +616,7 @@ export function useActivityDetailMobile(
       const streamKey = (r.external_id as string) ?? activityId;
       const { data: sRow } = await supabase
         .from("activity_streams")
-        .select("time, heartrate, cadence, altitude, pace, distance, latlng, temperature, respiration_rate")
+        .select("time, heartrate, cadence, altitude, pace, distance, latlng")
         .eq("user_id", user.id)
         .eq("activity_id", streamKey)
         .maybeSingle();
@@ -618,12 +629,10 @@ export function useActivityDetailMobile(
         pace?: number[];
         distance?: number[];
         latlng?: number[][];
-        temperature?: number[];
-        respiration_rate?: number[];
       } | null;
 
       const hasStreams =
-        Array.isArray(s?.time) && s!.time!.length > 20;
+        Array.isArray(s?.time) && (s?.time?.length ?? 0) > 20;
 
       const maxHr = Number(r.max_hr ?? 190);
       const rawLaps = (r.lap_splits ?? r.splits) as Array<Record<string, unknown>> | null;
@@ -651,8 +660,6 @@ export function useActivityDetailMobile(
         const alt = Array.isArray(s!.altitude) ? s!.altitude : [];
         const pace = Array.isArray(s!.pace) ? s!.pace : [];
         const latlngArr = Array.isArray(s!.latlng) ? s!.latlng : [];
-        const tempArr = Array.isArray(s!.temperature) ? s!.temperature : [];
-        const respArr = Array.isArray(s!.respiration_rate) ? s!.respiration_rate : [];
         streams = {
           time: downsample(time, MAX_POINTS),
           heartrate: downsample(hr, MAX_POINTS),
@@ -660,9 +667,73 @@ export function useActivityDetailMobile(
           altitude: downsample(alt, MAX_POINTS),
           pace: downsample(pace, MAX_POINTS),
           ...(latlngArr.length >= 2 ? { latlng: latlngArr } : {}),
-          ...(tempArr.length > 0 ? { temperature: downsample(tempArr, MAX_POINTS) } : {}),
-          ...(respArr.length > 0 ? { respiration_rate: downsample(respArr, MAX_POINTS) } : {}),
         };
+      } else if (!hasStreams && r.source === "apple_health" && r.external_id && Platform.OS === "ios") {
+        // On-demand HealthKit fetch: find the workout by UUID and pull streams.
+        // IMPORTANT: failures here should NOT fail the whole detail query — we still want
+        // the basic activity screen; the user can explicitly retry via the button.
+        try {
+          const workoutUUID = r.external_id as string;
+          const dateStr = r.date as string;
+          const actDate = new Date(dateStr);
+          const searchFrom = new Date(actDate);
+          searchFrom.setDate(searchFrom.getDate() - 3);
+          const searchTo = new Date(actDate);
+          searchTo.setDate(searchTo.getDate() + 1);
+
+          const workouts = await Promise.race([
+            queryWorkoutSamples({
+              limit: 100,
+              ascending: false,
+              filter: { date: { startDate: searchFrom, endDate: searchTo } },
+            }),
+            new Promise<never>((_, reject) =>
+              setTimeout(
+                () => reject(new Error("[AppleHealth] timeout: queryWorkoutSamples (15000ms)")),
+                15000,
+              ),
+            ),
+          ]);
+
+          const workout = workouts.find((w) => w.uuid === workoutUUID);
+          if (workout) {
+            let userMaxHr: number | null = null;
+            try {
+              const { data: profile } = await supabase
+                .from("athlete_profile")
+                .select("max_hr")
+                .eq("user_id", user.id)
+                .maybeSingle();
+              if (profile?.max_hr) userMaxHr = Number(profile.max_hr);
+            } catch {
+              // ignore, will use default max HR
+            }
+
+            const result = await fetchAndSaveWorkoutStreams(
+              workoutUUID,
+              workout.startDate,
+              workout.endDate,
+              user.id,
+              supabase,
+              userMaxHr,
+            );
+            if (result && result.time.length > 5) {
+              streams = {
+                time: downsample(result.time, MAX_POINTS),
+                heartrate: downsample(result.heartrate, MAX_POINTS),
+                cadence: downsample(result.cadence, MAX_POINTS),
+                altitude: downsample(result.altitude ?? [], MAX_POINTS),
+                pace: downsample(result.pace, MAX_POINTS),
+              };
+            }
+          }
+        } catch (err) {
+          console.warn(
+            "[useActivityDetailMobile] HealthKit on-demand fetch failed (non-fatal):",
+            err instanceof Error ? err.message : err,
+          );
+          // swallow — keep `streams` undefined so UI shows "Fetching..." + explicit retry button
+        }
       }
 
       return {
@@ -696,7 +767,7 @@ export function useActivityDetailMobile(
         lactateLevels: (r.lactate_levels as string | null) ?? null,
         hrZoneTimes: (r.hr_zone_times as number[] | null) ?? null,
         paceZoneTimes: (r.pace_zone_times as number[] | null) ?? null,
-        coachNote: (r.coach_note as string | null) ?? null,
+        coachNote: (r.ai_analysis as string | null) ?? null,
         photos: parsePhotos((r as { photos?: unknown }).photos),
         tss: (r as { tss?: number | null }).tss != null ? Number((r as { tss?: number | null }).tss) : null,
         intensityFactor: (r as { intensity_factor?: number | null }).intensity_factor != null ? Number((r as { intensity_factor?: number | null }).intensity_factor) : null,

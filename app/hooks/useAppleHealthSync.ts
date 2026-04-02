@@ -4,24 +4,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useQueryClient } from "@tanstack/react-query";
 import { supabase } from "../shared/supabase";
 import { useAppleHealth } from "./useAppleHealth";
-import { syncAppleHealthActivities, syncAppleHealthWellness } from "../lib/appleHealth";
+import { syncAppleHealthActivities, syncAppleHealthWellness, syncAppleHealthStreams } from "../lib/appleHealth";
 
 export const APPLE_HEALTH_SYNC_STORAGE_KEY = "apple_health_last_sync";
-const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 async function runAppleHealthSync(
   queryClient: ReturnType<typeof useQueryClient>,
-  skipThrottle = false,
-): Promise<{ activities: number; wellness: number } | null> {
-  if (!skipThrottle) {
-    const raw = await AsyncStorage.getItem(APPLE_HEALTH_SYNC_STORAGE_KEY);
-    const lastSync = raw ? parseInt(raw, 10) : 0;
-    const oneDayAgo = Date.now() - ONE_DAY_MS;
-    if (Number.isFinite(lastSync) && lastSync >= oneDayAgo) {
-      console.log("[AppleHealthSync] skipping — synced recently");
-      return null;
-    }
-  }
+): Promise<{ activitiesFound: number; activities: number; wellness: number; streams: number } | null> {
 
   const {
     data: { session },
@@ -29,12 +18,30 @@ async function runAppleHealthSync(
   const user = session?.user;
   if (!user) return null;
 
-  const [activities, wellness] = await Promise.all([
-    syncAppleHealthActivities(user.id, supabase),
+  // Fetch user's max HR for accurate HR zone computation
+  let userMaxHr: number | null = null;
+  try {
+    const { data: profile } = await supabase
+      .from("athlete_profile")
+      .select("max_hr")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (profile?.max_hr) userMaxHr = Number(profile.max_hr);
+  } catch {
+    // Fall back to default (190)
+  }
+
+  const [activitiesResult, wellness] = await Promise.all([
+    syncAppleHealthActivities(user.id, supabase, userMaxHr),
     syncAppleHealthWellness(user.id, supabase),
   ]);
 
-  console.log(`[AppleHealthSync] synced ${activities} activities, ${wellness} wellness days`);
+  const { found: activitiesFound, synced: activities } = activitiesResult;
+
+  // Sync HR streams after activities are upserted (streams reference activity UUIDs)
+  const streams = await syncAppleHealthStreams(user.id, supabase, userMaxHr);
+
+  console.log(`[AppleHealthSync] found ${activitiesFound} workouts in HealthKit, synced ${activities} activities, ${wellness} wellness days, ${streams} HR streams`);
 
   await AsyncStorage.setItem(APPLE_HEALTH_SYNC_STORAGE_KEY, String(Date.now()));
 
@@ -42,17 +49,18 @@ async function runAppleHealthSync(
   await Promise.all([
     queryClient.invalidateQueries({ queryKey: ["activities-dashboard"], ...refetchOpts }),
     queryClient.invalidateQueries({ queryKey: ["daily_readiness-dashboard"], ...refetchOpts }),
+    queryClient.invalidateQueries({ queryKey: ["activities"], ...refetchOpts }),
+    queryClient.invalidateQueries({ queryKey: ["activity-streams"], ...refetchOpts }),
   ]);
 
-  return { activities, wellness };
+  return { activitiesFound, activities, wellness, streams };
 }
 
 /**
- * Triggers a silent Apple Health sync on app open when permission is granted.
- * Runs at most once per 24 hours automatically.
+ * Triggers a silent Apple Health sync on every app open when permission is granted.
  * Returns syncNow() for manual on-demand sync.
  */
-export function useAppleHealthSync(): { syncing: boolean; syncNow: () => Promise<void> } {
+export function useAppleHealthSync(): { syncing: boolean; syncNow: () => Promise<{ activitiesFound: number; activities: number; wellness: number; streams: number } | null> } {
   const { kitAvailable, hasBeenPrompted, loading } = useAppleHealth();
   const queryClient = useQueryClient();
   const syncInProgress = useRef(false);
@@ -69,7 +77,7 @@ export function useAppleHealthSync(): { syncing: boolean; syncNow: () => Promise
       if (syncInProgress.current) return;
       syncInProgress.current = true;
       try {
-        await runAppleHealthSync(queryClient, false);
+        await runAppleHealthSync(queryClient);
       } catch (err) {
         if (!cancelled) {
           console.warn("[AppleHealthSync] error:", err instanceof Error ? err.message : err);
@@ -84,16 +92,16 @@ export function useAppleHealthSync(): { syncing: boolean; syncNow: () => Promise
     };
   }, [kitAvailable, hasBeenPrompted, loading, queryClient]);
 
-  const syncNow = useCallback(async () => {
-    if (Platform.OS !== "ios" || !kitAvailable || !hasBeenPrompted) return;
-    if (syncInProgress.current) return;
+  const syncNow = useCallback(async (): Promise<{ activitiesFound: number; activities: number; wellness: number; streams: number } | null> => {
+    if (Platform.OS !== "ios" || !kitAvailable || !hasBeenPrompted) return null;
+    if (syncInProgress.current) return null;
     syncInProgress.current = true;
     setSyncing(true);
     try {
-      await AsyncStorage.removeItem(APPLE_HEALTH_SYNC_STORAGE_KEY);
-      await runAppleHealthSync(queryClient, true);
+      return await runAppleHealthSync(queryClient);
     } catch (err) {
       console.warn("[AppleHealthSync] syncNow error:", err instanceof Error ? err.message : err);
+      return null;
     } finally {
       syncInProgress.current = false;
       setSyncing(false);

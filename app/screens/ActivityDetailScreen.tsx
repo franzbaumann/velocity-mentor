@@ -1,8 +1,9 @@
-import { FC, useCallback, useEffect, useMemo, useState } from "react";
+import { FC, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RouteProp, useRoute, useNavigation } from "@react-navigation/native";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import {
   ActivityIndicator,
+  Platform,
   ScrollView,
   StyleSheet,
   Text,
@@ -18,7 +19,8 @@ import {
 import { Ionicons } from "@expo/vector-icons";
 import { format } from "date-fns";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import * as FileSystem from "expo-file-system";
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+const FileSystem = require("expo-file-system") as any as { cacheDirectory: string | null; writeAsStringAsync: (uri: string, contents: string, opts?: { encoding?: string }) => Promise<void>; EncodingType: { UTF8: string; Base64: string } };
 import * as Sharing from "expo-sharing";
 import * as ImagePicker from "expo-image-picker";
 import * as ImageManipulator from "expo-image-manipulator";
@@ -36,10 +38,30 @@ import type { TooltipLine } from "../components/activity/StreamChart";
 import { supabase, callEdgeFunctionWithRetry } from "../shared/supabase";
 import Svg, { Path, Rect } from "react-native-svg";
 import { useTheme } from "../context/ThemeContext";
+import { queryWorkoutSamples } from "@kingstinct/react-native-healthkit";
+import { fetchAndSaveWorkoutStreams } from "../lib/appleHealth";
 
 type ActivityDetailRoute = RouteProp<ActivitiesStackParamList, "ActivityDetail">;
 
 type ActivityTab = "charts" | "data" | "notes";
+
+function errorToMessage(err: unknown): string {
+  if (!err) return "Unknown error";
+  if (err instanceof Error) return err.message || "Unknown error";
+  if (typeof err === "string") return err;
+  if (typeof err === "object") {
+    const anyErr = err as Record<string, unknown>;
+    const msg = anyErr.message;
+    if (typeof msg === "string" && msg.trim().length > 0) return msg;
+    try {
+      const json = JSON.stringify(err);
+      if (json && json !== "{}") return json;
+    } catch {
+      // ignore
+    }
+  }
+  return String(err);
+}
 
 // ── Pace format: min/km decimal (5.5 = 5:30/km) — matches web exactly ──
 
@@ -54,7 +76,8 @@ function paceYLabels(data: number[]): string[] {
   const min = Math.min(...vals);
   const max = Math.max(...vals);
   const mid = (min + max) / 2;
-  return [formatPace(min), formatPace(mid), formatPace(max)];
+  // Chart is reversed (slow at top, fast at bottom) — labels must match visual order
+  return [formatPace(max), formatPace(mid), formatPace(min)];
 }
 
 function numYLabels(data: number[], unit?: string): string[] {
@@ -80,6 +103,20 @@ function rollingAvg(arr: number[], windowSize: number): number[] {
       count++;
     }
     return sum / count;
+  });
+}
+
+// Like rollingAvg but skips zeros (missing data) so sparse streams aren't diluted
+function rollingAvgNonZero(arr: number[], windowSize: number): number[] {
+  if (windowSize <= 1 || arr.length === 0) return arr;
+  const half = Math.floor(windowSize / 2);
+  return arr.map((_, i) => {
+    let sum = 0;
+    let count = 0;
+    for (let j = Math.max(0, i - half); j <= Math.min(arr.length - 1, i + half); j++) {
+      if (arr[j] > 0) { sum += arr[j]; count++; }
+    }
+    return count > 0 ? sum / count : 0;
   });
 }
 
@@ -136,7 +173,7 @@ function buildProcessedStreams(streams: {
   return {
     pace: rollingAvg(cleanPace, 15),
     hr: rollingAvg(streams.heartrate.map(Number), 10),
-    cadence: rollingAvg(streams.cadence.map(Number), 10),
+    cadence: rollingAvgNonZero(streams.cadence.map(Number), 10),
     altitude: streams.altitude.map(Number),
   };
 }
@@ -147,10 +184,19 @@ export const ActivityDetailScreen: FC = () => {
   const queryClient = useQueryClient();
   const { id } = route.params;
   const { activity: listActivity } = useActivityById(id);
-  const { data: activity, isLoading, refetch: refetchDetail, isRefetching } = useActivityDetailMobile(id, {
+  const {
+    data: activity,
+    isLoading,
+    isError,
+    error,
+    refetch: refetchDetail,
+    isRefetching,
+  } = useActivityDetailMobile(id, {
     rawId: listActivity?.rawId,
     externalId: listActivity?.externalId ?? null,
   });
+
+  const [repairing, setRepairing] = useState(false);
 
   const streams = activity?.streams;
   const latlng = activity?.latlng ?? [];
@@ -169,6 +215,7 @@ export const ActivityDetailScreen: FC = () => {
   const [notes, setNotes] = useState("");
   const [nomio, setNomio] = useState(false);
   const [lactate, setLactate] = useState("");
+  const notesEditedRef = useRef(false); // true once the user actually changes a note field
   const [savingNotes, setSavingNotes] = useState(false);
   const [coachNote, setCoachNote] = useState<string | null>(null);
   const [coachLoading, setCoachLoading] = useState(false);
@@ -180,6 +227,7 @@ export const ActivityDetailScreen: FC = () => {
 
   useEffect(() => {
     if (!activity) return;
+    notesEditedRef.current = false; // reset edit flag when a new activity loads
     setNotes(activity.userNotes ?? "");
     setNomio(activity.nomioDrink ?? false);
     setLactate(activity.lactateLevels ?? "");
@@ -316,7 +364,7 @@ export const ActivityDetailScreen: FC = () => {
   }, [activityIdForApi, notes, nomio, lactate, id, queryClient]);
 
   useEffect(() => {
-    if (!activity) return;
+    if (!activity || !notesEditedRef.current) return; // skip initial population
     const t = setTimeout(saveNotes, 600);
     return () => clearTimeout(t);
   }, [notes, nomio, lactate, activity?.id, saveNotes]);
@@ -410,6 +458,33 @@ export const ActivityDetailScreen: FC = () => {
     );
   }
 
+  if (isError && !activity) {
+    return (
+      <ScreenContainer contentContainerStyle={styles.content}>
+        <TouchableOpacity
+          style={styles.backRow}
+          onPress={() => navigation.goBack()}
+          activeOpacity={0.8}
+        >
+          <Ionicons name="arrow-back" size={18} color="#999" />
+          <Text style={styles.backText}>Back</Text>
+        </TouchableOpacity>
+        <Text style={styles.title}>Couldn’t load activity</Text>
+        <Text style={[styles.fallbackNote, { color: theme.textSecondary ?? colors.foreground }]}>
+          {errorToMessage(error)}
+        </Text>
+        <TouchableOpacity
+          style={[styles.retryButton, { backgroundColor: theme.accentBlue ?? "#2563eb" }]}
+          onPress={() => refetchDetail()}
+          disabled={isRefetching}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.retryButtonText}>{isRefetching ? "Loading…" : "Retry"}</Text>
+        </TouchableOpacity>
+      </ScreenContainer>
+    );
+  }
+
   if (!activity && !listActivity) {
     return (
       <ScreenContainer contentContainerStyle={styles.content}>
@@ -462,7 +537,7 @@ export const ActivityDetailScreen: FC = () => {
           Source: {String(listActivity.source)}
         </Text>
         <Text style={[styles.fallbackNote, { color: theme.textSecondary ?? colors.foreground }]}>
-          Charts and stream data are still loading. If this activity was just synced, tap Retry to fetch details.
+          Charts are still loading. If this activity was just synced, tap Retry to fetch details.
         </Text>
         <TouchableOpacity
           style={[styles.retryButton, { backgroundColor: theme.accentBlue ?? "#2563eb" }]}
@@ -472,9 +547,97 @@ export const ActivityDetailScreen: FC = () => {
         >
           <Text style={styles.retryButtonText}>{isRefetching ? "Loading…" : "Retry"}</Text>
         </TouchableOpacity>
+
+        {Platform.OS === "ios" &&
+          listActivity.source === "apple_health" &&
+          typeof listActivity.externalId === "string" &&
+          listActivity.externalId.length > 0 && (
+            <TouchableOpacity
+              style={[
+                styles.retryButton,
+                { backgroundColor: "#111827", marginTop: 10 },
+              ]}
+              disabled={repairing || isRefetching}
+              activeOpacity={0.8}
+              onPress={async () => {
+                if (repairing) return;
+                setRepairing(true);
+                try {
+                  const {
+                    data: { user },
+                  } = await supabase.auth.getUser();
+                  if (!user) {
+                    Alert.alert("Session expired", "Please sign in again, then retry.");
+                    return;
+                  }
+
+                  // Search a small window around the activity date to find the exact workout UUID.
+                  const actDate = listActivity.date instanceof Date
+                    ? listActivity.date
+                    : new Date(listActivity.date as unknown as string);
+                  const searchFrom = new Date(actDate);
+                  searchFrom.setDate(searchFrom.getDate() - 3);
+                  const searchTo = new Date(actDate);
+                  searchTo.setDate(searchTo.getDate() + 1);
+
+                  const workouts = await Promise.race([
+                    queryWorkoutSamples({
+                      limit: 200,
+                      ascending: false,
+                      filter: { date: { startDate: searchFrom, endDate: searchTo } },
+                    }),
+                    new Promise<never>((_, reject) =>
+                      setTimeout(() => reject(new Error("[AppleHealth] timeout: queryWorkoutSamples (15000ms)")), 15000),
+                    ),
+                  ]);
+
+                  const workout = workouts.find((w) => w.uuid === listActivity.externalId);
+                  if (!workout) {
+                    Alert.alert(
+                      "Workout not found",
+                      "Couldn’t find this workout in Apple Health. Make sure Apple Health permission is enabled and the workout still exists.",
+                    );
+                    return;
+                  }
+
+                  // Fetch user's max HR for more accurate zones.
+                  let userMaxHr: number | null = null;
+                  try {
+                    const { data: profile } = await supabase
+                      .from("athlete_profile")
+                      .select("max_hr")
+                      .eq("user_id", user.id)
+                      .maybeSingle();
+                    if (profile?.max_hr) userMaxHr = Number(profile.max_hr);
+                  } catch {}
+
+                  await fetchAndSaveWorkoutStreams(
+                    listActivity.externalId ?? "",
+                    workout.startDate,
+                    workout.endDate,
+                    user.id,
+                    supabase,
+                    userMaxHr,
+                  );
+
+                  await refetchDetail();
+                } catch (e) {
+                  Alert.alert("Apple Health error", e instanceof Error ? e.message : "Could not fetch workout details.");
+                } finally {
+                  setRepairing(false);
+                }
+              }}
+            >
+              <Text style={styles.retryButtonText}>
+                {repairing ? "Fetching from Apple Health…" : "Fetch from Apple Health"}
+              </Text>
+            </TouchableOpacity>
+          )}
       </ScreenContainer>
     );
   }
+
+  if (!activity) return null;
 
   const nonDist = isNonDistanceActivity(activity.type);
   const hrZoneTimes = activity.hrZoneTimes ?? [];
@@ -532,7 +695,7 @@ export const ActivityDetailScreen: FC = () => {
                   numberOfLines={1}
                 >
                   {activity.date
-                    ? format(new Date(activity.date), "EEEE, MMMM d, yyyy")
+                    ? format(new Date(`${activity.date}T12:00:00`), "EEEE, MMMM d, yyyy")
                     : ""}
                 </Text>
               </View>
@@ -764,7 +927,7 @@ export const ActivityDetailScreen: FC = () => {
                     <StreamChart
                       label="HEART RATE"
                       labelColor="#c0392b"
-                      yLabels={numYLabels(chartPoints.map((p) => p.hr))}
+                      yLabels={numYLabels(chartPoints.map((p) => p.hr), "bpm")}
                       height={120}
                       data={chartPoints.map((p) => p.hr)}
                       strokeColor="#c0392b"
@@ -783,7 +946,7 @@ export const ActivityDetailScreen: FC = () => {
                     <StreamChart
                       label="CADENCE"
                       labelColor="#7c3aed"
-                      yLabels={numYLabels(chartPoints.map((p) => p.cadence))}
+                      yLabels={numYLabels(chartPoints.map((p) => p.cadence), "spm")}
                       height={100}
                       data={chartPoints.map((p) => p.cadence)}
                       strokeColor="#7c3aed"
@@ -844,7 +1007,9 @@ export const ActivityDetailScreen: FC = () => {
                       isDarkPro && { color: theme.textSecondary },
                     ]}
                   >
-                    No stream data yet. Tap Retry to fetch from intervals.icu.
+                    {activity?.source === "apple_health"
+                      ? "Fetching heart rate data from Apple Health…"
+                      : "No stream data yet. Tap Retry to fetch."}
                   </Text>
                   <TouchableOpacity
                     style={[styles.retryButton, { backgroundColor: theme.accentBlue ?? "#2563eb", marginTop: 12 }]}
@@ -1132,15 +1297,12 @@ export const ActivityDetailScreen: FC = () => {
                           {lap.hr != null ? `${lap.hr}` : "—"}
                         </Text>
                         <View
-                          style={[
-                            styles.splitsCell,
-                            {
-                              flex: 1.5,
-                              flexDirection: "row",
-                              alignItems: "center",
-                              justifyContent: "flex-end",
-                            },
-                          ]}
+                          style={{
+                            flex: 1.5,
+                            flexDirection: "row",
+                            alignItems: "center",
+                            justifyContent: "flex-end",
+                          }}
                         >
                           {zIndex > 0 && (
                             <>
@@ -1325,7 +1487,7 @@ export const ActivityDetailScreen: FC = () => {
                 <TextInput
                   multiline
                   value={notes}
-                  onChangeText={setNotes}
+                  onChangeText={(v) => { notesEditedRef.current = true; setNotes(v); }}
                   placeholder="e.g. Legs felt heavy, good session overall…"
                   style={[
                     styles.notesInput,
@@ -1354,7 +1516,7 @@ export const ActivityDetailScreen: FC = () => {
                       Nomio drink before
                     </Text>
                   </View>
-                  <Switch value={nomio} onValueChange={setNomio} />
+                  <Switch value={nomio} onValueChange={(v) => { notesEditedRef.current = true; setNomio(v); }} />
                 </View>
                 <Text
                   style={[
@@ -1367,7 +1529,7 @@ export const ActivityDetailScreen: FC = () => {
                 <TextInput
                   multiline
                   value={lactate}
-                  onChangeText={setLactate}
+                  onChangeText={(v) => { notesEditedRef.current = true; setLactate(v); }}
                   placeholder="e.g. After each rep: 4.2, 5.1, 4.8 — or post-session: 3.5"
                   style={[
                     styles.notesInput,
@@ -1845,7 +2007,6 @@ const styles = StyleSheet.create({
   },
   tabBarPillTrack: {
     flexDirection: "row",
-    backgroundColor: "transparent",
     borderRadius: 999,
     padding: 3,
     overflow: "hidden",
@@ -2118,5 +2279,21 @@ const styles = StyleSheet.create({
   runTypePillText: {
     fontSize: 12,
     fontWeight: "600",
+  },
+  backRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 12,
+    gap: 6,
+  },
+  backText: {
+    fontSize: 14,
+    color: "#999",
+  },
+  title: {
+    fontSize: 20,
+    fontWeight: "700",
+    color: "#111827",
+    marginBottom: 4,
   },
 });
