@@ -467,18 +467,18 @@ export async function syncAppleHealthStreams(
 }
 
 /**
- * Reads daily wellness data from Apple Health (last 90 days) and upserts
+ * Reads daily wellness data from Apple Health (last 365 days) and upserts
  * into the `daily_readiness` table. Only writes Apple Health fields —
  * does NOT overwrite CTL/ATL/TSB from intervals.icu.
  *
  * Uses bulk fetches (one query per metric for the entire window) instead of
- * per-day queries, reducing ~450 HealthKit calls to ~7.
+ * per-day queries, reducing HealthKit calls to ~7.
  */
 export async function syncAppleHealthWellness(
   userId: string,
   supabase: SupabaseClient
 ): Promise<number> {
-  const DAYS = 90;
+  const DAYS = 365;
   const now = new Date();
   const windowStart = new Date(now);
   windowStart.setDate(windowStart.getDate() - DAYS);
@@ -505,39 +505,39 @@ export async function syncAppleHealthWellness(
   const sleepByDate = new Map<string, { totalH: number; inBedH: number; deepH: number; remH: number }>();
 
   const bulkFetches = await Promise.allSettled([
-    // 1. HRV samples (bulk)
+    // 1. HRV samples (bulk) — ~1-3 per day = ~365-1100/year
     queryQuantitySamples(
       "HKQuantityTypeIdentifierHeartRateVariabilitySDNN",
       { limit: 5000, ascending: true, unit: "ms", filter: { date: { startDate: windowStart, endDate: windowEnd } } }
     ),
-    // 2. Resting HR samples (bulk)
+    // 2. Resting HR samples (bulk) — ~1 per day = ~365/year
     queryQuantitySamples(
       "HKQuantityTypeIdentifierRestingHeartRate",
       { limit: 5000, ascending: true, unit: "count/min", filter: { date: { startDate: windowStart, endDate: windowEnd } } }
     ),
-    // 3. Step count samples (bulk) — we'll sum per day
+    // 3. Step count samples (bulk) — ~50-100 per day = ~18k-36k/year
     queryQuantitySamples(
       "HKQuantityTypeIdentifierStepCount",
-      { limit: 10000, ascending: true, unit: "count", filter: { date: { startDate: windowStart, endDate: windowEnd } } }
+      { limit: 50000, ascending: true, unit: "count", filter: { date: { startDate: windowStart, endDate: windowEnd } } }
     ),
-    // 4. Weight samples (bulk)
+    // 4. Weight samples (bulk) — infrequent, ~1-2 per week
     queryQuantitySamples(
       "HKQuantityTypeIdentifierBodyMass",
-      { limit: 1000, ascending: true, unit: "kg", filter: { date: { startDate: windowStart, endDate: windowEnd } } }
+      { limit: 2000, ascending: true, unit: "kg", filter: { date: { startDate: windowStart, endDate: windowEnd } } }
     ),
-    // 5. VO2max samples (bulk)
+    // 5. VO2max samples (bulk) — ~1-2 per week from runs
     queryQuantitySamples(
       "HKQuantityTypeIdentifierVO2Max",
-      { limit: 200, ascending: true, unit: "ml/kg/min", filter: { date: { startDate: windowStart, endDate: windowEnd } } }
+      { limit: 500, ascending: true, unit: "ml/kg/min", filter: { date: { startDate: windowStart, endDate: windowEnd } } }
     ),
-    // 6. Sleep samples (bulk) — query from noon before window start to capture cross-midnight sessions
+    // 6. Sleep samples (bulk) — ~10-20 per night = ~3.5k-7k/year
     (() => {
       const sleepStart = new Date(windowStart);
       sleepStart.setDate(sleepStart.getDate() - 1);
       sleepStart.setHours(12, 0, 0, 0);
       return queryCategorySamples(
         "HKCategoryTypeIdentifierSleepAnalysis",
-        { limit: 10000, ascending: true, filter: { date: { startDate: sleepStart, endDate: windowEnd } } }
+        { limit: 20000, ascending: true, filter: { date: { startDate: sleepStart, endDate: windowEnd } } }
       );
     })(),
   ]);
