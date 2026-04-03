@@ -18,7 +18,8 @@ import { Ionicons } from "@expo/vector-icons";
 import { useNavigation } from "@react-navigation/native";
 import type { BottomTabNavigationProp } from "@react-navigation/bottom-tabs";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system";
+// eslint-disable-next-line @typescript-eslint/no-require-imports, @typescript-eslint/no-explicit-any
+const FileSystem = require("expo-file-system") as any as { readAsStringAsync: (uri: string, opts?: { encoding?: string }) => Promise<string>; EncodingType: { UTF8: string; Base64: string } };
 import { ScreenContainer } from "../components/ScreenContainer";
 import { GlassCard } from "../components/GlassCard";
 import { useTheme } from "../context/ThemeContext";
@@ -56,6 +57,8 @@ export const SettingsScreen: FC = () => {
     save,
     isSaving,
     disconnect,
+    deleteData,
+    isDeletingData,
     errorMessage,
   } = useIntervalsIntegration();
 
@@ -63,7 +66,8 @@ export const SettingsScreen: FC = () => {
   const { resetForTesting: resetTutorial } = useOnboardingStatus();
   const streak = useDailyStreak();
   const appleHealth = useAppleHealth();
-  const { syncNow: syncAppleHealthNow, syncing: appleHealthSyncing } = useAppleHealthSync();
+  const { syncNow: syncAppleHealthNow, syncing: appleHealthSyncing, lastResult: appleHealthLastResult } = useAppleHealthSync();
+  const [diagResult, setDiagResult] = useState<string | null>(null);
 
   const [athleteId, setAthleteId] = useState("");
   const [apiKey, setApiKey] = useState("");
@@ -507,13 +511,13 @@ export const SettingsScreen: FC = () => {
       }));
       setLabSummary((prev) => ({
         ...(prev ?? {}),
-        vo2max: extracted.vo2max ?? (prev?.vo2max ?? null),
-        lactate_threshold_hr: extracted.lactate_threshold_hr ?? (prev?.lactate_threshold_hr ?? null),
-        lactate_threshold_pace: extracted.lactate_threshold_pace ?? (prev?.lactate_threshold_pace ?? null),
-        vlamax: extracted.vlamax ?? (prev?.vlamax ?? null),
-        max_hr_measured: extracted.max_hr_measured ?? (prev?.max_hr_measured ?? null),
-        lab_test_date: extracted.test_date ?? prev?.lab_test_date ?? null,
-        lab_name: extracted.lab_name ?? prev?.lab_name ?? null,
+        vo2max: (extracted.vo2max as number | null | undefined) ?? (prev?.vo2max ?? null),
+        lactate_threshold_hr: (extracted.lactate_threshold_hr as number | null | undefined) ?? (prev?.lactate_threshold_hr ?? null),
+        lactate_threshold_pace: (extracted.lactate_threshold_pace as string | null | undefined) ?? (prev?.lactate_threshold_pace ?? null),
+        vlamax: (extracted.vlamax as number | null | undefined) ?? (prev?.vlamax ?? null),
+        max_hr_measured: (extracted.max_hr_measured as number | null | undefined) ?? (prev?.max_hr_measured ?? null),
+        lab_test_date: (extracted.test_date as string | null | undefined) ?? prev?.lab_test_date ?? null,
+        lab_name: (extracted.lab_name as string | null | undefined) ?? prev?.lab_name ?? null,
       }));
       Alert.alert("Done", "Lab results extracted. Review and save to apply.");
     } catch (e) {
@@ -564,9 +568,7 @@ export const SettingsScreen: FC = () => {
       updates.vlamax = vlamax;
       updates.max_hr_measured = maxHr;
 
-      const { error } = await supabase
-        .from("athlete_profile")
-        .upsert(updates, { onConflict: "user_id" });
+      const { error } = await (supabase.from("athlete_profile") as unknown as { upsert: (d: Record<string, unknown>, opts: { onConflict: string }) => Promise<{ error: unknown }> }).upsert(updates, { onConflict: "user_id" });
       if (error) throw error;
 
       setLabSummary((prev) => ({
@@ -1133,21 +1135,86 @@ export const SettingsScreen: FC = () => {
               </TouchableOpacity>
             </View>
             {appleHealth.hasBeenPrompted && appleHealth.kitAvailable && (
-              <TouchableOpacity
-                style={[styles.syncNowBtn, appleHealthSyncing && styles.secondaryBtnDisabled]}
-                activeOpacity={0.8}
-                disabled={appleHealthSyncing}
-                onPress={syncAppleHealthNow}
-              >
-                {appleHealthSyncing ? (
-                  <ActivityIndicator size="small" color={theme.accentBlue} />
-                ) : (
-                  <Ionicons name="sync" size={14} color={theme.accentBlue} />
+              <View style={{ marginLeft: 46, marginTop: 6, gap: 6 }}>
+                <TouchableOpacity
+                  style={[styles.syncNowBtn, appleHealthSyncing && styles.secondaryBtnDisabled]}
+                  activeOpacity={0.8}
+                  disabled={appleHealthSyncing}
+                  onPress={async () => {
+                    setDiagResult("Syncing…");
+                    const result = await syncAppleHealthNow();
+                    if (result !== null) {
+                      const parts = [
+                        `HK: ${result.activitiesFound} workouts`,
+                        `→ ${result.activities} activities`,
+                        `${result.wellness} wellness`,
+                        `${result.streams} streams`,
+                      ];
+                      if (result.errors.length > 0) {
+                        parts.push(`⚠ ${result.errors.join("; ")}`);
+                      }
+                      setDiagResult(parts.join(" · "));
+                    } else {
+                      setDiagResult("Sync returned null — check HealthKit permissions or try reconnecting");
+                    }
+                  }}
+                >
+                  {appleHealthSyncing ? (
+                    <ActivityIndicator size="small" color={theme.accentBlue} />
+                  ) : (
+                    <Ionicons name="sync" size={14} color={theme.accentBlue} />
+                  )}
+                  <Text style={styles.syncNowText}>
+                    {appleHealthSyncing ? "Syncing…" : "Sync Now"}
+                  </Text>
+                </TouchableOpacity>
+                <TouchableOpacity
+                  style={styles.syncNowBtn}
+                  activeOpacity={0.8}
+                  onPress={async () => {
+                    setDiagResult("Checking…");
+                    try {
+                      const { data: { session } } = await supabase.auth.getSession();
+                      if (!session?.user) { setDiagResult("No session — not logged in"); return; }
+                      const uid = session.user.id.slice(0, 8);
+                      const since = new Date(); since.setFullYear(since.getFullYear() - 2);
+                      const sinceStr = since.toISOString().slice(0, 10);
+                      const today = new Date().toISOString().slice(0, 10);
+                      const [r1, r2] = await Promise.all([
+                        supabase.from("daily_readiness")
+                          .select("date, hrv, sleep_hours, resting_hr, score, steps")
+                          .eq("user_id", session.user.id)
+                          .order("date", { ascending: false })
+                          .limit(3),
+                        supabase.from("activity")
+                          .select("id, date, type, source")
+                          .eq("user_id", session.user.id).gte("date", sinceStr).limit(5),
+                      ]);
+                      const r2msg = r2.error ? `ERR: ${r2.error.message}` : `${r2.data?.length} acts`;
+                      if (r1.error) {
+                        setDiagResult(`Readiness ERR: ${r1.error.message} | ${r2msg}`);
+                      } else {
+                        const rows = r1.data ?? [];
+                        const latest = rows[0];
+                        const latestMsg = latest
+                          ? `${latest.date} hrv:${latest.hrv ?? "—"} sleep:${latest.sleep_hours ?? "—"}h rhr:${latest.resting_hr ?? "—"} score:${latest.score ?? "—"} steps:${latest.steps ?? "—"}`
+                          : "no rows";
+                        setDiagResult(`Latest: ${latestMsg} | ${r2msg}`);
+                      }
+                    } catch (e) {
+                      setDiagResult(`Error: ${e instanceof Error ? e.message : String(e)}`);
+                    }
+                  }}
+                >
+                  <Ionicons name="bug-outline" size={14} color={theme.accentBlue} />
+                  <Text style={styles.syncNowText}>Check DB</Text>
+                </TouchableOpacity>
+                {diagResult && (
+                  <Text style={{ fontSize: 11, color: colors.mutedForeground, marginTop: 2 }}>
+                    {diagResult}
+                  </Text>
                 )}
-                <Text style={styles.syncNowText}>
-                  {appleHealthSyncing ? "Syncing…" : "Sync Now"}
-                </Text>
-              </TouchableOpacity>
+              </View>
             )}
           </>
         )}
@@ -1232,12 +1299,62 @@ export const SettingsScreen: FC = () => {
                 <TouchableOpacity
                   style={styles.secondaryBtn}
                   activeOpacity={0.8}
-                  onPress={() => disconnect()}
+                  onPress={() => {
+                    Alert.alert(
+                      "Disconnect intervals.icu?",
+                      "This will delete all synced activities and wellness data from intervals.icu.",
+                      [
+                        { text: "Cancel", style: "cancel" },
+                        {
+                          text: "Disconnect & Delete",
+                          style: "destructive",
+                          onPress: async () => {
+                            disconnect();
+                            await AsyncStorage.removeItem(APPLE_HEALTH_SYNC_STORAGE_KEY);
+                            if (appleHealth.hasBeenPrompted && appleHealth.kitAvailable) {
+                              syncAppleHealthNow();
+                            }
+                          },
+                        },
+                      ],
+                    );
+                  }}
                 >
                   <Text style={styles.secondaryBtnText}>Disconnect</Text>
                 </TouchableOpacity>
               </>
             )}
+            <TouchableOpacity
+              style={[styles.secondaryBtn, isDeletingData && styles.secondaryBtnDisabled]}
+              activeOpacity={0.8}
+              disabled={isDeletingData}
+              onPress={() => {
+                Alert.alert(
+                  "Delete all intervals.icu data?",
+                  "Removes all synced activities and wellness data. Your connection is not affected.",
+                  [
+                    { text: "Cancel", style: "cancel" },
+                    {
+                      text: "Delete Data",
+                      style: "destructive",
+                      onPress: async () => {
+                        deleteData();
+                        await AsyncStorage.removeItem(APPLE_HEALTH_SYNC_STORAGE_KEY);
+                        if (appleHealth.hasBeenPrompted && appleHealth.kitAvailable) {
+                          syncAppleHealthNow();
+                        }
+                      },
+                    },
+                  ],
+                );
+              }}
+            >
+              {isDeletingData ? (
+                <ActivityIndicator size="small" color={colors.foreground} />
+              ) : (
+                <Text style={styles.secondaryBtnText}>Delete all data</Text>
+              )}
+            </TouchableOpacity>
           </View>
           {isConnected && (
             <>

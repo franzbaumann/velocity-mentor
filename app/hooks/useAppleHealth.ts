@@ -25,13 +25,17 @@ export function useAppleHealth() {
     setLoading(true);
     try {
       const ok = isHealthDataAvailable();
+      console.log("[useAppleHealth] isHealthDataAvailable:", ok);
       setKitAvailable(ok);
       if (ok) {
         const status = await getRequestStatusForAuthorization(appleHealthReadAuth);
+        console.log("[useAppleHealth] requestStatus:", status, "unnecessary=", AuthorizationRequestStatus.unnecessary, "shouldRequest=", AuthorizationRequestStatus.shouldRequest);
         setRequestStatus(status);
       } else {
         setRequestStatus(null);
       }
+    } catch (err) {
+      console.warn("[useAppleHealth] refresh error:", err instanceof Error ? err.message : err);
     } finally {
       setLoading(false);
     }

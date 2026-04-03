@@ -111,11 +111,18 @@ export async function syncAppleHealthActivities(
   const since = new Date();
   since.setFullYear(since.getFullYear() - 1);
 
-  const workouts = await queryWorkoutSamples({
+  console.log(`[AppleHealth] querying workouts since ${since.toISOString().slice(0, 10)}…`);
+  let workouts = await queryWorkoutSamples({
     limit: 500,
     ascending: false,
     filter: { date: { startDate: since } },
   });
+
+  // Fallback: if date-filtered query returns 0, retry without filter
+  if (workouts.length === 0) {
+    console.log("[AppleHealth] date-filtered query returned 0 — retrying without filter");
+    workouts = await queryWorkoutSamples({ limit: 500, ascending: false });
+  }
 
   const rows: Record<string, unknown>[] = [];
 
@@ -245,11 +252,14 @@ export async function syncAppleHealthStreams(
   const since = new Date();
   since.setFullYear(since.getFullYear() - 1);
 
-  const workouts = await queryWorkoutSamples({
+  let workouts = await queryWorkoutSamples({
     limit: 500,
     ascending: false,
     filter: { date: { startDate: since } },
   });
+  if (workouts.length === 0) {
+    workouts = await queryWorkoutSamples({ limit: 500, ascending: false });
+  }
 
   if (workouts.length === 0) return 0;
 
@@ -531,6 +541,28 @@ export async function syncAppleHealthWellness(
       );
     })(),
   ]);
+
+  // --- Log bulk fetch results ---
+  const labels = ["HRV", "RestingHR", "Steps", "Weight", "VO2max", "Sleep"];
+  let totalSamples = 0;
+  let failedCount = 0;
+  for (let i = 0; i < bulkFetches.length; i++) {
+    const r = bulkFetches[i];
+    if (r.status === "fulfilled") {
+      const count = (r.value as unknown[]).length;
+      totalSamples += count;
+      console.log(`[AppleHealth] wellness ${labels[i]}: ${count} samples`);
+    } else {
+      failedCount++;
+      console.warn(`[AppleHealth] wellness ${labels[i]}: FAILED — ${r.reason}`);
+    }
+  }
+  console.log(`[AppleHealth] wellness totals: ${totalSamples} samples fetched, ${failedCount} queries failed`);
+
+  // If all queries failed or returned 0, try a single unfiltered query as diagnostic
+  if (totalSamples === 0 && failedCount === 0) {
+    console.log("[AppleHealth] wellness: all queries returned 0 samples — HealthKit may have no data or permissions may be missing");
+  }
 
   // --- Distribute bulk samples into per-day maps ---
 
