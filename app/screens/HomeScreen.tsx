@@ -68,7 +68,7 @@ function workoutAccent(type: string | undefined, theme: ReturnType<typeof useThe
 }
 
 function relativeMinsLabel(lastFetchedAt: number | null): string {
-  if (!lastFetchedAt) return "Updated just now";
+  if (!lastFetchedAt) return ""; // not yet fetched — show nothing
   const mins = Math.round((Date.now() - lastFetchedAt) / 60000);
   if (mins < 1) return "Updated just now";
   if (mins === 1) return "Updated 1 min ago";
@@ -124,11 +124,12 @@ export const HomeScreen: FC = () => {
   const todayStr = activeDateStr;
   const todaysActual = activities?.filter((a) => a.date === activeDateStr)?.[0] ?? null;
   const todaysPlan = weekPlan?.find((d) => d.isToday) ?? null;
+  const readinessAny = readiness as any;
   const readinessTitle =
-    readiness?.isToday === true || (readiness as { date?: string })?.date === todayStr
+    readinessAny?.isToday === true || readinessAny?.date === todayStr
       ? "Today's Readiness"
-      : readiness?.date
-        ? `Readiness · ${formatReadinessDate(readiness.date)}`
+      : readinessAny?.date
+        ? `Readiness · ${formatReadinessDate(readinessAny.date)}`
         : "Today's Readiness";
 
   const flipAnim = useRef(new Animated.Value(0)).current;
@@ -140,6 +141,7 @@ export const HomeScreen: FC = () => {
   const streak = useDailyStreak();
   const raceDaysAnim = useRef(new Animated.Value(0)).current;
   const [raceDaysDisplay, setRaceDaysDisplay] = useState<number | null>(null);
+  const [miniRingsReady, setMiniRingsReady] = useState(false);
 
   // Clean Athletic light-mode mount / continuous animations (Reanimated)
   const headerOpacity = useSharedValue(0);
@@ -249,6 +251,7 @@ export const HomeScreen: FC = () => {
       470,
       withTiming(1, { duration: 650, easing: ReanimatedEasing.out(ReanimatedEasing.cubic) }),
     );
+    const miniRingsTimer = setTimeout(() => setMiniRingsReady(true), 470);
     readinessGlowOffset.value = withRepeat(
       withSequence(
         withTiming(1, { duration: 3500, easing: ReanimatedEasing.inOut(ReanimatedEasing.sin) }),
@@ -257,6 +260,7 @@ export const HomeScreen: FC = () => {
       -1,
       true,
     );
+    return () => clearTimeout(miniRingsTimer);
   }, [
     headerOpacity,
     headerTranslateY,
@@ -514,12 +518,12 @@ export const HomeScreen: FC = () => {
         readinessCard: {
           padding: 20,
           borderWidth: 0,
-          backgroundColor: cleanColors.surface,
+          backgroundColor: "#ffffff",
         },
         readinessRow: { flexDirection: "row", alignItems: "center", gap: 10 },
         readinessBody: { flex: 1, minWidth: 0 },
         readinessTitleRow: { flexDirection: "row", alignItems: "center", gap: 8, marginBottom: 4 },
-        readinessTitle: { fontSize: 16, fontWeight: "600", color: theme.textPrimary },
+        readinessTitle: { fontSize: 17, fontWeight: "700", color: theme.textPrimary },
         readinessTrend: { fontSize: 12, color: theme.accentGreen, marginBottom: 6 },
         readinessSummary: { fontSize: 13, color: theme.textSecondary, lineHeight: 20 },
         readinessMeta: { flexDirection: "row", flexWrap: "wrap", gap: 8, marginTop: 12 },
@@ -702,23 +706,21 @@ export const HomeScreen: FC = () => {
         recoveryTrendPositive: { fontSize: 11, color: theme.accentGreen },
         recoveryStatsRow: {
           flexDirection: "row",
-          justifyContent: "space-between",
+          justifyContent: "space-around",
           alignItems: "flex-start",
-          gap: 12,
           width: "100%",
         },
         recoveryStatColumn: {
-          flex: 1,
-          minWidth: 0,
           alignItems: "center",
-          gap: 6,
-          paddingVertical: 4,
+          gap: 4,
         },
         recoveryStatLabel: {
-          fontSize: 9,
+          fontSize: 10,
+          fontWeight: "600",
           textTransform: "uppercase",
           letterSpacing: 1,
           color: theme.textMuted,
+          marginTop: 2,
         },
         todayHeroHeaderRow: {
           flexDirection: "column",
@@ -972,7 +974,8 @@ export const HomeScreen: FC = () => {
     if (!hasTrainingPlan) {
       return { planWeekCurrent: null as number | null, planWeekTotal: null as number | null };
     }
-    const total = Math.max(...planWeeks.map((w) => w.week_number || 0));
+    const weekNums = planWeeks.map((w) => w.week_number || 0);
+    const total = weekNums.length > 0 ? Math.max(...weekNums) : 0;
     const today = new Date(`${activeDateStr}T12:00:00`);
 
     let current: number | null = null;
@@ -1049,7 +1052,10 @@ export const HomeScreen: FC = () => {
         : sleepHoursNum < 7
           ? { label: "low", color: "#F59E0B" }
           : { label: "ok", color: "#22C55E" };
-  const sleepScore = Math.max(0, Math.min(100, Math.round((sleepHoursNum / 8) * 100)));
+  // Prefer DB-stored sleep score (includes stage quality bonus), fall back to hours-based
+  const sleepScore = recoveryMetrics.sleepScore != null
+    ? recoveryMetrics.sleepScore
+    : Math.max(0, Math.min(100, Math.round((sleepHoursNum / 8) * 100)));
   const tsbVal = readiness.tsb ?? 0;
   const tsbStatus =
     tsbVal < -15
@@ -1073,7 +1079,7 @@ export const HomeScreen: FC = () => {
   const loadZoneLabel =
     tsbVal < -15 ? "Overreaching" : tsbVal < -5 ? "High load" : tsbVal > 5 ? "Fresh" : "Optimal";
   const readinessPct = Math.max(0, Math.min(100, readiness.score ?? 0));
-  const readinessDelta = readiness.scoreDelta;
+  const readinessDelta = (readiness as any).scoreDelta as number | null | undefined;
   const readinessTrendText =
     readinessDelta == null
       ? null
@@ -1097,14 +1103,28 @@ export const HomeScreen: FC = () => {
   const readinessColor = readinessColorForScore(displayReadinessScore);
   const readinessAccentColor = readinessColor;
   const vividGold = "#FFB300";
-  const readinessTintBg =
-    displayReadinessScore >= 75 ? "#f0fdf4" : displayReadinessScore >= 50 ? "#fffdf7" : "#fff1f2";
+
+  // Cool palette ring color
+  const coolRingColor =
+    displayReadinessScore >= 70 ? "#3B82F6" : displayReadinessScore >= 40 ? "#F59E0B" : "#EF6461";
+  // Status heading
+  const readinessHeading =
+    displayReadinessScore >= 75
+      ? "Optimal Balance"
+      : displayReadinessScore >= 50
+        ? "Well Recovered"
+        : displayReadinessScore >= 25
+          ? "Needs Recovery"
+          : "Fatigued";
+  // Resting HR display
+  const displayRestingHr =
+    readiness.restingHr != null && readiness.restingHr > 0 ? `${readiness.restingHr}` : "—";
 
   const isRestDay =
     (todaysPlan && (todaysPlan.type === "recovery" || /rest/i.test(todaysPlan.title ?? ""))) ||
     (todaysActual &&
       /rest|recovery/i.test(String(todaysActual.name ?? todaysActual.type ?? "")));
-  const workoutTypeSource = (todaysPlan?.type ?? todaysWorkout?.type ?? todaysActual?.type ?? "").toLowerCase();
+  const workoutTypeSource = (todaysPlan?.type ?? todaysWorkout?.type ?? (todaysActual?.type as string | undefined) ?? "").toLowerCase();
   const statusKind: "rest" | "easy" | "workout" =
     isRestDay || workoutTypeSource.includes("rest")
       ? "rest"
@@ -1127,14 +1147,16 @@ export const HomeScreen: FC = () => {
       : statusKind === "easy"
         ? theme.accentOrange
         : theme.accentGreen;
-  const workoutBorderColor = workoutAccent(todaysWorkout?.type, theme);
+  const workoutBorderColor = workoutAccent(todaysWorkout?.type ?? undefined, theme);
   const todayWorkoutTintGradientColors = getWorkoutTypeTintGradientColors(
     todaysPlan?.type ?? todaysWorkout?.type ?? todaysActual?.type,
     colors,
   );
-  const sessionsDone = Math.max(0, Math.min(7, Math.round((weekStats.actualKm / Math.max(weekStats.plannedKm, 1)) * 7)));
+  const sessionsDone = weekStats.plannedKm != null && weekStats.plannedKm > 0
+    ? Math.max(0, Math.min(7, Math.round((weekStats.actualKm / weekStats.plannedKm) * 7)))
+    : 0;
   const lastActivityDetailId =
-    (lastActivity as unknown as { detailId?: string | null }).detailId ?? null;
+    (lastActivity as unknown as { detailId?: string | null } | null)?.detailId ?? null;
   const consistencyPct = hasTrainingPlan ? Math.round((sessionsDone / 7) * 100) : null;
   const coachNote =
     !hasTrainingPlan
@@ -1146,7 +1168,7 @@ export const HomeScreen: FC = () => {
           : progressPct < 90
             ? "This week: keep building your aerobic base."
             : "This week: great work · protect recovery after key sessions.";
-  const lastActivityTypeRaw = String(lastActivity.type ?? "").toLowerCase();
+  const lastActivityTypeRaw = String(lastActivity?.type ?? "").toLowerCase();
   const lastActivityTypeChip =
     lastActivityTypeRaw.includes("interval")
       ? "Interval"
@@ -1157,10 +1179,11 @@ export const HomeScreen: FC = () => {
           : lastActivityTypeRaw.includes("recovery")
             ? "Recovery"
             : "Easy";
-  const lastActivityConditions =
-    String(lastActivity.name ?? "").toLowerCase().includes("treadmill")
+  const lastActivityName = (lastActivity as any)?.name as string | undefined;
+  const lastActivityConditions = lastActivity == null ? null
+    : String(lastActivityName ?? "").toLowerCase().includes("treadmill")
       ? "Treadmill"
-      : String(lastActivity.name ?? "").toLowerCase().includes("trail")
+      : String(lastActivityName ?? "").toLowerCase().includes("trail")
         ? "Trail"
         : null;
   const lastActivityPaceTrend = (lastActivity as any)?.avgPaceTrend as
@@ -1190,9 +1213,9 @@ export const HomeScreen: FC = () => {
 
   const goToLastActivity = () => {
     if (!lastActivityDetailId) return;
-    navigation.navigate(
-      "ActivitiesStack" as never,
-      { screen: "ActivityDetail", params: { id: lastActivityDetailId } } as never,
+    (navigation.navigate as (screen: string, params: object) => void)(
+      "ActivitiesStack",
+      { screen: "ActivityDetail", params: { id: lastActivityDetailId } },
     );
   };
 
@@ -1341,7 +1364,7 @@ export const HomeScreen: FC = () => {
               <TouchableOpacity
                 style={styles.titlePressable}
                 activeOpacity={0.8}
-                onPress={() => navigation.navigate("Calendar" as never, { selectedDate: activeDateStr } as never)}
+                onPress={() => (navigation.navigate as (screen: string, params: object) => void)("Calendar", { selectedDate: activeDateStr })}
               >
                 <Text style={styles.title}>{headerDateText}</Text>
               </TouchableOpacity>
@@ -1384,185 +1407,158 @@ export const HomeScreen: FC = () => {
                   { transform: [{ rotateY: frontRotation }, { scale: readinessScale }] },
                 ]}
               >
-                <ReadinessBorder readiness={displayReadinessScore} radius={theme.cardRadius}>
-                  <GlassCard
-                    onLayout={(e) => {
+                <View
+                    onLayout={(e: { nativeEvent: { layout: { width: number; height: number } } }) => {
                       const { width, height } = e.nativeEvent.layout;
                       setCardSize({ width, height });
                     }}
-                    style={[
-                      styles.readinessCard,
-                      {
-                        borderRadius: 16,
-                        backgroundColor: readinessTintBg,
-                        shadowColor: readinessAccentColor,
-                        shadowOffset: { width: 0, height: 6 },
-                        shadowOpacity: 0.28,
-                        shadowRadius: 18,
-                        elevation: 8,
-                      },
-                    ]}
+                    style={{
+                      borderRadius: 20,
+                      backgroundColor: "#F0F4F8",
+                      padding: 24,
+                      shadowColor: "#000",
+                      shadowOffset: { width: 0, height: 2 },
+                      shadowOpacity: 0.06,
+                      shadowRadius: 16,
+                      elevation: 3,
+                    }}
                   >
-                    {cardSize.width > 0 &&
-                      (() => {
-                        const W = cardSize.width;
-                        const H = cardSize.height;
-                        const R = 16;
-                        const SW = 2;
-                        const color = readinessColor;
-                        const P = 2 * (W + H);
-                        const pathD = `
-    M ${R} ${SW}
-    L ${W - R} ${SW} Q ${W - SW} ${SW} ${W - SW} ${R}
-    L ${W - SW} ${H - R} Q ${W - SW} ${H - SW} ${W - R} ${H - SW}
-    L ${R} ${H - SW} Q ${SW} ${H - SW} ${SW} ${H - R}
-    L ${SW} ${R} Q ${SW} ${SW} ${R} ${SW}
-    Z
-  `;
-                        return (
-                          <Svg
-                            width={W}
-                            height={H}
-                            style={{ position: "absolute", top: 0, left: 0 }}
-                            pointerEvents="none"
-                          >
-                            <Path
-                              d={pathD}
-                              fill="none"
-                              stroke={color}
-                              strokeWidth={SW}
-                              strokeDasharray={`${P * 0.78} ${P}`}
-                              strokeDashoffset={0}
-                              strokeLinecap="round"
-                            />
-                          </Svg>
-                        );
-                      })()}
-                    <View
-                      style={{
-                        height: 3,
-                        backgroundColor: readinessAccentColor,
-                        borderTopLeftRadius: 18,
-                        borderTopRightRadius: 18,
-                        width: "100%",
-                        marginBottom: 14,
-                      }}
-                    />
-                    <View style={styles.readinessRow}>
+                    {/* Large centered readiness ring */}
+                    <View style={{ alignItems: "center", marginBottom: 20 }}>
                       <ReadinessRing
                         score={displayReadinessScore}
-                        size={80}
+                        size={160}
                         strokeWidth={10}
-                        statusLabel={
-                          readiness.tsb != null
-                            ? Number(readiness.tsb) > 5
-                              ? "READY"
-                              : Number(readiness.tsb) <= -10
-                                ? "FATIGUED"
-                                : "NEUTRAL"
-                            : undefined
-                        }
-                        statusColor={vividOrange}
-                        centerTextStyle={{ fontSize: 32, fontWeight: "800" }}
+                        centerText={readiness.score != null ? String(Math.round(readiness.score)) : "—"}
+                        statusLabel="READINESS"
+                        statusColor={coolRingColor}
+                        trackColor="#E2E8F0"
+                        centerTextStyle={{ fontSize: 52, fontWeight: "800", color: "#1A1A1A" }}
                         labelTextStyle={{
-                          fontSize: 10,
+                          fontSize: 11,
                           letterSpacing: 2,
                           textTransform: "uppercase",
-                          color: readinessAccentColor,
+                          color: "#6B7280",
+                          fontWeight: "600",
                         }}
                       />
-                      <View style={styles.readinessBody}>
-                        <View style={styles.readinessTitleRow}>
-                          <Text style={styles.readinessTitle}>{readinessTitle}</Text>
-                          <WorkoutBadge type={todaysWorkout.type} />
-                        </View>
-                        {readinessTrendText && (
-                          <Text
-                            style={[
-                              styles.readinessTrend,
-                              readinessDelta != null &&
-                                readinessDelta < 0 && { color: theme.accentOrange },
-                            ]}
-                          >
-                            {readinessTrendText}
+                    </View>
+
+                    {/* Status heading */}
+                    <Text style={{ fontSize: 20, fontWeight: "700", color: "#1A1A1A", textAlign: "center", marginBottom: 6 }}>
+                      {readinessHeading}
+                    </Text>
+
+                    {/* Subtitle — AI summary or trend */}
+                    <Text style={{ fontSize: 14, color: "#6B7280", textAlign: "center", lineHeight: 20, marginBottom: 20, paddingHorizontal: 8 }}>
+                      {readiness.aiSummary || (readinessTrendText ?? "Analyzing your recovery data...")}
+                    </Text>
+
+                    {/* 2-column metric tiles */}
+                    <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+                      {/* Sleep tile */}
+                      <View style={{
+                        flex: 1,
+                        backgroundColor: "#F8FAFC",
+                        borderRadius: 12,
+                        padding: 12,
+                      }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                          <Ionicons name="moon-outline" size={15} color="#3B82F6" />
+                          <Text style={{ fontSize: 9, fontWeight: "700", letterSpacing: 0.8, color: "#9CA3AF", textTransform: "uppercase" }}>
+                            Sleep
                           </Text>
-                        )}
-                        <Text style={styles.readinessSummary}>{readiness.aiSummary}</Text>
-                        <View style={{ height: 1, backgroundColor: "#f1f5f9", marginVertical: 12 }} />
-                        <View>
-                          <TouchableOpacity
-                            activeOpacity={0.8}
-                            onPress={() => navigation.navigate("Stats" as never)}
-                          >
-                            <View style={styles.recoveryStatsRow}>
-                              <View style={styles.recoveryStatColumn}>
-                                <ReadinessRing
-                                  score={displayHrvScore}
-                                  size={128}
-                                  strokeWidth={10}
-                                  centerText={
-                                    displayHrvValue
-                                  }
-                                  statusLabel={hrvTrendLabel}
-                                  statusColor={vividGreen}
-                                  centerTextStyle={{ fontSize: 16, fontWeight: "700" }}
-                                  labelTextStyle={{
-                                    fontSize: 9,
-                                    textTransform: "uppercase",
-                                    color: vividGreen,
-                                  }}
-                                />
-                                <Text style={styles.recoveryStatLabel}>HRV</Text>
-                              </View>
-                              <View style={styles.recoveryStatColumn}>
-                                <ReadinessRing
-                                  score={displaySleepScore}
-                                  size={128}
-                                  strokeWidth={10}
-                                  centerText={formatSleepHours(displaySleepHours)}
-                                  centerScale={0.1}
-                                  statusLabel={sleepTrendLabel}
-                                  statusColor={vividBlue}
-                                  centerTextStyle={{ fontSize: 11, fontWeight: "700" }}
-                                  labelTextStyle={{
-                                    fontSize: 9,
-                                    textTransform: "uppercase",
-                                    color: vividBlue,
-                                  }}
-                                />
-                                <Text style={styles.recoveryStatLabel}>Sleep</Text>
-                              </View>
-                              <View style={styles.recoveryStatColumn}>
-                                <ReadinessRing
-                                  score={tsbScore}
-                                  size={128}
-                                  strokeWidth={10}
-                                  centerText={
-                                    readiness.tsb != null
-                                      ? Number(readiness.tsb).toFixed(0)
-                                      : "—"
-                                  }
-                                  statusLabel={tsbTrendLabel}
-                                  statusColor={vividGold}
-                                  centerTextStyle={{ fontSize: 16, fontWeight: "700" }}
-                                  labelTextStyle={{
-                                    fontSize: 9,
-                                    textTransform: "uppercase",
-                                    color: vividGold,
-                                  }}
-                                />
-                                <Text style={styles.recoveryStatLabel}>TSB</Text>
-                              </View>
-                            </View>
-                          </TouchableOpacity>
                         </View>
+                        <Text style={{ fontSize: 20, fontWeight: "700", color: "#1A1A1A", marginBottom: 8 }}>
+                          {formatSleepHours(displaySleepHours)}
+                        </Text>
+                        <View style={{
+                          height: 2.5,
+                          borderRadius: 2,
+                          backgroundColor: displaySleepScore >= 60 ? "#3B82F6" : displaySleepScore >= 35 ? "#F59E0B" : "#EF6461",
+                          width: "45%",
+                        }} />
+                      </View>
+
+                      {/* HRV tile */}
+                      <View style={{
+                        flex: 1,
+                        backgroundColor: "#F8FAFC",
+                        borderRadius: 12,
+                        padding: 12,
+                      }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                          <Ionicons name="fitness-outline" size={15} color="#3B82F6" />
+                          <Text style={{ fontSize: 9, fontWeight: "700", letterSpacing: 0.8, color: "#9CA3AF", textTransform: "uppercase" }}>
+                            HRV
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 20, fontWeight: "700", color: "#1A1A1A" }}>
+                          {displayHrvValue}
+                          {displayHrvValue !== "—" && (
+                            <Text style={{ fontSize: 12, fontWeight: "500", color: "#9CA3AF" }}> ms</Text>
+                          )}
+                        </Text>
+                        <View style={{
+                          height: 2.5,
+                          borderRadius: 2,
+                          backgroundColor: displayHrvScore >= 60 ? "#3B82F6" : displayHrvScore >= 35 ? "#F59E0B" : "#EF6461",
+                          width: "45%",
+                          marginTop: 8,
+                        }} />
                       </View>
                     </View>
-                    <Text style={{ fontSize: 11, color: "#94a3b8", marginTop: 4, alignSelf: "flex-end" }}>
+
+                    {/* Full-width TSB tile */}
+                    <View style={{
+                      backgroundColor: "#F8FAFC",
+                      borderRadius: 12,
+                      padding: 12,
+                      marginBottom: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}>
+                      <View>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 }}>
+                          <Ionicons name="pulse-outline" size={15} color="#3B82F6" />
+                          <Text style={{ fontSize: 9, fontWeight: "700", letterSpacing: 0.8, color: "#9CA3AF", textTransform: "uppercase" }}>
+                            Training Stress
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 20, fontWeight: "700", color: "#1A1A1A" }}>
+                          {readiness.tsb != null ? Number(readiness.tsb).toFixed(0) : "—"}
+                          <Text style={{ fontSize: 12, fontWeight: "500", color: "#9CA3AF" }}> TSB</Text>
+                        </Text>
+                        <View style={{
+                          height: 2.5,
+                          borderRadius: 2,
+                          backgroundColor: tsbScore >= 60 ? "#3B82F6" : tsbScore >= 35 ? "#F59E0B" : "#EF6461",
+                          width: 50,
+                          marginTop: 6,
+                        }} />
+                      </View>
+                      {/* Mini bar chart */}
+                      <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 3, height: 28 }}>
+                        {[0.3, 0.5, 0.8, 1.0, 0.6].map((h, i) => (
+                          <View
+                            key={i}
+                            style={{
+                              width: 6,
+                              height: 28 * h,
+                              borderRadius: 2,
+                              backgroundColor: i === 3 ? "#3B82F6" : "#CBD5E1",
+                            }}
+                          />
+                        ))}
+                      </View>
+                    </View>
+
+                    {/* Updated timestamp */}
+                    <Text style={{ fontSize: 11, color: "#9CA3AF", textAlign: "center" }}>
                       {relativeMinsLabel(lastFetchedAt)}
                     </Text>
-                  </GlassCard>
-                </ReadinessBorder>
+                  </View>
               </Animated.View>
             </View>
           </TouchableOpacity>
@@ -1615,9 +1611,9 @@ export const HomeScreen: FC = () => {
                 style={styles.titlePressable}
                 activeOpacity={0.8}
                 onPress={() =>
-                  navigation.navigate(
-                    "Calendar" as never,
-                    { selectedDate: activeDateStr } as never,
+                  (navigation.navigate as (screen: string, params: object) => void)(
+                    "Calendar",
+                    { selectedDate: activeDateStr },
                   )
                 }
               >
@@ -1678,223 +1674,156 @@ export const HomeScreen: FC = () => {
 
         <Reanimated.View style={cardsAnimatedStyle}>
           {/* READINESS HERO */}
-          <TouchableOpacity
-            activeOpacity={0.9}
-            onPress={flipCard}
-            onPressIn={() => {
-              handleReadinessPressIn();
-              void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
-            }}
-            onPressOut={handleReadinessPressOut}
-          >
-            <View style={styles.flipContainer}>
-              <Animated.View
-                style={[
-                  styles.flipCard,
-                  { transform: [{ rotateY: frontRotation }, { scale: readinessScale }] },
-                ]}
-              >
-                <ReadinessBorder readiness={readiness.score} radius={theme.cardRadius}>
-                  <View style={{ position: "relative" }}>
-                    {/* Ambient glow behind card — color from JS only, no worklet color logic */}
-                    <Reanimated.View
-                      pointerEvents="none"
-                      style={[
-                        {
-                          position: "absolute",
-                          width: "100%",
-                          height: "100%",
-                          borderRadius: 24,
-                          backgroundColor: readinessColor,
-                          opacity: 0.13,
-                          transform: [
-                            { scaleX: 0.92 },
-                            { scaleY: 0.85 },
-                            { translateY: 12 },
-                          ],
-                          shadowColor: readinessColor,
-                          shadowOffset: { width: 0, height: 8 },
-                          shadowOpacity: 0.45,
-                          shadowRadius: 24,
-                        },
-                        readinessGlowAnimatedStyle,
-                      ]}
-                    />
-                    <GlassCard
-                      style={[
-                        styles.readinessCard,
-                        {
-                          shadowColor: readinessColor,
-                          shadowOffset: { width: 0, height: 8 },
-                          shadowOpacity: 0.35,
-                          shadowRadius: 20,
-                          elevation: 10,
-                        },
-                      ]}
-                    >
-                      <View style={styles.readinessRow}>
-                        <ReadinessRing
-                          score={displayReadinessScore}
-                          size={84}
-                          statusLabel={
-                            readiness.tsb != null
-                              ? Number(readiness.tsb) > 5
-                                ? "READY"
-                                : Number(readiness.tsb) <= -10
-                                  ? "FATIGUED"
-                                  : "NEUTRAL"
-                              : undefined
-                          }
-                          statusColor={vividOrange}
-                        />
-                        <View style={styles.readinessBody}>
-                          <View style={styles.readinessTitleRow}>
-                            <Text style={[styles.readinessTitle, { color: cleanColors.textPrimary }]}>
-                              Today's Readiness
-                            </Text>
-                            <View
-                              style={{
-                                paddingHorizontal: 10,
-                                paddingVertical: 4,
-                                borderRadius: 999,
-                                backgroundColor: cleanColors.pillBg,
-                                borderWidth: StyleSheet.hairlineWidth,
-                                borderColor: cleanColors.pillBorder,
-                              }}
-                            >
-                              <Text
-                                style={{
-                                  fontSize: 11,
-                                  fontWeight: "600",
-                                  letterSpacing: 0.7,
-                                  textTransform: "uppercase",
-                                  color:
-                                    displayReadinessScore >= 70
-                                      ? cleanColors.accentGreen
-                                      : displayReadinessScore >= 40
-                                        ? cleanColors.accentOrange
-                                        : cleanColors.accentRed,
-                                }}
-                              >
-                                  {displayReadinessScore >= 70
-                                  ? "READY"
-                                    : displayReadinessScore >= 40
-                                    ? "MANAGE LOAD"
-                                    : "PROTECT RECOVERY"}
-                              </Text>
-                            </View>
-                          </View>
-                          {readinessTrendText && (
-                            <Text
-                              style={{
-                                fontSize: 12,
-                                color:
-                                  readinessDelta != null && readinessDelta < 0
-                                    ? cleanColors.accentOrange
-                                    : cleanColors.accentGreen,
-                                marginBottom: 6,
-                              }}
-                            >
-                              {readinessTrendText}
-                            </Text>
-                          )}
-                          <Text
-                            style={{
-                              fontSize: 13,
-                              lineHeight: 19,
-                              color: cleanColors.textSecondary,
-                            }}
-                            numberOfLines={3}
-                          >
-                            {readiness.aiSummary}
-                          </Text>
+                <View
+                    style={{
+                      borderRadius: 18,
+                      backgroundColor: "#FFFFFF",
+                      padding: 18,
+                      borderWidth: 1,
+                      borderColor: "#E5E7EB",
+                      shadowColor: "#000",
+                      shadowOffset: { width: 0, height: 4 },
+                      shadowOpacity: 0.08,
+                      shadowRadius: 20,
+                      elevation: 4,
+                    }}
+                  >
+                    {/* Centered readiness ring */}
+                    <View style={{ alignItems: "center", marginBottom: 14 }}>
+                      <ReadinessRing
+                        score={displayReadinessScore}
+                        size={120}
+                        strokeWidth={8}
+                        centerText={readiness.score != null ? String(Math.round(readiness.score)) : "—"}
+                        statusLabel="READINESS"
+                        statusColor={coolRingColor}
+                        trackColor="#E2E8F0"
+                        centerTextStyle={{ fontSize: 38, fontWeight: "800", color: "#1A1A1A" }}
+                        labelTextStyle={{
+                          fontSize: 9,
+                          letterSpacing: 1.5,
+                          textTransform: "uppercase",
+                          color: "#6B7280",
+                          fontWeight: "600",
+                        }}
+                      />
+                    </View>
 
-                          <View
-                            style={{
-                              marginTop: 14,
-                              paddingTop: 14,
-                              borderTopWidth: StyleSheet.hairlineWidth,
-                              borderTopColor: cleanColors.border,
-                              flexDirection: "row",
-                              justifyContent: "flex-start",
-                            }}
-                          >
-                            {[
-                              {
-                                label: "HRV",
-                                score: displayHrvScore,
-                                value: displayHrvValue,
-                                status: hrvTrendLabel,
-                                color: vividGreen,
-                              },
-                              {
-                                label: "Sleep",
-                                score: displaySleepScore,
-                                value: formatSleepHours(displaySleepHours),
-                                status: sleepTrendLabel,
-                                color: vividBlue,
-                              },
-                              {
-                                label: "TSB",
-                                score: tsbScore,
-                                value:
-                                  readiness.tsb != null
-                                    ? Number(readiness.tsb).toFixed(0)
-                                    : "—",
-                                status: tsbTrendLabel,
-                                color: vividGold,
-                              },
-                            ].map((m, idx) => (
-                              <TouchableOpacity
-                                key={m.label}
-                                activeOpacity={0.85}
-                                onPress={() => navigation.navigate("Stats" as never)}
-                              >
-                                <Reanimated.View
-                                  entering={FadeInDown.delay(470 + idx * 150).springify()}
-                                  style={{ alignItems: "center", minWidth: 72, marginRight: 6 }}
-                                >
-                                  <ReadinessRing
-                                    score={miniRingProgress.value ? m.score : 0}
-                                    size={68}
-                                    centerScale={0.18}
-                                    centerText={m.value}
-                                    statusLabel={m.status}
-                                    statusColor={m.color}
-                                    centerTextStyle={{ fontSize: 14, fontWeight: "700" }}
-                                  />
-                                  <Text
-                                    style={{
-                                      fontSize: 10,
-                                      marginTop: 6,
-                                      letterSpacing: 0.9,
-                                      textTransform: "uppercase",
-                                      color: cleanColors.textMuted,
-                                    }}
-                                  >
-                                    {m.label}
-                                  </Text>
-                                </Reanimated.View>
-                              </TouchableOpacity>
-                            ))}
-                          </View>
-                          <Text
-                            style={{
-                              fontSize: 10,
-                              color: cleanColors.textMuted,
-                              marginTop: 8,
-                            }}
-                          >
-                            {relativeMinsLabel(lastFetchedAt)}
+                    {/* Status heading */}
+                    <Text style={{ fontSize: 17, fontWeight: "700", color: "#1A1A1A", textAlign: "center", marginBottom: 4 }}>
+                      {readinessHeading}
+                    </Text>
+
+                    {/* Subtitle — AI summary */}
+                    <Text style={{ fontSize: 13, color: "#6B7280", textAlign: "center", lineHeight: 18, marginBottom: 16, paddingHorizontal: 4 }}>
+                      {readiness.aiSummary || (readinessTrendText ?? "Analyzing your recovery data...")}
+                    </Text>
+
+                    {/* 2-column metric tiles */}
+                    <View style={{ flexDirection: "row", gap: 8, marginBottom: 8 }}>
+                      {/* Sleep tile */}
+                      <View style={{
+                        flex: 1,
+                        backgroundColor: "#F8FAFC",
+                        borderRadius: 12,
+                        padding: 12,
+                      }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                          <Ionicons name="moon-outline" size={15} color="#3B82F6" />
+                          <Text style={{ fontSize: 9, fontWeight: "700", letterSpacing: 0.8, color: "#9CA3AF", textTransform: "uppercase" }}>
+                            Sleep
                           </Text>
                         </View>
+                        <Text style={{ fontSize: 20, fontWeight: "700", color: "#1A1A1A", marginBottom: 8 }}>
+                          {formatSleepHours(displaySleepHours)}
+                        </Text>
+                        <View style={{
+                          height: 2.5,
+                          borderRadius: 2,
+                          backgroundColor: displaySleepScore >= 60 ? "#3B82F6" : displaySleepScore >= 35 ? "#F59E0B" : "#EF6461",
+                          width: "45%",
+                        }} />
                       </View>
-                    </GlassCard>
+
+                      {/* HRV tile */}
+                      <View style={{
+                        flex: 1,
+                        backgroundColor: "#F8FAFC",
+                        borderRadius: 12,
+                        padding: 12,
+                      }}>
+                        <View style={{ flexDirection: "row", alignItems: "center", justifyContent: "space-between", marginBottom: 8 }}>
+                          <Ionicons name="fitness-outline" size={15} color="#3B82F6" />
+                          <Text style={{ fontSize: 9, fontWeight: "700", letterSpacing: 0.8, color: "#9CA3AF", textTransform: "uppercase" }}>
+                            HRV
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 20, fontWeight: "700", color: "#1A1A1A" }}>
+                          {displayHrvValue}
+                          {displayHrvValue !== "—" && (
+                            <Text style={{ fontSize: 12, fontWeight: "500", color: "#9CA3AF" }}> ms</Text>
+                          )}
+                        </Text>
+                        <View style={{
+                          height: 2.5,
+                          borderRadius: 2,
+                          backgroundColor: displayHrvScore >= 60 ? "#3B82F6" : displayHrvScore >= 35 ? "#F59E0B" : "#EF6461",
+                          width: "45%",
+                          marginTop: 8,
+                        }} />
+                      </View>
+                    </View>
+
+                    {/* Full-width TSB tile */}
+                    <View style={{
+                      backgroundColor: "#F8FAFC",
+                      borderRadius: 12,
+                      padding: 12,
+                      marginBottom: 10,
+                      flexDirection: "row",
+                      alignItems: "center",
+                      justifyContent: "space-between",
+                    }}>
+                      <View>
+                        <View style={{ flexDirection: "row", alignItems: "center", gap: 5, marginBottom: 6 }}>
+                          <Ionicons name="pulse-outline" size={15} color="#3B82F6" />
+                          <Text style={{ fontSize: 9, fontWeight: "700", letterSpacing: 0.8, color: "#9CA3AF", textTransform: "uppercase" }}>
+                            Training Stress
+                          </Text>
+                        </View>
+                        <Text style={{ fontSize: 20, fontWeight: "700", color: "#1A1A1A" }}>
+                          {readiness.tsb != null ? Number(readiness.tsb).toFixed(0) : "—"}
+                          <Text style={{ fontSize: 12, fontWeight: "500", color: "#9CA3AF" }}> TSB</Text>
+                        </Text>
+                        <View style={{
+                          height: 2.5,
+                          borderRadius: 2,
+                          backgroundColor: tsbScore >= 60 ? "#3B82F6" : tsbScore >= 35 ? "#F59E0B" : "#EF6461",
+                          width: 50,
+                          marginTop: 6,
+                        }} />
+                      </View>
+                      {/* Mini bar chart */}
+                      <View style={{ flexDirection: "row", alignItems: "flex-end", gap: 3, height: 28 }}>
+                        {[0.3, 0.5, 0.8, 1.0, 0.6].map((h, i) => (
+                          <View
+                            key={i}
+                            style={{
+                              width: 6,
+                              height: 28 * h,
+                              borderRadius: 2,
+                              backgroundColor: i === 3 ? "#3B82F6" : "#CBD5E1",
+                            }}
+                          />
+                        ))}
+                      </View>
+                    </View>
+
+                    {/* Updated timestamp */}
+                    <Text style={{ fontSize: 11, color: "#9CA3AF", textAlign: "center" }}>
+                      {relativeMinsLabel(lastFetchedAt)}
+                    </Text>
                   </View>
-                </ReadinessBorder>
-              </Animated.View>
-            </View>
-          </TouchableOpacity>
 
           {/* TODAY'S SESSION */}
           <Reanimated.View
@@ -1956,7 +1885,7 @@ export const HomeScreen: FC = () => {
                         }}
                       >
                         {todaysPlan?.title ??
-                          todaysWorkout.title ??
+                          todaysWorkout?.title ??
                           (isRestDay ? "Rest & Recovery" : "No session planned")}
                       </Text>
                       <View style={{ flexDirection: "row", alignItems: "center", marginTop: 8 }}>
@@ -1981,7 +1910,7 @@ export const HomeScreen: FC = () => {
                             {statusLabel}
                           </Text>
                         </View>
-                        <WorkoutBadge type={todaysPlan?.type ?? todaysWorkout.type} />
+                        <WorkoutBadge type={(todaysPlan?.type ?? todaysWorkout?.type) as "easy" | "tempo" | "interval" | "long" | "recovery" | "rest"} />
                       </View>
                       <Text
                         style={{
@@ -1995,7 +1924,7 @@ export const HomeScreen: FC = () => {
                           ? "Planned rest day. Light movement, good food, and early sleep keep the engine fresh."
                           : todaysPlan
                             ? `${todaysPlan.distance > 0 ? `${todaysPlan.distance} km · ` : ""}${
-                                todaysPlan.description || "Controlled aerobic work with smooth pacing."
+                                (todaysPlan as any).description || "Controlled aerobic work with smooth pacing."
                               }`
                             : todaysActual
                               ? `${(todaysActual.distance_km ?? 0).toFixed(1)} km · ${formatDuration(
@@ -2045,8 +1974,7 @@ export const HomeScreen: FC = () => {
               </Text>
               <View style={styles.weekRow}>
                 <Text style={[styles.weekKm, { color: cleanColors.textPrimary }]}>
-                  {Number(weekStats.actualKm ?? 0).toFixed(1)} /{" "}
-                  {Number(weekStats.plannedKm ?? 0).toFixed(0)} km
+                  {Number(weekStats.actualKm ?? 0).toFixed(1)}{weekStats.plannedKm != null ? ` / ${Number(weekStats.plannedKm).toFixed(0)}` : ""} km
                 </Text>
               </View>
               <View
@@ -2109,8 +2037,7 @@ export const HomeScreen: FC = () => {
                 })}
               </View>
               <Text style={[styles.weekSessionsText, { color: cleanColors.textMuted }]}>
-                {sessionsDone}/7 sessions done · {weekStats.qualityDone}/
-                {weekStats.qualityPlanned} quality
+                {sessionsDone}/7 sessions done{weekStats.qualityPlanned != null ? ` · ${weekStats.qualityDone ?? 0}/${weekStats.qualityPlanned} quality` : ""}
               </Text>
               <View style={styles.sparklineBlock}>
                 <View
@@ -2130,7 +2057,7 @@ export const HomeScreen: FC = () => {
                       { color: tsbStatus.color, fontWeight: "500" },
                     ]}
                   >
-                    TSB {tsbVal.toFixed(1)} · {loadZoneLabel}
+                    TSB {readiness.tsb != null ? tsbVal.toFixed(1) : "—"} · {loadZoneLabel}
                   </Text>
                 </View>
                 <Sparkline
@@ -2266,7 +2193,7 @@ export const HomeScreen: FC = () => {
                   <Text
                     style={{ fontSize: 11, color: cleanColors.textMuted, marginRight: 8 }}
                   >
-                    {lastActivity.date}
+                    {lastActivity?.date ?? ""}
                   </Text>
                   <TouchableOpacity
                     style={styles.lastActivityActionBtn}
@@ -2284,6 +2211,11 @@ export const HomeScreen: FC = () => {
                   </TouchableOpacity>
                 </View>
               </View>
+              {lastActivity == null ? (
+                <Text style={{ fontSize: 13, color: cleanColors.textMuted, marginTop: 8 }}>
+                  No runs synced yet. Connect Apple Health or intervals.icu in Settings.
+                </Text>
+              ) : (
               <TouchableOpacity
                 activeOpacity={lastActivityDetailId ? 0.9 : 1}
                 onPress={lastActivityDetailId ? goToLastActivity : undefined}
@@ -2318,7 +2250,7 @@ export const HomeScreen: FC = () => {
                         typography.mono,
                       ]}
                     >
-                      {lastActivity.distance != null && lastActivity.distance > 0
+                      {lastActivity.distance != null && Number(lastActivity.distance) > 0
                         ? typeof lastActivity.distance === "number"
                           ? lastActivity.distance.toFixed(1)
                           : lastActivity.distance
@@ -2376,59 +2308,22 @@ export const HomeScreen: FC = () => {
                     </Text>
                   </View>
                 </View>
-                <View style={styles.hrZonesBlock}>
-                  <Text style={[styles.sparklineLabel, { color: cleanColors.textMuted }]}>
-                    HR Zones
-                  </Text>
-                  <View style={styles.hrZonesBar}>
-                    <View
-                      style={[
-                        styles.hrZone,
-                        {
-                          width: `${lastActivity.hrZones.z1}%`,
-                          backgroundColor: cleanColors.textMuted,
-                        },
-                      ]}
-                    />
-                    <View
-                      style={[
-                        styles.hrZone,
-                        {
-                          width: `${lastActivity.hrZones.z2}%`,
-                          backgroundColor: cleanColors.accentBlue,
-                        },
-                      ]}
-                    />
-                    <View
-                      style={[
-                        styles.hrZone,
-                        {
-                          width: `${lastActivity.hrZones.z3}%`,
-                          backgroundColor: cleanColors.accentGreen,
-                        },
-                      ]}
-                    />
-                    <View
-                      style={[
-                        styles.hrZone,
-                        {
-                          width: `${lastActivity.hrZones.z4}%`,
-                          backgroundColor: cleanColors.accentOrange,
-                        },
-                      ]}
-                    />
-                    <View
-                      style={[
-                        styles.hrZone,
-                        {
-                          width: `${lastActivity.hrZones.z5}%`,
-                          backgroundColor: cleanColors.accentRed,
-                        },
-                      ]}
-                    />
+                {lastActivity.hrZones != null && (
+                  <View style={styles.hrZonesBlock}>
+                    <Text style={[styles.sparklineLabel, { color: cleanColors.textMuted }]}>
+                      HR Zones
+                    </Text>
+                    <View style={styles.hrZonesBar}>
+                      <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z1}%`, backgroundColor: cleanColors.textMuted }]} />
+                      <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z2}%`, backgroundColor: cleanColors.accentBlue }]} />
+                      <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z3}%`, backgroundColor: cleanColors.accentGreen }]} />
+                      <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z4}%`, backgroundColor: cleanColors.accentOrange }]} />
+                      <View style={[styles.hrZone, { width: `${lastActivity.hrZones.z5}%`, backgroundColor: cleanColors.accentRed }]} />
+                    </View>
                   </View>
-                </View>
+                )}
               </TouchableOpacity>
+              )}
             </GlassCard>
           </Reanimated.View>
 
@@ -2490,7 +2385,7 @@ export const HomeScreen: FC = () => {
                     HRV (7 days)
                   </Text>
                   <Sparkline
-                    data={recoveryMetrics.hrvTrend}
+                    data={recoveryMetrics.hrvTrend ?? []}
                     color={cleanColors.accentGreen}
                   />
                 </View>
@@ -2499,7 +2394,7 @@ export const HomeScreen: FC = () => {
                     Resting HR (7 days)
                   </Text>
                   <Sparkline
-                    data={recoveryMetrics.restingHrTrend}
+                    data={recoveryMetrics.restingHrTrend ?? []}
                     color={cleanColors.accentRed}
                   />
                 </View>
