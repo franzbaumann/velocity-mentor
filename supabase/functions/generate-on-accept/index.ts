@@ -67,6 +67,18 @@ Return ONLY valid JSON:
 serve(async (req) => {
   if (req.method === "OPTIONS") return new Response(null, { headers: corsHeaders });
 
+  // Validate webhook secret to prevent unauthorized calls.
+  // Configure WEBHOOK_SECRET in Supabase secrets and set the same value as a custom header
+  // (x-webhook-secret) when registering this function as a Supabase DB webhook.
+  const webhookSecret = Deno.env.get("WEBHOOK_SECRET");
+  if (webhookSecret) {
+    const providedSecret = req.headers.get("x-webhook-secret");
+    if (providedSecret !== webhookSecret) {
+      console.warn("[generate-on-accept] Invalid or missing webhook secret");
+      return json({ error: "Unauthorized" }, 401);
+    }
+  }
+
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
@@ -75,10 +87,6 @@ serve(async (req) => {
     table?: string;
     record?: {
       id?: string;
-      from_user?: string;
-      to_user?: string;
-      proposed_date?: string;
-      invite_type?: "combined" | "parallel";
     };
   };
 
@@ -87,19 +95,29 @@ serve(async (req) => {
     return json({ error: "Invalid webhook payload" }, 400);
   }
 
-  const record = body.record;
-  const inviteId = record.id;
-  const fromUser = record.from_user;
-  const toUser = record.to_user;
-  const dateStr = record.proposed_date;
-  const mode = (record.invite_type ?? "combined") as "combined" | "parallel";
+  const inviteId = body.record.id;
+  const admin = createClient(SUPABASE_URL, SERVICE_KEY);
 
-  if (!fromUser || !toUser || !dateStr) {
-    console.error("[generate-on-accept] Missing required fields", record);
-    return json({ error: "Missing from_user, to_user, or proposed_date" }, 400);
+  // Re-read invite from DB — never trust user IDs from the webhook body itself.
+  const { data: dbInvite } = await admin
+    .from("workout_invite")
+    .select("id, from_user, to_user, proposed_date, invite_type")
+    .eq("id", inviteId)
+    .maybeSingle();
+  if (!dbInvite) {
+    console.error("[generate-on-accept] Invite not found", inviteId);
+    return json({ error: "Invite not found" }, 404);
   }
 
-  const admin = createClient(SUPABASE_URL, SERVICE_KEY);
+  const fromUser = dbInvite.from_user as string;
+  const toUser = dbInvite.to_user as string;
+  const dateStr = dbInvite.proposed_date as string;
+  const mode = ((dbInvite.invite_type as string | null) ?? "combined") as "combined" | "parallel";
+
+  if (!fromUser || !toUser || !dateStr) {
+    console.error("[generate-on-accept] Missing required fields", { inviteId });
+    return json({ error: "Missing from_user, to_user, or proposed_date" }, 400);
+  }
 
   const [profileA, profileB] = await Promise.all([
     admin.from("athlete_profile")

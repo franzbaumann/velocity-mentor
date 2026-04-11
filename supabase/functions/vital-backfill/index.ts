@@ -34,6 +34,12 @@ function json(data: unknown, status = 200) {
 function getVitalBaseUrl(): string {
   const region = Deno.env.get("VITAL_REGION") ?? "us";
   const env = Deno.env.get("VITAL_ENVIRONMENT") ?? "production";
+  if (env === "sandbox") {
+    console.warn(
+      "[vital-backfill] VITAL_ENVIRONMENT=sandbox — activity data is limited to Vital test fixtures. " +
+      "Set VITAL_ENVIRONMENT=production in Supabase secrets for real user data.",
+    );
+  }
   const host =
     env === "sandbox"
       ? `api.sandbox.${region}.junction.com`
@@ -473,7 +479,9 @@ Deno.serve(async (req) => {
     const baseUrl = getVitalBaseUrl();
     const headers = { "x-vital-api-key": apiKey, Accept: "application/json" };
 
-    // Parse optional start_date from body
+    // Parse optional start_date from body.
+    // start_date = beginning of the date range to process this call.
+    // Callers should pass next_start_date from a previous response to continue chunked imports.
     let startDate = twoYearsAgo();
     try {
       const body = (await req.json()) as { start_date?: string };
@@ -541,8 +549,13 @@ Deno.serve(async (req) => {
       .slice(0, 2)
       .map((x) => x.base);
 
-    // ── Step 2: Full chunked fetch over the requested date range ──────────────
-    const windows = buildDateWindows(startDate, endDate, 120); // 120-day chunks
+    // ── Step 2: Chunked fetch — process MAX_WINDOWS_PER_CALL windows this call ─
+    // Large histories are split across multiple calls via next_start_date chaining.
+    const MAX_WINDOWS_PER_CALL = 5; // 5 × 120 days = 600 days per call
+    const allWindows = buildDateWindows(startDate, endDate, 120);
+    const windows = allWindows.slice(0, MAX_WINDOWS_PER_CALL);
+    const nextWindow = allWindows[MAX_WINDOWS_PER_CALL];
+    const next_start_date: string | null = nextWindow?.start ?? null;
     const workoutsByKey = new Map<string, Dict>();
 
     for (const base of topBases) {
@@ -665,7 +678,10 @@ Deno.serve(async (req) => {
       activities_skipped: activitiesSkipped,
       workouts_received: allWorkouts.length,
       start_date: startDate,
-      end_date: endDate,
+      end_date: windows.at(-1)?.end ?? endDate,
+      // next_start_date is set when there are more windows to process.
+      // Callers should make another request with { start_date: next_start_date } until this is null.
+      next_start_date,
       request_id: requestId,
     });
   } catch (err) {

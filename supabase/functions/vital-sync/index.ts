@@ -28,6 +28,12 @@ function json(data: unknown, status = 200) {
 function getVitalBaseUrl(): string {
   const region = Deno.env.get("VITAL_REGION") ?? "us";
   const env = Deno.env.get("VITAL_ENVIRONMENT") ?? "production";
+  if (env === "sandbox") {
+    console.warn(
+      "[vital-sync] VITAL_ENVIRONMENT=sandbox — activity data is limited to Vital test fixtures. " +
+      "Set VITAL_ENVIRONMENT=production in Supabase secrets for real user data.",
+    );
+  }
   const host = env === "sandbox" ? `api.sandbox.${region}.junction.com` : `api.${region}.junction.com`;
   return `https://${host}`;
 }
@@ -353,13 +359,14 @@ interface DateWindow {
 async function fetchWorkoutsFromEndpoint(
   endpoint: string,
   headers: Record<string, string>,
+  maxPages = 10,
 ): Promise<{ workouts: Dict[]; attempt: EndpointAttempt; ok: boolean }> {
   const workouts: Dict[] = [];
   let pages = 0;
   let cursor: string | null = null;
   let attempts = 0;
 
-  while (attempts < 10) {
+  while (attempts < maxPages) {
     attempts += 1;
     pages += 1;
     const url = new URL(endpoint);
@@ -407,7 +414,7 @@ async function fetchWorkoutsFromEndpoint(
       status: 200,
       pages,
       received: workouts.length,
-      detail: "Stopped pagination at 10 pages limit",
+      detail: `Stopped pagination at ${maxPages} pages limit`,
     },
   };
 }
@@ -439,6 +446,7 @@ async function fetchWorkoutsChunked(
   endpointBase: string,
   windows: DateWindow[],
   headers: Record<string, string>,
+  maxPages = 10,
 ): Promise<{ workouts: Dict[]; attempts: EndpointAttempt[]; ok: boolean; partialError?: string }> {
   const attempts: EndpointAttempt[] = [];
   const workoutsById = new Map<string, Dict>();
@@ -447,7 +455,7 @@ async function fetchWorkoutsChunked(
 
   for (const window of windows) {
     const endpoint = `${endpointBase}?start_date=${window.start}&end_date=${window.end}`;
-    const fetched = await fetchWorkoutsFromEndpoint(endpoint, headers);
+    const fetched = await fetchWorkoutsFromEndpoint(endpoint, headers, maxPages);
     attempts.push(fetched.attempt);
 
     if (!fetched.ok) {
@@ -762,8 +770,7 @@ Deno.serve(async (req) => {
 
     const startDate = fiveYearsAgo();
     const endDate = todayStr();
-    const oneYearStartDate = daysAgo(365);
-    const ninetyDaysStartDate = daysAgo(90);
+    const probeStartDate = daysAgo(30);
     const historyWindows = buildDateWindows(startDate, endDate, 120);
 
     let activitiesUpserted = 0;
@@ -777,10 +784,6 @@ Deno.serve(async (req) => {
       `${baseUrl}/v2/activity/user_id/${vitalUserId}`,
       `${baseUrl}/v2/activity/${vitalUserId}`,
       `${baseUrl}/v2/activity/${vitalUserId}/raw`,
-    ];
-    const workoutEndpoints = [
-      ...workoutEndpointBases.map((base) => `${base}?start_date=${ninetyDaysStartDate}&end_date=${endDate}`),
-      ...workoutEndpointBases.map((base) => `${base}?start_date=${oneYearStartDate}&end_date=${endDate}`),
     ];
     const workoutAttempts: EndpointAttempt[] = [];
     const workoutsByStableKey = new Map<string, { workout: Dict; endpointBase: string }>();
@@ -835,31 +838,31 @@ Deno.serve(async (req) => {
       }
     };
 
-    for (const endpoint of workoutEndpoints) {
-      const fetched = await fetchWorkoutsFromEndpoint(endpoint, headers);
+    // Probe: only discover which endpoints are alive (2 pages, 30-day window).
+    // Do NOT add probe results to workoutsByStableKey — the full history backfill below owns the data.
+    for (const base of workoutEndpointBases) {
+      const probeEndpoint = `${base}?start_date=${probeStartDate}&end_date=${endDate}`;
+      const fetched = await fetchWorkoutsFromEndpoint(probeEndpoint, headers, 2);
       workoutAttempts.push(fetched.attempt);
       workoutsFetchStatus = fetched.attempt.status;
-      if (fetched.ok && fetched.workouts.length > 0) {
-        const endpointBase = endpoint.split("?")[0];
-        successfulProbeCounts[endpointBase] = Math.max(
-          successfulProbeCounts[endpointBase] ?? 0,
-          fetched.workouts.length,
-        );
-        collectWorkouts(fetched.workouts, endpointBase);
-        if (!selectedEndpoint) selectedEndpoint = endpoint;
-      }
-      if (fetched.ok && fetched.workouts.length === 0 && selectedEndpoint == null) {
-        selectedEndpoint = endpoint;
+      if (fetched.ok) {
+        successfulProbeCounts[base] = fetched.workouts.length;
+        if (!selectedEndpoint) selectedEndpoint = probeEndpoint;
+        console.log("[vital-sync] probe ok", { base, count: fetched.workouts.length });
+      } else {
+        console.log("[vital-sync] probe failed", { base, status: fetched.attempt.status });
       }
     }
 
     // Backfill full history for all successful endpoint bases (limited to top 3).
+    // Use 20 pages per window (~340 activities per 120-day window) to handle high-volume accounts
+    // and endpoints that ignore date filters and return a global paginated list.
     const backfillBases = Object.entries(successfulProbeCounts)
       .sort((a, b) => b[1] - a[1])
       .slice(0, 3)
       .map(([base]) => base);
     for (const endpointBase of backfillBases) {
-      const backfill = await fetchWorkoutsChunked(endpointBase, historyWindows, headers);
+      const backfill = await fetchWorkoutsChunked(endpointBase, historyWindows, headers, 20);
       workoutAttempts.push(...backfill.attempts);
       if (backfill.ok && backfill.workouts.length > 0) {
         collectWorkouts(backfill.workouts, endpointBase);

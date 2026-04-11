@@ -285,21 +285,41 @@ export function useVitalIntegration() {
 
   const backfillMutation = useMutation({
     mutationFn: async (startDate?: string): Promise<{ activities_upserted: number; activities_skipped: number; workouts_received: number }> => {
-      const accessToken = session?.access_token ?? await getSafeAccessToken();
       const baseUrl = getSupabaseUrl();
-      const requestId = createRequestId("vital_backfill");
-      const res = await fetch(`${baseUrl}/functions/v1/vital-backfill`, {
-        method: "POST",
-        headers: getFunctionRequestHeaders(accessToken, requestId),
-        body: JSON.stringify(startDate ? { start_date: startDate } : {}),
-      });
+      let totalUpserted = 0;
+      let totalSkipped = 0;
+      let totalReceived = 0;
+      let currentStart: string | undefined = startDate;
 
-      const data = await parseJson<{ ok?: boolean; activities_upserted?: number; activities_skipped?: number; workouts_received?: number } & VitalFunctionError>(res);
-      if (!res.ok) throw new Error(buildErrorMessage(data, "Backfill failed", res.status));
+      // Chain calls until next_start_date is absent (full history covered in chunks).
+      do {
+        const accessToken = session?.access_token ?? await getSafeAccessToken();
+        const requestId = createRequestId("vital_backfill");
+        const res = await fetch(`${baseUrl}/functions/v1/vital-backfill`, {
+          method: "POST",
+          headers: getFunctionRequestHeaders(accessToken, requestId),
+          body: JSON.stringify(currentStart ? { start_date: currentStart } : {}),
+        });
+
+        const data = await parseJson<{
+          ok?: boolean;
+          activities_upserted?: number;
+          activities_skipped?: number;
+          workouts_received?: number;
+          next_start_date?: string | null;
+        } & VitalFunctionError>(res);
+        if (!res.ok) throw new Error(buildErrorMessage(data, "Backfill failed", res.status));
+
+        totalUpserted += data.activities_upserted ?? 0;
+        totalSkipped += data.activities_skipped ?? 0;
+        totalReceived += data.workouts_received ?? 0;
+        currentStart = data.next_start_date ?? undefined;
+      } while (currentStart);
+
       return {
-        activities_upserted: data.activities_upserted ?? 0,
-        activities_skipped: data.activities_skipped ?? 0,
-        workouts_received: data.workouts_received ?? 0,
+        activities_upserted: totalUpserted,
+        activities_skipped: totalSkipped,
+        workouts_received: totalReceived,
       };
     },
     onSuccess: (data) => {

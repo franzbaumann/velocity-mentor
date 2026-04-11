@@ -28,8 +28,21 @@ Deno.serve(async (req) => {
       });
     }
 
-    // Validate redirect_uri against allowlist (prevents OAuth redirect hijacking)
-    const allowedList = (Deno.env.get("ALLOWED_REDIRECT_URIS") ?? "http://localhost:5173/auth/strava/callback,http://localhost:8080/auth/strava/callback,http://127.0.0.1:5173/auth/strava/callback,http://127.0.0.1:8080/auth/strava/callback").split(",").map((u) => u.trim());
+    // Validate redirect_uri against allowlist (prevents OAuth redirect hijacking).
+    // ALLOWED_REDIRECT_URIS must be set in Supabase secrets for production.
+    // In local dev (SUPABASE_URL contains localhost) localhost URIs are allowed as fallback.
+    const allowedUrisEnv = Deno.env.get("ALLOWED_REDIRECT_URIS");
+    const supabaseUrl = Deno.env.get("SUPABASE_URL") ?? "";
+    const isLocalDev = supabaseUrl.includes("localhost") || supabaseUrl.includes("127.0.0.1");
+    if (!allowedUrisEnv && !isLocalDev) {
+      console.error("[strava-oauth] ALLOWED_REDIRECT_URIS is not configured — refusing OAuth redirect");
+      return new Response(JSON.stringify({ error: "OAuth redirect URIs not configured. Set ALLOWED_REDIRECT_URIS in Supabase secrets." }), {
+        status: 500,
+        headers: { ...corsHeaders, "Content-Type": "application/json" },
+      });
+    }
+    const devFallback = "http://localhost:5173/auth/strava/callback,http://localhost:8080/auth/strava/callback,http://127.0.0.1:5173/auth/strava/callback,http://127.0.0.1:8080/auth/strava/callback";
+    const allowedList = (allowedUrisEnv ?? devFallback).split(",").map((u) => u.trim()).filter(Boolean);
     const redirectUri = typeof redirect_uri === "string" ? redirect_uri.trim() : "";
     if (!redirectUri || !allowedList.includes(redirectUri)) {
       return new Response(JSON.stringify({ error: "Invalid redirect_uri" }), {

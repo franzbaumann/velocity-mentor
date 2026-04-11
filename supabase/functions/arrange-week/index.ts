@@ -32,6 +32,19 @@ serve(async (req) => {
 
   const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
   const SERVICE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
+  const ANON_KEY = Deno.env.get("SUPABASE_ANON_KEY")!;
+
+  // Auth: verify caller is a logged-in user.
+  const authHeader = req.headers.get("Authorization");
+  if (!authHeader) return json({ error: "Missing Authorization header" }, 401);
+
+  const userClient = createClient(SUPABASE_URL, ANON_KEY, {
+    global: { headers: { Authorization: authHeader } },
+  });
+  const { data: { user }, error: userError } = await userClient.auth.getUser(
+    authHeader.replace("Bearer ", "").trim(),
+  );
+  if (userError || !user) return json({ error: "Unauthorized" }, 401);
 
   const body = (await req.json().catch(() => ({}))) as { invite_id?: string };
   const { invite_id } = body;
@@ -46,6 +59,11 @@ serve(async (req) => {
 
   if (!invite) return json({ error: "Invite not found" }, 404);
   if (invite.status !== "accepted") return json({ error: "Invite must be accepted first" }, 400);
+
+  // Verify the caller is one of the invite participants.
+  if (invite.from_user !== user.id && invite.to_user !== user.id) {
+    return json({ error: "Forbidden — you are not part of this invite" }, 403);
+  }
 
   const combined = invite.combined_workout as {
     athlete_a?: { adapted_workout?: string; workout?: string };
