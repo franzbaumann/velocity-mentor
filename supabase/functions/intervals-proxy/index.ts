@@ -1556,7 +1556,7 @@ ${trkpts}
 
       // activityId can be: intervals external_id (e.g. "i130714268") or Supabase activity id (uuid)
       const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(activityId);
-      const baseQuery = supabaseAdmin.from("activity").select("id, date, coach_note, type, name, description, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, cadence, icu_training_load, trimp, hr_zone_times, user_notes, nomio_drink, lactate_levels, enhancing_supplements").eq("user_id", user.id);
+      const baseQuery = supabaseAdmin.from("activity").select("id, external_id, date, coach_note, type, name, description, distance_km, duration_seconds, avg_pace, avg_hr, max_hr, elevation_gain, cadence, icu_training_load, trimp, hr_zone_times, user_notes, nomio_drink, lactate_levels, enhancing_supplements, splits, cardiac_drift, pace_efficiency, cadence_consistency, icu_aerobic_decoupling, gap").eq("user_id", user.id);
 
       const { data: existing } = isUuid
         ? await baseQuery.eq("id", activityId).maybeSingle()
@@ -1627,6 +1627,138 @@ ${trkpts}
         ? hrZones.map((v: number, i: number) => `Z${i + 1}: ${Math.round((v / totalZoneTime) * 100)}%`).join(", ")
         : "unavailable";
 
+      // ── Session-type classification (deterministic TypeScript) ──────────────
+      // Classify what kind of session this was so Claude gives the right analysis.
+      const extA = a as Record<string, unknown>;
+      const zPct = totalZoneTime > 0
+        ? hrZones.map((v: number) => v / totalZoneTime)
+        : new Array(5).fill(0);
+      const z1p = (zPct[0] ?? 0) * 100;
+      const z2p = (zPct[1] ?? 0) * 100;
+      const z3p = (zPct[2] ?? 0) * 100;
+      const z4p = (zPct[3] ?? 0) * 100;
+      const z5p = (zPct[4] ?? 0) * 100;
+      const highZonePct = z4p + z5p;       // Z4+Z5 — VO2max / maximal
+      const threshZonePct = z3p + z4p;     // Z3+Z4 — threshold / tempo
+      const easyZonePct = z1p + z2p;       // Z1+Z2 — easy / aerobic
+
+      const nameLower = String(a.name ?? "").toLowerCase();
+      const nameHasInterval = /interval|reps?|repetition|track|fartlek|speedwork|sprint/i.test(nameLower);
+      const nameHasThreshold = /threshold|tempo|lt\b|lactate|cruise/i.test(nameLower);
+      const nameHasLong = /long[\s_-]?run|lsd|endurance run/i.test(nameLower);
+      const nameHasEasy = /easy|recovery|jog|base[\s_-]?run|aerobic run/i.test(nameLower);
+      const nameHasRace = /\brace\b|parkrun|10k|5k|half\s?marathon|marathon|event|competition/i.test(nameLower);
+      const nameHasProgression = /progression|prog[\s_-]?run|build/i.test(nameLower);
+
+      // Km splits — format: { km: number; pace: string; hr?: number }
+      const rawSplits = Array.isArray(extA.splits)
+        ? (extA.splits as Array<Record<string, unknown>>)
+        : [];
+
+      // Pace coefficient of variation across splits → high variance = interval-like
+      const splitPacesSec = rawSplits
+        .map((s) => {
+          const p = String(s.pace ?? "");
+          const m = p.match(/^(\d+):(\d{2})/);
+          return m ? parseInt(m[1]) * 60 + parseInt(m[2]) : 0;
+        })
+        .filter((v) => v > 0);
+      let paceCoV = 0;
+      if (splitPacesSec.length > 2) {
+        const mean = splitPacesSec.reduce((a, b) => a + b, 0) / splitPacesSec.length;
+        const variance = splitPacesSec.reduce((a, b) => a + (b - mean) ** 2, 0) / splitPacesSec.length;
+        paceCoV = mean > 0 ? Math.sqrt(variance) / mean : 0;
+      }
+      // Detect positive/negative split (first half vs second half avg pace)
+      let splitTrend = "";
+      if (splitPacesSec.length >= 4) {
+        const half = Math.floor(splitPacesSec.length / 2);
+        const firstHalfAvg = splitPacesSec.slice(0, half).reduce((a, b) => a + b, 0) / half;
+        const secondHalfAvg = splitPacesSec.slice(-half).reduce((a, b) => a + b, 0) / half;
+        const diff = secondHalfAvg - firstHalfAvg; // positive = slower second half
+        if (diff > 10) splitTrend = "positive split (slowed ~" + Math.round(diff) + "s/km)";
+        else if (diff < -10) splitTrend = "negative split (faster ~" + Math.round(-diff) + "s/km)";
+        else splitTrend = "even split";
+      }
+
+      // Classify
+      let detectedSessionType: string;
+      let sessionTypeRationale: string;
+      if (nameHasRace || String(a.type ?? "").toLowerCase().includes("race")) {
+        detectedSessionType = "race";
+        sessionTypeRationale = "activity name/type";
+      } else if (nameHasInterval || (highZonePct > 25 && paceCoV > 0.07 && rawSplits.length > 3)) {
+        detectedSessionType = "interval";
+        sessionTypeRationale = nameHasInterval
+          ? "session name"
+          : `Z4/Z5: ${Math.round(highZonePct)}%, pace variability ${Math.round(paceCoV * 100)}%`;
+      } else if (nameHasThreshold || (threshZonePct > 50 && paceCoV < 0.05 && highZonePct < 30)) {
+        detectedSessionType = "threshold/tempo";
+        sessionTypeRationale = nameHasThreshold
+          ? "session name"
+          : `Z3/Z4: ${Math.round(threshZonePct)}%, sustained pace`;
+      } else if (nameHasProgression || (splitPacesSec.length >= 4 && paceCoV > 0.03 && splitTrend.startsWith("negative"))) {
+        detectedSessionType = "progression run";
+        sessionTypeRationale = nameHasProgression ? "session name" : "negative split pattern";
+      } else if (nameHasLong || (Number(a.distance_km ?? 0) > 16 && easyZonePct > 50)) {
+        detectedSessionType = "long run";
+        sessionTypeRationale = nameHasLong
+          ? "session name"
+          : `${a.distance_km}km, Z1/Z2: ${Math.round(easyZonePct)}%`;
+      } else if (nameHasEasy || (easyZonePct > 75 && totalZoneTime > 0)) {
+        detectedSessionType = "easy/recovery";
+        sessionTypeRationale = nameHasEasy ? "session name" : `Z1/Z2: ${Math.round(easyZonePct)}%`;
+      } else if (highZonePct > 15 || threshZonePct > 35) {
+        detectedSessionType = "quality/mixed";
+        sessionTypeRationale = `Z3+: ${Math.round(threshZonePct + z5p)}%`;
+      } else {
+        detectedSessionType = "moderate aerobic";
+        sessionTypeRationale = totalZoneTime > 0
+          ? `Z1/Z2: ${Math.round(easyZonePct)}%`
+          : "no HR zone data";
+      }
+
+      // Session-type-specific prompt instruction for Claude
+      const sessionTypeInstruction = (() => {
+        switch (detectedSessionType) {
+          case "interval":
+            return "INTERVAL SESSION: Focus on rep execution quality — were paces consistent across reps? Did HR recover enough between efforts? What does max HR vs LTHR tell you about intensity? One forward-looking note on readiness for the next quality session.";
+          case "threshold/tempo":
+            return "THRESHOLD/TEMPO SESSION: Focus on sustained pace quality, aerobic decoupling (HR drift vs pace — ideally <5%), whether they held the correct zone. Note if they went too hard or not hard enough.";
+          case "progression run":
+            return "PROGRESSION RUN: Comment on the pace progression — was the build executed well? How does the final km pace compare to threshold? Mention the training stimulus this creates.";
+          case "long run":
+            return "LONG RUN: Focus on cardiac drift and aerobic decoupling. Did HR stay aerobic or drift into threshold territory? Comment on pacing strategy (positive/negative split). Mention accumulated fatigue context from the week.";
+          case "easy/recovery":
+            return "EASY/RECOVERY RUN: Was HR discipline maintained? Comment on whether they stayed truly aerobic (Z1/Z2). Reference recent training density — is this recovery well-timed?";
+          case "race":
+            return "RACE: Lead with the result. Then comment on pacing strategy from the splits, how HR profile looked, and what this performance reveals about current fitness.";
+          default:
+            return "RUN: Give running-specific feedback on effort distribution, pacing, and what this session contributes to their training.";
+        }
+      })();
+
+      // Extra metrics
+      const aerobicDecoupling = extA.icu_aerobic_decoupling != null
+        ? `${Number(extA.icu_aerobic_decoupling).toFixed(1)}%` : null;
+      const cardiacDrift = extA.cardiac_drift != null
+        ? `${Number(extA.cardiac_drift).toFixed(1)}%` : null;
+      const paceEfficiencyVal = extA.pace_efficiency != null
+        ? Number(extA.pace_efficiency).toFixed(2) : null;
+      const cadenceConsistencyVal = extA.cadence_consistency != null
+        ? `${Number(extA.cadence_consistency).toFixed(1)}%` : null;
+      const gapVal = extA.gap != null ? `${extA.gap}/km` : null;
+
+      // Format km splits for the prompt (cap at 20 to stay token-efficient)
+      const splitsBlock = rawSplits.length > 0
+        ? rawSplits.slice(0, 20).map((s) => {
+            const parts: string[] = [`km ${s.km}`];
+            if (s.pace) parts.push(String(s.pace));
+            if (s.hr) parts.push(`${s.hr} bpm`);
+            return parts.join(" · ");
+          }).join("  |  ")
+        : null;
+
       const currentId = existing.id;
       const historyLines = (activityHistory ?? [])
         .filter((r: Record<string, unknown>) => r.id !== currentId)
@@ -1670,9 +1802,8 @@ ${trkpts}
       const activityType = String(a.type ?? "Run").trim();
       const isRun = /run|jog|treadmill|trail|street|track|ultra/i.test(activityType);
       const activityDesc = (a.description as string)?.trim() || "";
-      const typeContext = isRun
-        ? "This is a RUN. Give running-specific feedback (pacing, form, training load for running)."
-        : `This is NOT a run — it's "${activityType}". Give feedback appropriate for this activity type. Acknowledge it's great for general fitness but NOT equivalent to running: e.g. 40 km ski ≠ 40 km run in terms of running-specific load. Be encouraging about cross-training while being clear about the difference.`;
+
+      const crossTrainingContext = `This is NOT a run — it's "${activityType}". Give feedback appropriate for this activity type. Acknowledge it's great for general fitness but NOT equivalent to running: e.g. 40 km ski ≠ 40 km run in terms of running-specific load. Be encouraging about cross-training while being clear about the difference.`;
 
       const pbContext = pbDistances.length > 0
         ? (isMarathonPb
@@ -1680,20 +1811,24 @@ ${trkpts}
           : `This activity is a PERSONAL BEST for: ${pbDistances.join(", ")}. Acknowledge and celebrate it in your feedback.`)
         : "";
 
-      const prompt = `You are Coach Cade — an elite AI running coach built into Cade. Give brief, personalized feedback (2-4 sentences) for THIS activity. ${typeContext} Reference specific numbers from the athlete's data. Be direct, data-driven, warm but never soft. Never use ## headers or emojis. Use metric units.
+      const prompt = `You are Coach Cade — an elite AI running coach built into Cade. Give brief, personalized feedback (2-4 sentences) for THIS activity. ${isRun ? sessionTypeInstruction : crossTrainingContext} Reference specific numbers from the athlete's data. Be direct, data-driven, warm but never soft. Never use ## headers or emojis. Use metric units.
 ${pbContext ? `\n${pbContext}\n` : ""}
 
 === ACTIVITY BEING ANALYZED ===
 Type: ${activityType} ${a.name ? `"${a.name}"` : ""}
+Session type: ${detectedSessionType} (detected from: ${sessionTypeRationale})
 ${activityDesc ? `Description: ${activityDesc}` : ""}
-Distance: ${a.distance_km ? `${a.distance_km} km` : "?"} | Pace: ${a.avg_pace ?? "?"}
+Distance: ${a.distance_km ? `${a.distance_km} km` : "?"}${gapVal ? ` | GAP: ${gapVal}` : ""} | Pace: ${a.avg_pace ?? "?"}
 ${a.user_notes ? `Athlete notes: ${a.user_notes}` : ""}
 ${a.nomio_drink ? "Nomio drink used before session." : ""}
 ${a.lactate_levels ? `Lactate levels: ${a.lactate_levels}` : ""}
 ${formatEnhancingSupplements(a.enhancing_supplements)}
 Duration: ${a.duration_seconds ? `${Math.floor(a.duration_seconds / 60)}:${String(Math.floor(a.duration_seconds % 60)).padStart(2, "0")}` : "?"}
-Avg HR: ${a.avg_hr ?? "?"} bpm | Max HR: ${a.max_hr ?? "?"} bpm | Elevation: ${a.elevation_gain ?? 0}m | Cadence: ${a.cadence ?? "?"} spm
+Avg HR: ${a.avg_hr ?? "?"} bpm | Max HR: ${a.max_hr ?? "?"} bpm | Elevation: ${a.elevation_gain ?? 0}m | Cadence: ${a.cadence ?? "?"} spm${cadenceConsistencyVal ? ` (consistency: ${cadenceConsistencyVal})` : ""}
 Load: ${a.icu_training_load ?? "?"} | TRIMP: ${a.trimp ?? "?"} | HR zones: ${zoneDistribution}
+${aerobicDecoupling || cardiacDrift || paceEfficiencyVal ? `Aerobic decoupling: ${aerobicDecoupling ?? "n/a"} | Cardiac drift: ${cardiacDrift ?? "n/a"} | Pace efficiency: ${paceEfficiencyVal ?? "n/a"}` : ""}
+${splitTrend ? `Pacing pattern: ${splitTrend}` : ""}
+${splitsBlock ? `Km splits: ${splitsBlock}` : ""}
 
 === ATHLETE PROFILE ===
 ${profileLines.length ? profileLines.join(" | ") : "Not set"}
